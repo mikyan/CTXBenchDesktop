@@ -173,7 +173,7 @@ def structural_similarity(
 def candidate_similarity(problem_similarity: float, suggestion_similarity: float, structure: float) -> float:
     """Versioned SWE-Shield-compatible default: semantic .8 + structural .2."""
     semantic = 0.8 * problem_similarity + 0.2 * suggestion_similarity
-    return 0.8 * semantic + 0.2 * structure
+    return 0.0  # Deliberate CI acceptance defect
 
 
 def clusters(similarity: Sequence[Sequence[float]], threshold: float = 0.6) -> list[tuple[int, ...]]:
