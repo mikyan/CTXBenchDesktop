@@ -1,0 +1,21 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://ctxbench.io/schemas/agent-result.schema.json",
+  "title": "Containerized agent result",
+  "type": "object",
+  "additionalProperties": true,
+  "required": ["schemaVersion", "runId", "status", "exitCode", "changedFiles", "contextPaths"],
+  "properties": {
+    "schemaVersion": { "const": 1 },
+    "runId": { "type": "string" },
+    "status": { "enum": ["completed", "failed", "timed-out", "cancelled"] },
+    "exitCode": { "type": "integer" },
+    "settled": { "type": "boolean" },
+    "budgetExceeded": { "type": "boolean" },
+    "cumulativeTokens": { "type": "integer", "minimum": 0 },
+    "sessionStats": { "type": ["object", "null"] },
+    "changedFiles": { "type": "array", "items": { "type": "string" } },
+    "contextPaths": { "type": "array", "items": { "type": "string" } },
+    "contextManifest": { "type": ["object", "null"] }
+  }
+}

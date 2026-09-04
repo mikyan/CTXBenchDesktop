@@ -1,0 +1,45 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://ctxbench.io/schemas/review-archive.schema.json",
+  "title": "Provider-neutral PR review archive",
+  "type": "object",
+  "additionalProperties": false,
+  "required": ["schemaVersion", "repository", "cutoff", "pullRequests"],
+  "properties": {
+    "schemaVersion": { "const": 1 },
+    "repository": { "type": "string" },
+    "cutoff": { "type": "string", "format": "date-time" },
+    "pullRequests": {
+      "type": "array",
+      "items": {
+        "type": "object",
+        "required": ["id", "baseCommit", "mergedAt", "comments", "commits"],
+        "properties": {
+          "id": { "type": "string" },
+          "issueIds": { "type": "array", "items": { "type": "string" } },
+          "baseCommit": { "type": "string" },
+          "mergeCommit": { "type": "string" },
+          "mergedAt": { "type": "string", "format": "date-time" },
+          "comments": {
+            "type": "array",
+            "items": {
+              "type": "object",
+              "required": ["id", "reviewId", "threadId", "body", "createdAt"],
+              "properties": {
+                "id": { "type": "string" },
+                "reviewId": { "type": "string" },
+                "threadId": { "type": "string" },
+                "body": { "type": "string" },
+                "createdAt": { "type": "string", "format": "date-time" },
+                "path": { "type": "string" },
+                "line": { "type": "integer" },
+                "commit": { "type": "string" }
+              }
+            }
+          },
+          "commits": { "type": "array", "items": { "type": "object" } }
+        }
+      }
+    }
+  }
+}

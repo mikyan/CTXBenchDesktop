@@ -1,0 +1,16 @@
+.git
+.gitignore
+.env
+.env.*
+!.env.example
+node_modules
+dist
+src-tauri/target
+src-tauri/gen/schemas
+worker-data
+.tmp-worker
+artifacts
+coverage
+**/__pycache__
+**/*.py[cod]
+*.log

@@ -1,0 +1,24 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://ctxbench.io/schemas/context-manifest.schema.json",
+  "title": "Frozen context artifact",
+  "type": "object",
+  "additionalProperties": false,
+  "required": ["schemaVersion", "key", "identity", "files", "provenance"],
+  "properties": {
+    "schemaVersion": { "const": 1 },
+    "key": { "type": "string", "pattern": "^[a-f0-9]{64}$" },
+    "identity": {
+      "type": "object",
+      "required": ["repository", "commit", "capability", "skill_version", "generation_prompt_hash", "builder"]
+    },
+    "files": {
+      "type": "object",
+      "additionalProperties": { "type": "string", "pattern": "^[a-f0-9]{64}$" }
+    },
+    "provenance": {
+      "type": "object",
+      "required": ["targetTaskSeen", "goldPatchSeen", "futureHistorySeen"]
+    }
+  }
+}

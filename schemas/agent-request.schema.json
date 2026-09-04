@@ -1,0 +1,27 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://ctxbench.io/schemas/agent-request.schema.json",
+  "title": "Containerized agent request",
+  "type": "object",
+  "additionalProperties": false,
+  "required": ["schemaVersion", "runId", "mode", "prompt", "model", "timeoutSeconds"],
+  "properties": {
+    "schemaVersion": { "const": 1 },
+    "runId": { "type": "string" },
+    "mode": { "enum": ["solve", "generate-context", "grade", "judge-constraints"] },
+    "prompt": { "type": "string" },
+    "model": {
+      "type": "object",
+      "required": ["provider", "model", "thinking", "max_tokens"],
+      "properties": {
+        "provider": { "type": "string" },
+        "model": { "type": "string" },
+        "thinking": { "type": "string" },
+        "max_tokens": { "type": "integer", "minimum": 1 }
+      }
+    },
+    "timeoutSeconds": { "type": "integer", "minimum": 1 },
+    "contextPaths": { "type": "array", "items": { "type": "string" } },
+    "metadata": { "type": "object" }
+  }
+}

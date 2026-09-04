@@ -1,0 +1,60 @@
+name: ctxbench
+
+services:
+  ctxbench-worker:
+    build:
+      context: ..
+      dockerfile: docker/worker/Dockerfile
+    image: ctxbench/worker:0.1.0
+    restart: unless-stopped
+    environment:
+      CTXBENCH_DATA_DIR: /var/lib/ctxbench
+      CTXBENCH_HOST_DATA_DIR: ${CTXBENCH_HOST_DATA_DIR:-/var/lib/ctxbench}
+      CTXBENCH_BUNDLED_SKILL_DIR: /opt/ctxbench/skills/ctxbench-generate-context
+      CTXBENCH_RUNNER: docker
+      CTXBENCH_EXTRA_ENV_ALLOWLIST: ${CTXBENCH_EXTRA_ENV_ALLOWLIST:-}
+      ANTHROPIC_API_KEY: ${ANTHROPIC_API_KEY:-}
+      OPENAI_API_KEY: ${OPENAI_API_KEY:-}
+      GOOGLE_API_KEY: ${GOOGLE_API_KEY:-}
+      GEMINI_API_KEY: ${GEMINI_API_KEY:-}
+      AZURE_OPENAI_API_KEY: ${AZURE_OPENAI_API_KEY:-}
+      OPENROUTER_API_KEY: ${OPENROUTER_API_KEY:-}
+      GITHUB_TOKEN: ${GITHUB_TOKEN:-}
+    ports:
+      - "127.0.0.1:48173:48173"
+    depends_on:
+      - ctxbench-egress-proxy
+    volumes:
+      - /var/run/docker.sock:/var/run/docker.sock
+      - type: bind
+        source: ${CTXBENCH_HOST_DATA_DIR:-/var/lib/ctxbench}
+        target: /var/lib/ctxbench
+    networks:
+      - control
+
+  ctxbench-egress-proxy:
+    build:
+      context: ..
+      dockerfile: docker/egress-proxy/Dockerfile
+    image: ctxbench/egress-proxy:0.1.0
+    restart: unless-stopped
+    networks:
+      agent:
+        aliases: [ctxbench-egress-proxy]
+      egress: {}
+
+  agent-pi-image:
+    profiles: [build-only]
+    build:
+      context: ..
+      dockerfile: docker/agent-pi/Dockerfile
+    image: ctxbench/agent-pi:0.1.0
+    command: ["true"]
+
+networks:
+  control:
+  agent:
+    name: ctxbench-agent
+    internal: true
+  egress:
+    name: ctxbench-egress
