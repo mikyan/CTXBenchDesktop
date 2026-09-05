@@ -147,8 +147,13 @@ class DockerRunner:
         import docker
         client = docker.from_env()
         try:
-            for container in client.containers.list(filters={"label": f"io.ctxbench.run={run_id}"}):
-                container.kill()
+            # A restarted Worker has no run() finally block to reap old containers.
+            # Include exited containers and tolerate the live runner racing cleanup.
+            for container in client.containers.list(all=True, filters={"label": f"io.ctxbench.run={run_id}"}):
+                try:
+                    container.remove(force=True)
+                except docker.errors.NotFound:
+                    pass
         finally:
             client.close()
 

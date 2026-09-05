@@ -1,7 +1,9 @@
 import json
 import tempfile
+import threading
+import time
 import unittest
-from dataclasses import replace
+from dataclasses import asdict, replace
 from pathlib import Path
 from unittest.mock import patch
 
@@ -34,12 +36,146 @@ class FixtureRunner:
 
 
 class WorkbenchTests(unittest.TestCase):
+    def test_restart_reaps_paused_orphans_without_resuming_or_touching_completed_stages(self):
+        operation = self.preparation()
+        self.workbench.control_operation(operation['id'], 'pause')
+        self.engine.database.put_document('stages', 'orphan', {'status': 'running', 'runId': 'orphan-run'})
+        self.engine.database.put_document('stages', 'completed', {'status': 'completed', 'runId': 'completed-run'})
+        cancelled = []
+        self.runner.cancel = cancelled.append
+        self.workbench.start()
+        self.addCleanup(self.workbench.stop)
+        self.workbench.start()
+        self.assertEqual(cancelled, ['orphan-run'])
+        self.assertEqual(self.engine.database.get_document('operations', operation['id'])['status'], 'paused')
+        self.assertFalse(self.runner.calls)
+
+    def preparation(self):
+        return self.workbench.enqueue('context', {'dataset': self.dataset['id'], 'taskId': 'task/1',
+            'model': asdict(self.spec.model), 'resources': asdict(self.spec.resources), 'agentImage': 'fixture:1'})
+
+    def wait_operation(self, operation_id, status):
+        deadline = time.monotonic() + 10
+        while time.monotonic() < deadline:
+            operation = self.engine.database.get_document('operations', operation_id)
+            if operation['status'] == status:
+                return operation
+            time.sleep(.01)
+        self.fail(f'Operation did not reach {status}: {operation}')
+
+    def test_standalone_preparation_pause_resume_and_cache(self):
+        operation = self.preparation()
+        self.workbench.control_operation(operation['id'], 'pause')
+        self.workbench.start()
+        self.addCleanup(self.workbench.stop)
+        self.assertFalse(self.runner.calls)
+        self.workbench.control_operation(operation['id'], 'resume')
+        self.wait_operation(operation['id'], 'completed')
+        self.assertEqual(len(self.runner.calls), 1)
+        second = self.preparation()
+        self.wait_operation(second['id'], 'completed')
+        self.assertEqual(len(self.runner.calls), 1)
+        with self.assertRaises(ValueError):
+            self.workbench.control_operation(operation['id'], 'retry')
+
+    def test_standalone_cancel_and_immediate_retry_cannot_lose_request(self):
+        entered, cancelled, release = threading.Event(), threading.Event(), threading.Event()
+        original = self.runner.run
+        calls = []
+        def runner(spec):
+            calls.append(spec)
+            if len(calls) == 1:
+                entered.set()
+                self.assertTrue(release.wait(10))
+                raise RuntimeError('Interrupted container')
+            return original(spec)
+        self.runner.run = runner
+        self.runner.cancel = lambda run_id: cancelled.set()
+        operation = self.preparation()
+        self.workbench.start()
+        self.addCleanup(self.workbench.stop)
+        self.addCleanup(release.set)
+        self.assertTrue(entered.wait(10))
+        self.workbench.control_operation(operation['id'], 'cancel')
+        self.assertTrue(cancelled.is_set())
+        self.workbench.control_operation(operation['id'], 'retry')
+        release.set()
+        self.wait_operation(operation['id'], 'completed')
+        self.assertEqual(len(calls), 2)
+        self.assertNotEqual(calls[0].workspace, calls[1].workspace)
+
+    def test_standalone_stop_recovers_interrupted_stage(self):
+        entered, release = threading.Event(), threading.Event()
+        original = self.runner.run
+        attempts = []
+        def runner(spec):
+            attempts.append(spec)
+            if len(attempts) == 1:
+                entered.set()
+                self.assertTrue(release.wait(10))
+                raise OSError('Worker shutdown interrupted container output')
+            return original(spec)
+        self.runner.run = runner
+        self.runner.cancel = lambda run_id: release.set()
+        operation = self.preparation()
+        self.workbench.start()
+        self.assertTrue(entered.wait(10))
+        self.workbench.stop()
+        self.assertEqual(self.engine.database.get_document('operations', operation['id'])['status'], 'queued')
+        self.workbench = Workbench(self.engine, None)
+        self.workbench.start()
+        self.addCleanup(self.workbench.stop)
+        self.wait_operation(operation['id'], 'completed')
+        self.assertEqual(len(attempts), 2)
+
+    def test_experiment_cancel_and_immediate_retry_cannot_lose_request(self):
+        entered, release = threading.Event(), threading.Event()
+        original = self.runner.run
+        calls = []
+        def runner(spec):
+            calls.append(spec)
+            if spec.mode == 'solve' and not entered.is_set():
+                entered.set()
+                self.assertTrue(release.wait(10))
+                raise RuntimeError('Cancelled solver')
+            return original(spec)
+        self.runner.run = runner
+        self.runner.cancel = lambda run_id: None
+        experiment = self.workbench.create_experiment(replace(self.spec, repeats=1))
+        self.workbench.start()
+        self.addCleanup(self.workbench.stop)
+        self.addCleanup(release.set)
+        self.assertTrue(entered.wait(10))
+        self.workbench.control(experiment['id'], 'cancel')
+        self.workbench.control(experiment['id'], 'retry')
+        release.set()
+        deadline = time.monotonic() + 10
+        while time.monotonic() < deadline and self.engine.database.get_experiment(experiment['id'])['status'] != 'completed':
+            time.sleep(.01)
+        self.assertEqual(self.engine.database.get_experiment(experiment['id'])['status'], 'completed')
+        self.assertEqual(sum(call.mode == 'solve' for call in calls), 3)
+
     def test_pi_nested_usage_preserves_cached_tokens(self):
         result = usage({'sessionStats': {'tokens': {'input': 10, 'output': 3, 'cacheRead': 100, 'total': 113}, 'cost': 0}})
         self.assertEqual(result['inputTokens'], 10)
         self.assertEqual(result['cacheReadTokens'], 100)
         self.assertEqual(result['totalTokens'], 113)
         self.assertEqual(result['costUsd'], 0)
+
+    def test_preflight_is_read_only_and_low_disk_pauses_before_agent(self):
+        before = len(self.engine.database.list_documents('operations'))
+        report = self.workbench.preflight(self.spec)
+        self.assertEqual(report['runs'], 4)
+        self.assertEqual(len(self.engine.database.list_documents('operations')), before)
+        self.assertFalse(self.runner.calls)
+        experiment = self.workbench.create_experiment(self.spec)
+        from worker.ctxbench_worker.runner import DockerRunner
+        self.engine.runner = DockerRunner(self.root / 'repositories', self.root / 'runs', self.root / 'requests')
+        with patch('worker.ctxbench_worker.workbench.storage_status', return_value={'ready': False}):
+            with self.assertRaisesRegex(Interrupted, 'disk space'):
+                self.workbench.run_experiment(experiment['id'])
+        self.assertEqual(self.engine.database.get_experiment(experiment['id'])['status'], 'paused')
+        self.assertFalse(self.engine.database.list_documents('stages'))
 
     def setUp(self):
         self.temp = tempfile.TemporaryDirectory()
@@ -119,6 +255,33 @@ class WorkbenchTests(unittest.TestCase):
         path.write_text("changed")
         with self.assertRaises(ValueError):
             self.engine.artifacts.verify(artifact["id"])
+        self.assertEqual(self.workbench.snapshot()['artifacts'][0]['status'], 'invalid')
+
+    def test_extra_context_file_and_dataset_mutation_are_rejected(self):
+        artifact = self.workbench.import_context({'dataset': self.dataset['id'], 'taskId': 'task/1', 'repository': str(self.source),
+            'baseCommit': self.commit, 'files': {'AGENTS.md': 'Architecture'}})
+        (self.engine.artifacts.path_for(artifact['id']) / 'files' / 'extra.md').write_text('Unfrozen instructions')
+        with self.assertRaisesRegex(ValueError, 'inventory'):
+            self.engine.artifacts.verify(artifact['id'])
+        path = self.root / 'datasets' / (self.dataset['id'] + '.json')
+        rows = json.loads(path.read_text())
+        rows[0]['prompt'] = 'Changed task'
+        path.write_text(json.dumps(rows))
+        with self.assertRaisesRegex(ValueError, 'dataset contents'):
+            self.workbench.catalog.task(self.dataset['id'], 'task/1')
+
+    def test_corrupt_grade_is_retried_without_solver_payment(self):
+        experiment = self.workbench.create_experiment(replace(self.spec, repeats=1))
+        self.workbench.run_experiment(experiment['id'])
+        run = self.engine.database.list_runs(experiment['id'])[0]
+        (Path(run['outputDir']) / 'grading' / 'summary.json').write_text('{partial')
+        self.engine.database.update_run(run['id'], 'failed', {'failure': 'Interrupted evidence write'})
+        self.engine.database.set_experiment_status(experiment['id'], 'failed')
+        calls, grades = len(self.runner.calls), self.grade_calls
+        self.workbench.control(experiment['id'], 'retry')
+        self.workbench.run_experiment(experiment['id'])
+        self.assertEqual(len(self.runner.calls), calls)
+        self.assertEqual(self.grade_calls, grades + 1)
 
     def test_official_agentbench_fields_and_duplicate_ids(self):
         row = {"instance_id": "repo-1", "base_repo": "org/repo", "base_sha": "a" * 40, "problem_description": "Fix a bug", "docker_image": "image:1", "clean_pr_patch": "evaluator"}

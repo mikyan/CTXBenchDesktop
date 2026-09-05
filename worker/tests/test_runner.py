@@ -2,12 +2,26 @@ import os
 import tempfile
 import unittest
 from pathlib import Path
-from unittest.mock import patch
+from unittest.mock import MagicMock, patch
 
 from worker.ctxbench_worker.runner import DockerRunner, selected_environment
 
 
 class RunnerSecurityTests(unittest.TestCase):
+    def test_cancel_reaps_exited_containers_after_worker_crash(self) -> None:
+        import docker
+        with tempfile.TemporaryDirectory() as directory, patch('docker.from_env') as factory:
+            root = Path(directory)
+            runner = DockerRunner(root / 'repositories', root / 'runs', root / 'requests')
+            container = MagicMock()
+            factory.return_value.containers.list.return_value = [container]
+            runner.cancel('isolated-run')
+            factory.return_value.containers.list.assert_called_once_with(all=True, filters={'label': 'io.ctxbench.run=isolated-run'})
+            container.remove.assert_called_once_with(force=True)
+            container.remove.side_effect = docker.errors.NotFound('already removed')
+            runner.cancel('isolated-run')
+            self.assertEqual(factory.return_value.close.call_count, 2)
+
     def test_only_allowlisted_names_are_copied(self) -> None:
         with patch.dict(os.environ, {"OPENAI_API_KEY": "secret", "UNSAFE": "nope"}, clear=False):
             self.assertEqual(

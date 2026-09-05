@@ -60,15 +60,11 @@ function verdictCount(runs: BenchmarkRun[], verdict: ConstraintVerdict): number 
 
 export function aggregateDashboard(runs: BenchmarkRun[]): DashboardMetrics {
   const completed = runs.filter((run) => typeof run.testsPassed === "boolean");
-  const baseline = completed.filter((run) => run.arm === "none");
-  const context = completed.filter((run) => run.arm !== "none");
   const applicablePassing = completed.filter(
     (run) => run.testsPassed && (run.constraintVerdict === "satisfied" || run.constraintVerdict === "violated"),
   );
   const judged = completed.filter((run) => run.constraintVerdict !== undefined);
   const paired = pairedOutcome(completed);
-  const baselinePass = rate(baseline.filter((run) => run.testsPassed).length, baseline.length);
-  const contextPass = rate(context.filter((run) => run.testsPassed).length, context.length);
 
   return {
     totalRuns: completed.length,
@@ -79,7 +75,7 @@ export function aggregateDashboard(runs: BenchmarkRun[]): DashboardMetrics {
       applicablePassing.length,
     ),
     avgCostUsd: average(completed.flatMap((run) => run.costUsd ?? [])),
-    ...pairedOutcome(completed),
+    ...paired,
     dsr: rate(verdictCount(judged, "satisfied"), judged.length),
     dvr: rate(verdictCount(judged, "violated"), judged.length),
     dnr: rate(verdictCount(judged, "neutral"), judged.length),
@@ -90,8 +86,9 @@ export function aggregateDashboard(runs: BenchmarkRun[]): DashboardMetrics {
 
 export function pairedComparisons(runs: BenchmarkRun[]) {
   const blocks = new Map<string, { experimentId: string; arm: ContextArm; values: Map<string, number[]>; wins: number; losses: number; ties: number }>();
+  const baselines = new Map(runs.filter((run) => run.arm === "none" && typeof run.testsPassed === "boolean").map((run) => [`${run.experimentId}:${run.pairId}`, run]));
   for (const context of runs.filter((run) => run.arm !== "none" && typeof run.testsPassed === "boolean")) {
-    const baseline = runs.find((run) => run.experimentId === context.experimentId && run.pairId === context.pairId && run.arm === "none" && typeof run.testsPassed === "boolean");
+    const baseline = baselines.get(`${context.experimentId}:${context.pairId}`);
     if (!baseline?.pairingHash || baseline.pairingHash !== context.pairingHash || baseline.mock !== context.mock) continue;
     const key = `${context.experimentId}:${context.arm}`;
     const block = blocks.get(key) ?? { experimentId: context.experimentId, arm: context.arm, values: new Map<string, number[]>(), wins: 0, losses: 0, ties: 0 };

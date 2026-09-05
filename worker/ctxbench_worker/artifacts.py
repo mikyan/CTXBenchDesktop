@@ -10,6 +10,7 @@ from pathlib import Path, PurePosixPath
 from typing import Mapping
 
 from .models import ModelConfig
+from .safe_files import safe_file
 
 
 @dataclass(frozen=True)
@@ -57,7 +58,10 @@ class ArtifactStore:
     def path_for(self, key: str) -> Path:
         if len(key) != 64 or any(character not in "0123456789abcdef" for character in key):
             raise ValueError("Artifact keys must be lowercase SHA-256 values.")
-        return self.root / key[:2] / key
+        target = self.root / key[:2] / key
+        if target.is_symlink() or target.parent.is_symlink():
+            raise ValueError("Artifact directories must not be symbolic links.")
+        return target
 
     def contains(self, key: str) -> bool:
         target = self.path_for(key)
@@ -117,14 +121,17 @@ class ArtifactStore:
 
     def verify(self, key: str) -> dict[str, object]:
         target = self.path_for(key)
-        manifest = json.loads((target / "manifest.json").read_text(encoding="utf-8"))
-        if manifest.get("key") != key or not manifest.get("files"):
+        manifest = json.loads(safe_file(target, 'manifest.json', limit=2 * 1024 * 1024).read_text(encoding="utf-8"))
+        if not isinstance(manifest, dict) or manifest.get("key") != key or not isinstance(manifest.get("files"), dict) or not manifest["files"] or not isinstance(manifest.get("identity"), dict):
             raise ValueError("Invalid context manifest.")
         identity_hash = hashlib.sha256(json.dumps(manifest["identity"], sort_keys=True, separators=(",", ":")).encode()).hexdigest()
         if identity_hash != key:
             raise ValueError("Context identity was modified.")
+        actual = {path.relative_to(target / 'files').as_posix() for path in (target / 'files').rglob('*') if path.is_file() or path.is_symlink()}
+        if actual != set(manifest['files']):
+            raise ValueError('Context file inventory was modified.')
         for name, digest in manifest["files"].items():
-            path = target / "files" / safe_relative_path(name)
+            path = safe_file(target, 'files/' + safe_relative_path(name).as_posix(), limit=20 * 1024 * 1024)
             if path.is_symlink() or not path.is_file() or target not in path.resolve().parents:
                 raise ValueError(f"Missing or unsafe context file: {name}")
             if hashlib.sha256(path.read_bytes()).hexdigest() != digest:

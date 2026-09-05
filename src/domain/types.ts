@@ -84,6 +84,7 @@ export interface BenchmarkRun extends PlannedRun {
 }
 
 export interface KnowledgeArtifact {
+  failure?: string;
   id: string;
   repository: string;
   commit: string;
@@ -194,5 +195,5 @@ export interface CreateExperimentRequest {
 
 export interface DatasetRecord { id: string; name: string; benchmark: BenchmarkKind; count: number; createdAt: string }
 export interface TaskSummary { id: string; repository: string; baseCommit: string; prompt: string; image?: string }
-export interface OperationRecord { id: string; kind: string; status: string; createdAt: string; updatedAt: string; failure?: string }
+export interface OperationRecord { id: string; kind: string; status: "queued" | "running" | "paused" | "completed" | "failed" | "cancelled"; createdAt: string; updatedAt: string; failure?: string; taskId?: string; dataset?: string; resultId?: string }
 export interface RuntimeSettings { runner: string; dataDirectory: string; credentials: { name: string; configured: boolean }[]; datasetFiles: string[] }

@@ -22,6 +22,8 @@ export function ExperimentComposer({ creating, onClose, onCreate, artifacts }: {
   const [packages, setPackages] = useState<Record<string, string>>({}); const [error, setError] = useState("");
   const [constraintPackages, setConstraintPackages] = useState<Record<string, string>>({});
   const [availableConstraints, setAvailableConstraints] = useState<{ id: string; repository: string; commit: string; count: number; historyVersion?: number }[]>([]);
+  const [checking, setChecking] = useState(false);
+  const [preflight, setPreflight] = useState<{ request: string; report: { runs: number; builderInvocations: number; minerInvocations: number; judgeInvocations: number; configuredTokenAllowance: number; storage: { freeBytes: number; ready: boolean } } }>();
   useEffect(() => {
     workerRequest<DatasetRecord[]>("/datasets").then(setDatasets).catch((error) => setError(String(error)));
     workerRequest<typeof availableConstraints>("/constraint-packages").then(setAvailableConstraints).catch(() => {});
@@ -32,12 +34,22 @@ export function ExperimentComposer({ creating, onClose, onCreate, artifacts }: {
   }, []);
   useEffect(() => { let current = true; setTasks([]); setSelected([]); setPackages({}); if (dataset) workerRequest<TaskSummary[]>(`/datasets/${dataset}/tasks`).then((tasks) => { if (current) setTasks(tasks); }).catch((error) => setError(String(error))); return () => { current = false; }; }, [dataset]);
   const visible = tasks.filter((task) => `${task.id} ${task.repository}`.toLowerCase().includes(query.toLowerCase()));
+  const selectedPackages = (values: Record<string, string>) => Object.fromEntries(selected.filter((id) => values[id]).map((id) => [id, values[id]]));
+  const request: CreateExperimentRequest = { name, benchmark: datasets.find((item) => item.id === dataset)?.benchmark ?? "custom", dataset, taskIds: selected, arms: ["none", arm], repeats, seed, profiles, model: profiles.solver,
+    agentImage: image, resources: { cpus: cpu, memoryGb: memory, timeoutMinutes: timeout, network }, envNames: env.split(/[\s,]+/).filter(Boolean), prepareOnly, evaluateConstraints: constraints, contextArtifacts: selectedPackages(packages), constraintPackages: selectedPackages(constraintPackages), judgeProfiles: judges };
+  const requestJson = JSON.stringify(request);
+  const checked = preflight?.request === requestJson ? preflight.report : undefined;
+  const check = async () => {
+    setChecking(true); setError("");
+    try { const report = await workerRequest<NonNullable<typeof preflight>["report"]>("/preflight", "POST", request); setPreflight({ request: requestJson, report }); }
+    catch (error) { setError(String(error)); }
+    finally { setChecking(false); }
+  };
   const submit = async () => {
     if (!dataset || !selected.length || !name.trim()) { setError(t("Choose a dataset, tasks, and experiment name.")); return; }
     setError("");
-    const selectedPackages = (values: Record<string, string>) => Object.fromEntries(selected.filter((id) => values[id]).map((id) => [id, values[id]]));
-    try { await onCreate({ name, benchmark: datasets.find((item) => item.id === dataset)!.benchmark, dataset, taskIds: selected, arms: ["none", arm], repeats, seed, profiles, model: profiles.solver,
-      agentImage: image, resources: { cpus: cpu, memoryGb: memory, timeoutMinutes: timeout, network }, envNames: env.split(/[\s,]+/).filter(Boolean), prepareOnly, evaluateConstraints: constraints, contextArtifacts: selectedPackages(packages), constraintPackages: selectedPackages(constraintPackages), judgeProfiles: judges }); } catch (error) { setError(String(error)); }
+    if (selected.length > 20 && !checked) { setError(t("Review workload preflight before creating a large experiment.")); return; }
+    try { await onCreate(request); } catch (error) { setError(String(error)); }
   };
   return <Modal title={t("New experiment")} onClose={onClose}>
     <label>{t("Experiment name")}<input value={name} onChange={(e) => setName(e.target.value)} /></label>
@@ -58,6 +70,14 @@ export function ExperimentComposer({ creating, onClose, onCreate, artifacts }: {
       <div className="form-grid two"><label>CPU<input type="number" min={1} value={cpu} onChange={(e) => setCpu(Number(e.target.value))} /></label><label>{t("Memory (GiB)")}<input type="number" min={1} value={memory} onChange={(e) => setMemory(Number(e.target.value))} /></label><label>{t("Timeout (minutes)")}<input type="number" min={1} value={timeout} onChange={(e) => setTimeoutMinutes(Number(e.target.value))} /></label><label>{t("Network")}<select value={network} onChange={(e) => setNetwork(e.target.value as typeof network)}>{["api-only", "offline", "unrestricted"].map((item) => <option key={item}>{item}</option>)}</select></label></div></details>
     <label className="check-line"><input type="checkbox" checked={prepareOnly} onChange={(e) => setPrepareOnly(e.target.checked)} />{t("Prepare all context first; start solver runs later")}</label>
     <p>{t("{runs} runs · {keys} context keys", { runs: selected.length * repeats * 2, keys: new Set(tasks.filter((task) => selected.includes(task.id)).map((task) => `${task.repository}@${task.baseCommit}`)).size })}</p>
-    {error && <p className="form-error" role="alert">{error}</p>}<button className="button primary" disabled={creating || !selected.length} onClick={() => void submit()}>{creating ? t("Creating plan…") : t("Create & prepare")}</button>
+    <button className="button secondary" disabled={checking || creating || !selected.length || !name.trim()} onClick={() => void check()}>{t(checking ? "Checking…" : "Workload preflight")}</button>
+    {checked && <section className="panel workbench-results"><h3>{t("Workload preflight")}</h3>
+      <p>{t("{runs} solver runs · {builders} builders · {miners} miners · {judges} judges", { runs: checked.runs, builders: checked.builderInvocations, miners: checked.minerInvocations, judges: checked.judgeInvocations })}</p>
+      <p>{t("Configured token allowances: {tokens}", { tokens: checked.configuredTokenAllowance.toLocaleString() })}</p>
+      <p>{t("Allowances are not a bill or a hard total cap. Cache hits reduce calls; active Provider requests may overshoot stage limits.")}</p>
+      <p>{t("Worker free space: {gib} GiB", { gib: (checked.storage.freeBytes / 1024 ** 3).toFixed(1) })} · {t(checked.storage.ready ? "Ready" : "Low storage — execution will pause")}</p>
+      <small>{t("For WSL virtual disks, also check free space on the Windows host volume.")}</small>
+    </section>}
+    {error && <p className="form-error" role="alert">{error}</p>}<button className="button primary" disabled={creating || checking || !selected.length || !name.trim()} onClick={() => void submit()}>{creating ? t("Creating plan…") : t("Create & prepare")}</button>
   </Modal>;
 }

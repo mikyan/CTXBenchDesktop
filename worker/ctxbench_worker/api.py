@@ -18,6 +18,7 @@ from .models import ExperimentSpec, ModelConfig, ResourcePolicy, RunSpec
 from .workbench import Workbench
 from .runner import ENV_NAME, DEFAULT_SECRET_ALLOWLIST, DockerRunner
 from .safe_files import safe_file
+from .preflight import storage_status
 
 
 class ModelConfigInput(BaseModel):
@@ -199,6 +200,10 @@ def create_app(
         except ValueError as error:
             raise HTTPException(status_code=422, detail=str(error)) from error
 
+    @app.post('/v1/preflight')
+    def preflight(value: ExperimentInput):
+        return workbench.preflight(_spec(value))
+
     @app.post("/v1/runs", status_code=202)
     def enqueue_run(value: RunInput) -> dict[str, object]:
         if value.mode not in {
@@ -248,8 +253,12 @@ def create_app(
             raise HTTPException(status_code=404, detail="Job not found.") from error
 
     @app.get("/v1/snapshot")
-    def snapshot():
-        return workbench.snapshot()
+    def snapshot(compact: bool = False):
+        return workbench.snapshot(compact=compact)
+
+    @app.get("/v1/run-record")
+    def run_record(id: str):
+        return workbench.db.get_run(id)
 
     @app.post("/v1/experiments/{experiment_id}/{action}")
     def experiment_action(experiment_id: str, action: str):
@@ -309,10 +318,15 @@ def create_app(
     def get_operation(operation_id: str):
         return workbench.db.get_document("operations", operation_id)
 
+    @app.post("/v1/operations/{operation_id}/{action}")
+    def operation_action(operation_id: str, action: str):
+        return workbench.control_operation(operation_id, action)
+
     @app.get("/v1/runtime")
     def runtime_settings():
         names = getattr(selected_engine.runner, "env_allowlist", DEFAULT_SECRET_ALLOWLIST)
         return {"runner": type(selected_engine.runner).__name__, "dataDirectory": str(data_root),
+                'storage': storage_status(data_root),
                 "credentials": [{"name": name, "configured": bool(os.environ.get(name))} for name in sorted(names)],
                 "datasetFiles": sorted(path.name for path in (data_root / "datasets").glob("*") if path.suffix in {".parquet", ".jsonl"})}
 
@@ -323,7 +337,7 @@ def create_app(
             raise ValueError("Invalid environment variable name or value.")
         if name in {"PATH", "HOME", "PYTHONPATH", "NODE_OPTIONS", "LD_PRELOAD", "DOCKER_HOST", "HTTP_PROXY", "HTTPS_PROXY"} or name.startswith("CTXBENCH_"):
             raise ValueError("This variable controls the worker and cannot be changed as an agent credential.")
-        if any(item["status"] in {"queued", "running"} for item in workbench.db.list_documents("operations")):
+        if workbench._active or any(item["status"] in {"queued", "running"} for item in workbench.db.list_documents("operations")):
             raise ValueError("Finish or pause pending work before changing runtime credentials.")
         if secret:
             os.environ[name] = secret

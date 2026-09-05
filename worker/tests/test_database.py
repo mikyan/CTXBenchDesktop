@@ -27,6 +27,15 @@ class DatabaseTests(unittest.TestCase):
             self.assertEqual(record["totalRuns"], 8)
             self.assertEqual(record["resources"]["network"], "offline")
             self.assertEqual(database.list_experiments()[0]["id"], "exp-one")
+            run = database.list_runs()[0]
+            database.update_run(run['id'], 'completed', {'testsPassed': True, 'judgeRecords': [{'rationale': 'Detailed evidence'}], 'grade': {'resolved': True}, 'constraintVerdicts': {'one': 'satisfied'}})
+            compact = database.list_runs(compact=True)[0]
+            self.assertNotIn('judgeRecords', compact)
+            self.assertNotIn('grade', compact)
+            self.assertEqual(compact['constraintVerdicts'], {'one': 'satisfied'})
+            self.assertEqual(database.get_run(run['id'])['judgeRecords'][0]['rationale'], 'Detailed evidence')
+            database.put_document('datasets', 'one', {'id': 'one', 'name': 'Example', 'privatePayload': 'not returned'})
+            self.assertEqual(database.list_document_summaries('datasets', ('id', 'name')), [{'id': 'one', 'name': 'Example'}])
 
 
 if __name__ == "__main__":

@@ -5,6 +5,7 @@ import json
 import os
 import threading
 import uuid
+from collections import Counter
 from dataclasses import asdict, replace
 from pathlib import Path
 
@@ -19,6 +20,8 @@ from .runner import DockerRunner, selected_environment
 from .runtime import Runtime, git, seal
 from .workspace import prepare_context
 from .safe_files import safe_file
+from .checkpoints import GradeCheckpoint, digest, stage_evidence, verify_stage
+from .preflight import estimate, storage_status
 
 GENERATION_PROMPT = "/skill:ctxbench-generate-context\n\nCapability: tree-only. Generate a frozen repository context artifact from this exact baseline checkout."
 
@@ -51,9 +54,22 @@ class Workbench:
         self._thread = None
         self._active: dict[str, str] = {}
         self._lock = threading.RLock()
+        self._scope = threading.local()
 
     def start(self):
+        if self._thread and self._thread.is_alive():
+            return
         self._stop.clear()
+        # Even a paused/cancelled operation may have an orphan after a process crash.
+        # Reap only stages owned by this database before admitting further work.
+        if hasattr(self.engine.runner, 'cancel'):
+            for stage in self.db.list_documents('stages'):
+                if stage['status'] != 'completed':
+                    self.engine.runner.cancel(stage['runId'])
+        if isinstance(self.engine.runner, DockerRunner):
+            for run in self.db.list_runs(compact=True):
+                if run['status'] == 'grading' and run.get('outputDir'):
+                    self.runtime.cancel_grade(Path(run['outputDir']) / 'grading')
         for operation in self.db.list_documents("operations"):
             if operation["status"] == "running":
                 operation["status"] = "queued"
@@ -69,6 +85,10 @@ class Workbench:
             for run_id in self._active.values():
                 if hasattr(self.engine.runner, "cancel"):
                     self.engine.runner.cancel(run_id)
+            if isinstance(self.engine.runner, DockerRunner):
+                for run in self.db.list_runs(compact=True):
+                    if run['status'] == 'grading' and run.get('outputDir'):
+                        self.runtime.cancel_grade(Path(run['outputDir']) / 'grading')
         if self._thread:
             self._thread.join(timeout=5)
 
@@ -79,7 +99,34 @@ class Workbench:
         self._wake.set()
         return operation
 
+    def control_operation(self, operation_id: str, action: str) -> dict:
+        """Durable controls for independent preparation, including rapid pause/resume."""
+        allowed = {"pause": {"queued", "running"}, "cancel": {"queued", "running", "paused"},
+                   "resume": {"paused"}, "retry": {"failed", "cancelled"}}
+        with self._lock:
+            operation = self.db.get_document("operations", operation_id)
+            if operation["kind"] == "experiment":
+                raise ValueError("Use experiment controls for an experiment operation.")
+            if action not in allowed or operation["status"] not in allowed[action]:
+                raise ValueError("This preparation action is not valid for its current state.")
+            operation.update(status={"pause": "paused", "cancel": "cancelled"}.get(action, "queued"),
+                             updatedAt=utc_now(), controlRevision=operation.get("controlRevision", 0) + 1)
+            if action in {"resume", "retry"}:
+                operation.pop("failure", None)
+            self.db.put_document("operations", operation_id, operation)
+            active = self._active.get(operation_id)
+            if action == "cancel" and active and hasattr(self.engine.runner, "cancel"):
+                self.engine.runner.cancel(active)
+            self._wake.set()
+            return operation
+
     def create_experiment(self, spec: ExperimentSpec) -> dict:
+        self.validate_inputs(spec)
+        experiment = self.engine.create_experiment(spec)
+        self.enqueue("experiment", {"experimentId": experiment["id"]})
+        return experiment
+
+    def validate_inputs(self, spec: ExperimentSpec) -> list:
         dataset = self.db.get_document("datasets", spec.dataset)
         if dataset["benchmark"] != spec.benchmark:
             raise ValueError("The imported dataset belongs to another benchmark.")
@@ -87,8 +134,12 @@ class Workbench:
             raise ValueError("The solver profile and model must be identical.")
         if spec.judge_profiles and len(spec.judge_profiles) != 3:
             raise ValueError("Research mode requires exactly three frozen judge profiles.")
-        for task_id in spec.task_ids:
-            task = self.catalog.task(spec.dataset, task_id)
+        task_index = self.catalog.index(spec.dataset)
+        if any(task_id not in task_index for task_id in spec.task_ids):
+            raise ValueError('Selected tasks must belong to the imported dataset.')
+        tasks = [task_index[task_id] for task_id in spec.task_ids]
+        for task in tasks:
+            task_id = task.id
             if spec.constraint_packages.get(task_id):
                 self._validate_constraints(spec.constraint_packages[task_id], task)
             if "manual" in spec.arms:
@@ -98,9 +149,12 @@ class Workbench:
                 self._validate_artifact(key, task)
         if isinstance(self.engine.runner, DockerRunner):
             selected_environment(spec.env_names, self.engine.runner.env_allowlist)
-        experiment = self.engine.create_experiment(spec)
-        self.enqueue("experiment", {"experimentId": experiment["id"]})
-        return experiment
+        return tasks
+
+    def preflight(self, spec: ExperimentSpec) -> dict:
+        tasks = self.validate_inputs(spec)
+        return {**estimate(spec, tasks), 'storage': storage_status(self.root),
+                'workerUsesDocker': isinstance(self.engine.runner, DockerRunner)}
 
     def control(self, experiment_id: str, action: str) -> dict:
         with self._lock:
@@ -109,8 +163,10 @@ class Workbench:
                 if record["status"] not in {"preparing", "running"}:
                     raise ValueError("Only active experiments can be paused.")
                 self.db.set_experiment_status(experiment_id, "paused")
+                self._interrupt_experiment_operations(experiment_id, 'paused')
             elif action == "cancel":
                 self.db.set_experiment_status(experiment_id, "cancelled")
+                self._interrupt_experiment_operations(experiment_id, 'cancelled')
                 for run in self.db.list_runs(experiment_id):
                     if run["status"] == "grading" and run.get("outputDir") and isinstance(self.engine.runner, DockerRunner):
                         self.runtime.cancel_grade(Path(run["outputDir"]) / "grading")
@@ -140,26 +196,43 @@ class Workbench:
                 raise ValueError("Unknown experiment action.")
         return self.db.get_experiment(experiment_id)
 
+    def _interrupt_experiment_operations(self, experiment_id: str, status: str):
+        for operation in self.db.list_documents('operations'):
+            if operation['kind'] == 'experiment' and operation['payload']['experimentId'] == experiment_id and operation['status'] in {'queued', 'running', 'paused'}:
+                operation.update(status=status, updatedAt=utc_now(), controlRevision=operation.get('controlRevision', 0) + 1)
+                self.db.put_document('operations', operation['id'], operation)
+
     def _check(self, experiment_id: str | None):
         if self._stop.is_set():
             raise Interrupted("Worker stopped; completed stages are preserved.")
         if experiment_id and self.db.get_experiment(experiment_id)["status"] in {"paused", "cancelled"}:
             raise Interrupted("Experiment paused or cancelled.")
+        operation_id = getattr(self._scope, "operation_id", None)
+        if operation_id and self.db.get_document("operations", operation_id)["status"] in {"paused", "cancelled"}:
+            raise Interrupted("Preparation paused or cancelled; completed stages are preserved.")
+        if isinstance(self.engine.runner, DockerRunner) and not storage_status(self.root)['ready']:
+            if experiment_id:
+                self.db.set_experiment_status(experiment_id, 'paused')
+            raise Interrupted('Low worker disk space; execution paused before starting another stage. Free space or adjust CTXBENCH_MIN_FREE_GB, then resume.')
 
     def _loop(self):
         while not self._stop.is_set():
-            operations = sorted(self.db.list_documents("operations"), key=lambda item: item["createdAt"])
-            operation = next((item for item in operations if item["status"] == "queued"), None)
+            with self._lock:
+                operations = sorted(self.db.list_documents("operations"), key=lambda item: item["createdAt"])
+                operation = next((item for item in operations if item["status"] == "queued"), None)
+                if operation:
+                    operation.update(status="running", updatedAt=utc_now())
+                    self.db.put_document("operations", operation["id"], operation)
             if operation is None:
                 self._wake.wait(.5)
                 self._wake.clear()
                 continue
-            operation.update(status="running", updatedAt=utc_now())
-            self.db.put_document("operations", operation["id"], operation)
+            self._scope.operation_id = operation["id"]
             try:
                 if operation["kind"] == "experiment":
                     result = self.run_experiment(operation["payload"]["experimentId"], operation["payload"].get("start", False))
                 else:
+                    self._check(None)
                     payload = operation["payload"]
                     task = self.catalog.task(payload["dataset"], payload["taskId"])
                     spec = self._preparation_spec(payload)
@@ -169,13 +242,20 @@ class Workbench:
             except Interrupted as error:
                 operation.update(status="queued" if self._stop.is_set() else "paused", failure=str(error))
             except Exception as error:
-                operation.update(status="failed", failure=self.redact(f"{type(error).__name__}: {error}"))
+                operation.update(status="queued" if self._stop.is_set() else "failed", failure=self.redact(f"{type(error).__name__}: {error}"))
                 if operation["kind"] == "experiment":
                     experiment_id = operation["payload"]["experimentId"]
-                    if self.db.get_experiment(experiment_id)["status"] not in {"paused", "cancelled"}:
+                    if not self._stop.is_set() and self.db.get_experiment(experiment_id)["status"] not in {"paused", "cancelled"}:
                         self.db.set_experiment_status(experiment_id, "failed")
-            operation["updatedAt"] = utc_now()
-            self.db.put_document("operations", operation["id"], operation)
+            finally:
+                self._scope.operation_id = None
+            with self._lock:
+                current = self.db.get_document("operations", operation["id"])
+                # A caller may resume/retry while the old invocation is unwinding.
+                # Never overwrite the newer durable control request with stale state.
+                if current.get("controlRevision", 0) == operation.get("controlRevision", 0):
+                    operation["updatedAt"] = utc_now()
+                    self.db.put_document("operations", operation["id"], operation)
 
     @staticmethod
     def _preparation_spec(payload: dict) -> ExperimentSpec:
@@ -199,6 +279,7 @@ class Workbench:
             stage = self.db.get_document("stages", key)
             if stage["status"] == "completed":
                 safe_file(Path(stage["output"]), "result.json").read_bytes()
+                verify_stage(stage, mode)
                 return stage
             if hasattr(self.engine.runner, "cancel"):
                 self.engine.runner.cancel(stage["runId"])
@@ -213,12 +294,14 @@ class Workbench:
         elif mode == "judge-constraints":
             expected_document = json.loads(safe_file(workspace, "constraints.json").read_text(encoding="utf-8"))
         output = self.root / "runs" / run_id
-        stage = {"id": key, "status": "running", "runId": run_id, "experimentId": experiment_id, "workspace": str(workspace), "output": str(output), "startedAt": utc_now()}
+        scope_id = experiment_id or getattr(self._scope, "operation_id", None) or key
+        stage = {"id": key, "status": "running", "runId": run_id, "experimentId": experiment_id,
+                 "operationId": getattr(self._scope, "operation_id", None), "workspace": str(workspace), "output": str(output), "startedAt": utc_now()}
         self.db.put_document("stages", key, stage)
         if mode == "solve" and key.startswith("solve:"):
             self.db.update_run(key[len("solve:"):], "running", {"solverRunId": run_id, "outputDir": str(output)})
         with self._lock:
-            self._active[experiment_id or key] = run_id
+            self._active[scope_id] = run_id
         try:
             result = self.engine.runner.run(RunSpec(run_id, mode, image, str(workspace), str(output), prompt,
                 model, spec.resources, spec.env_names, tuple(context_paths),
@@ -240,12 +323,18 @@ class Workbench:
             if mode == "solve":
                 safe_file(output, "graded.patch").read_bytes()
             elif mode == "mine-constraints":
-                document = json.loads(safe_file(workspace, "constraints.json").read_text(encoding="utf-8"))
+                raw = safe_file(workspace, "constraints.json").read_text(encoding="utf-8")
+                if self.redact(raw) != raw:
+                    raise ValueError("Miner output contains a configured runtime credential.")
+                document = json.loads(raw)
                 design_constraints_from_document(document)
                 if document["repository"] != expected_document["repository"]:
                     raise ValueError("Miner returned a different repository.")
             elif mode == "judge-constraints":
-                document = json.loads(safe_file(workspace, "votes.json").read_text(encoding="utf-8"))
+                raw = safe_file(workspace, "votes.json").read_text(encoding="utf-8")
+                if self.redact(raw) != raw:
+                    raise ValueError("Judge output contains a configured runtime credential.")
+                document = json.loads(raw)
                 votes = judge_votes_from_document(document)
                 if document["judge"] != key.rsplit(":", 1)[-1] or {item[0] for item in votes} != {item["id"] for item in expected_document["constraints"]}:
                     raise ValueError("Judge output identity or constraint coverage is invalid.")
@@ -257,11 +346,12 @@ class Workbench:
                 if sum(safe_file(source, path.relative_to(source).as_posix()).stat().st_size for path in files) > 20 * 1024 * 1024:
                     raise ValueError("Context packages are limited to 20 MiB.")
             stage.update(status="completed", durationSeconds=result.duration_seconds, metadata=metadata, completedAt=utc_now())
+            stage['integrity'] = stage_evidence(stage, mode)
             self.db.put_document("stages", key, stage)
             return stage
         finally:
             with self._lock:
-                self._active.pop(experiment_id or key, None)
+                self._active.pop(scope_id, None)
 
     def _validate_artifact(self, key: str, task):
         manifest = self.engine.artifacts.verify(key)
@@ -284,6 +374,8 @@ class Workbench:
         if value.get("baseCommit") != task.base_commit or value.get("repository") != task.repository:
             raise ValueError("Manual package must declare the exact task repository and baseline commit.")
         files = {str(name): str(content).encode() for name, content in value["files"].items()}
+        if any(self.redact(content.decode()) != content.decode() for content in files.values()):
+            raise ValueError("Context package contains a configured runtime credential.")
         if sum(map(len, files.values())) > 20 * 1024 * 1024:
             raise ValueError("Context packages are limited to 20 MiB.")
         declared = tuple(value.get("contextPaths", files.keys()))
@@ -312,12 +404,14 @@ class Workbench:
             stage = self._agent(f"context:{key}", "generate-context", checkout, GENERATION_PROMPT, builder, spec, image, experiment_id=experiment_id)
             source = Path(stage["output"]) / "context" / "files"
             files = {path.relative_to(source).as_posix(): safe_file(source, path.relative_to(source).as_posix()).read_bytes() for path in source.rglob("*") if path.is_file()}
+            if any(self.redact(content.decode(errors='replace')) != content.decode(errors='replace') for content in files.values()):
+                raise ValueError("Context package contains a configured runtime credential.")
             self.engine.artifacts.publish(identity, files, {"source": "skill-generated", "createdAt": utc_now(),
                 "runId": stage["runId"], "image": image, "durationSeconds": stage["durationSeconds"], "metadata": stage["metadata"]})
         self.engine.artifacts.verify(key)
         return self.artifact_record(key)
 
-    def artifact_record(self, key: str) -> dict:
+    def artifact_record(self, key: str, reuse_count: int | None = None) -> dict:
         manifest = self.engine.artifacts.verify(key)
         identity, provenance = manifest["identity"], manifest["provenance"]
         builder = dict(identity["builder"])
@@ -326,7 +420,7 @@ class Workbench:
             "capability": identity["capability"], "source": provenance.get("source", "manual"),
             "files": len(manifest["files"]), "filePaths": list(manifest["files"]),
             "bytes": sum((self.engine.artifacts.path_for(key) / "files" / name).stat().st_size for name in manifest["files"]),
-            "tasksReused": sum(run.get("contextArtifactId") == key for run in self.db.list_runs()),
+            "tasksReused": reuse_count if reuse_count is not None else sum(run.get("contextArtifactId") == key for run in self.db.list_runs(compact=True)),
             "status": "ready", "generatedAt": provenance.get("createdAt"), "builder": builder,
             "generationUsage": usage(provenance.get("metadata", {})), "durationSeconds": provenance.get("durationSeconds"),
             "promptHash": identity["generation_prompt_hash"], "skillVersion": identity["skill_version"], "informed": False}
@@ -337,7 +431,7 @@ class Workbench:
         if repository.count("/") != 1:
             raise ValueError("Automatic review mining currently requires a GitHub owner/repository.")
         model = spec.profiles.get("constraintMiner", spec.model)
-        key = fingerprint({"repository": repository, "cutoff": cutoff, "historyVersion": 2, "model": asdict(model), "image": image,
+        key = fingerprint({"repository": repository, "commit": task.base_commit, "cutoff": cutoff, "historyVersion": 2, "model": asdict(model), "image": image,
                            "prompt": mining_prompt(), "limits": [50, 10, 10]})
         try:
             return self.db.get_document("constraintPackages", key)
@@ -379,9 +473,10 @@ class Workbench:
             harness = self.runtime.resolve_image("ctxbench/official-harness:0.1.0") if isinstance(self.engine.runner, DockerRunner) and spec.benchmark != "custom" else "custom"
             prepared = {"id": experiment_id, "image": image, "harnessImage": harness, "contexts": {}, "constraints": {}, "graderImages": {}}
             self.db.put_document("prepared", experiment_id, prepared)
+        task_index = self.catalog.index(spec.dataset)
         for task_id in spec.task_ids:
             self._check(experiment_id)
-            task = self.catalog.task(spec.dataset, task_id)
+            task = task_index[task_id]
             if task.source == "custom" and isinstance(self.engine.runner, DockerRunner):
                 prepared.setdefault("graderImages", {})
                 if task_id not in prepared["graderImages"]:
@@ -446,16 +541,20 @@ class Workbench:
         safe_file(output, "graded.patch").read_bytes()
         mutation = safe_file(output, "context_mutation.patch")
         result = {"durationSeconds": stage["durationSeconds"], "outputDir": str(output), "solverRunId": stage["runId"],
-            **usage(stage["metadata"]), "contextMutated": mutation.exists() and mutation.stat().st_size > 0}
+            **usage(stage["metadata"]), "contextMutated": mutation.exists() and mutation.stat().st_size > 0,
+            "evidenceIntegrity": verify_stage(stage, 'solve')}
         self.db.update_run(run["id"], "grading", result)
         grade_dir = output / "grading"
-        grade_file = grade_dir / "summary.json"
+        dataset = self.catalog.verify(spec.dataset)
+        binding = fingerprint({'version': 1, 'task': asdict(task), 'dataset': spec.dataset,
+                               'patch': digest(output, 'graded.patch'), 'harness': prepared['harnessImage'],
+                               'resources': asdict(spec.resources)})
+        checkpoint = GradeCheckpoint(grade_dir, binding)
         self._check(run["experimentId"])
-        if grade_file.exists():
-            grade = json.loads(grade_file.read_text(encoding="utf-8"))
-        else:
-            dataset = self.db.get_document("datasets", spec.dataset)
+        grade = checkpoint.load()
+        if grade is None:
             grade = self.runtime.grade(task, Path(dataset["path"]), output / "graded.patch", grade_dir, spec.resources, prepared["harnessImage"])
+            checkpoint.save(grade)
         if not isinstance(grade.get("resolved"), bool):
             raise ValueError("Grader must return a boolean resolved result.")
         result["testsPassed"] = grade["resolved"]
@@ -491,30 +590,44 @@ class Workbench:
         self._check(run["experimentId"])
         self.db.update_run(run["id"], "completed", result)
 
-    def snapshot(self) -> dict:
+    def snapshot(self, *, compact: bool = False) -> dict:
+        runs = self.db.list_runs(compact=compact)
+        reuse_counts = Counter(run.get('contextArtifactId') for run in runs)
         artifacts = []
         for path in self.engine.artifacts.root.glob("*/*/manifest.json"):
             try:
-                artifacts.append(self.artifact_record(path.parent.name))
-            except (ValueError, OSError, KeyError):
-                continue
-        runs = self.db.list_runs()
+                artifacts.append(self.artifact_record(path.parent.name, reuse_counts[path.parent.name]))
+            except (ValueError, OSError, KeyError, TypeError) as error:
+                artifacts.append({'id': path.parent.name, 'repository': 'Unreadable package', 'commit': '—',
+                    'capability': 'tree-only', 'source': 'manual', 'files': 0, 'filePaths': [], 'bytes': 0,
+                    'tasksReused': 0, 'status': 'invalid', 'informed': False, 'skillVersion': '', 'promptHash': '',
+                    'builder': {'provider': 'unknown', 'model': 'unknown', 'thinking': 'off', 'maxTokens': 0},
+                    'failure': self.redact(str(error))})
         constraints = []
+        constraint_counts = {}
+        for run in runs:
+            package_id = run.get('constraintPackageId')
+            if package_id:
+                counts = constraint_counts.setdefault(package_id, Counter())
+                counts.update((key, verdict) for key, verdict in run.get('constraintVerdicts', {}).items())
         for package in self.db.list_documents("constraintPackages"):
+            counts = constraint_counts.get(package['id'], Counter())
             for constraint in package["document"]["constraints"]:
-                outcomes = [run.get("constraintVerdicts", {}).get(constraint["id"]) for run in runs if run.get("constraintPackageId") == package["id"]]
+                satisfied, violated, neutral = (counts[constraint['id'], verdict] for verdict in ('satisfied', 'violated', 'neutral'))
                 options = constraint["options"]
                 constraints.append({"id": f"{package['id']}:{constraint['id']}", "packageId": package["id"],
                     "repository": package["repository"], "title": constraint["problem"],
                     "rationale": "\n".join(option["rationale"] for option in options),
                     "provenance": "\n".join(source for option in options for source in option["provenance"]),
-                    "quality": package["document"]["quality"], "applicableRuns": sum(value in {"satisfied", "violated"} for value in outcomes),
-                    "satisfied": outcomes.count("satisfied"), "violated": outcomes.count("violated"), "neutral": outcomes.count("neutral")})
+                    "quality": package["document"]["quality"], "applicableRuns": satisfied + violated,
+                    "satisfied": satisfied, "violated": violated, "neutral": neutral})
         operations = self.db.list_documents("operations")
         # Model requests, dataset gold patches and credentials are never part of a dashboard snapshot.
         return {"experiments": self.db.list_experiments(), "runs": runs, "artifacts": artifacts,
             "constraints": constraints, "datasets": self.catalog.list(), "operations": [
-                {key: item[key] for key in ("id", "kind", "status", "createdAt", "updatedAt", "failure") if key in item} for item in operations],
+                {**{key: item[key] for key in ("id", "kind", "status", "createdAt", "updatedAt", "failure") if key in item},
+                 "taskId": item["payload"].get("taskId"), "dataset": item["payload"].get("dataset"),
+                 "resultId": item.get("result", {}).get("id")} for item in operations],
             "activity": [{"id": item["id"], "kind": "system", "message": item["kind"],
                           "detail": item.get("failure", item["status"]), "timestamp": item["updatedAt"]} for item in sorted(operations, key=lambda item: item["updatedAt"], reverse=True)[:20]],
             "runtime": "desktop", "runner": type(self.engine.runner).__name__, "diagnostics": []}

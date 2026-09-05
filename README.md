@@ -47,6 +47,10 @@ The source Worker defaults to a deterministic test adapter. Full benchmark execu
 5. Optionally enable historical-PR constraint mining. Automatic packages are **silver** and use three independent judge sessions (separate models are optional). Failed judges are visible and retryable; they never become invented neutral votes.
 6. Inspect results and evidence, then export. A single task with many repeats does **not** establish population-level knowledge lift.
 
+Independent generation/mining jobs have their own pause, resume, cancel and retry controls in Knowledge / Constraints. Pause lets the current stage finish so its checkpoint can be reused; cancel stops the active container. An interrupted stage is retried from a fresh checkout, not a partially edited workspace.
+
+Use **Workload preflight** before creating an experiment (required in the desktop for more than 20 tasks). It counts solver, builder, miner and judge invocations and sums their configured token allowances. It does not call a Provider, deduct cache hits, calculate an actual bill, or enforce a hard experiment-wide token cap. WSL virtual-disk free space is not physical Windows volume capacity: check both. `CTXBENCH_MIN_FREE_GB` defaults to 5; low Worker filesystem space pauses before the next stage. This cannot prevent an in-flight stage from filling the disk.
+
 Token budget means cumulative Provider-reported tokens, including cached input. Repository exploration/mining may require substantially more tokens than one answer. Provider-reported cost can be zero for subscription products; it is not a bill calculation.
 
 ## Build and test
@@ -61,7 +65,7 @@ cargo test --manifest-path src-tauri/Cargo.toml
 npm run tauri build
 ```
 
-The installer is written to `src-tauri/target/release/bundle/nsis/`. Bundled deployment files deliberately exclude `.env`, datasets, credentials, run results and caches. For a Docker-only lifecycle regression without paid API calls, see `scripts/container-smoke.py`. See [the reassessment](docs/reassessment.md) for verified delivery scope and remaining release boundaries.
+The installer is written to `src-tauri/target/release/bundle/nsis/`. Bundled deployment files deliberately exclude `.env`, datasets, credentials, run results and caches. For Docker lifecycle and crash/restart regressions without paid API calls, see `scripts/container-smoke.py` and `scripts/container-resilience.py`. The latter kills only its uniquely labelled isolated Worker; it never restarts the production Worker. `python scripts/scale-smoke.py` tests a temporary synthetic 638-task / 2,552-run database, not model quality. See [the reassessment](docs/reassessment.md) for verified delivery scope and remaining release boundaries.
 
 ## Desktop prerequisites
 

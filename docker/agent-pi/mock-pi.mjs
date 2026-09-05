@@ -12,6 +12,8 @@ async function performRun(message) {
   completed = true;
   send({ type: "agent_start" });
   send({ type: "turn_start" });
+  const delay = Number(process.env.CTXBENCH_TEST_DELAY_SECONDS ?? 0);
+  if (delay > 0) await new Promise((resolve) => setTimeout(resolve, delay * 1000));
   if (mode === "generate-context") {
     await mkdir(".ctx", { recursive: true });
     await writeFile(
@@ -25,8 +27,6 @@ async function performRun(message) {
       "utf8",
     );
   } else if (mode === "solve") {
-    const delay = Number(process.env.CTXBENCH_TEST_DELAY_SECONDS ?? 0);
-    if (delay > 0) await new Promise((resolve) => setTimeout(resolve, delay * 1000));
     await writeFile(
       "ctxbench_mock_solution.txt",
       `Containerized mock solver completed. Prompt bytes: ${Buffer.byteLength(message)}\n`,

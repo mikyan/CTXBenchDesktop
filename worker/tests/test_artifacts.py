@@ -46,6 +46,15 @@ class ArtifactTests(unittest.TestCase):
         with self.assertRaises(ValueError):
             is_context_owned("../AGENTS.md")
 
+    def test_malformed_manifests_fail_with_validation_error(self) -> None:
+        with tempfile.TemporaryDirectory() as directory:
+            store = ArtifactStore(directory)
+            target = store.publish(self.identity(), {"AGENTS.md": b"context"}, {})
+            for invalid in ([], None, {"key": self.identity().key(), "files": ["AGENTS.md"]}):
+                (target / "manifest.json").write_text(json.dumps(invalid), encoding="utf-8")
+                with self.assertRaisesRegex(ValueError, "Invalid context manifest"):
+                    store.verify(self.identity().key())
+
 
 if __name__ == "__main__":
     unittest.main()

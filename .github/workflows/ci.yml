@@ -30,3 +30,4 @@ jobs:
           python-version: '3.13'
       - run: python -m pip install -r worker/requirements-dev.txt
       - run: python -m unittest discover -s worker/tests -v
+      - run: python scripts/scale-smoke.py

@@ -41,7 +41,7 @@ export function PreparationDialog({ kind, onClose, onComplete }: { kind: "contex
   const [files, setFiles] = useState<Record<string, string>>({}); const [packageCommit, setPackageCommit] = useState("");
   const [image, setImage] = useState("ctxbench/agent-pi:0.1.0"); const [busy, setBusy] = useState(false); const [error, setError] = useState("");
   useEffect(() => { workerRequest<DatasetRecord[]>("/datasets").then(setDatasets).catch((error) => setError(String(error))); }, []);
-  useEffect(() => { setTasks([]); setTaskId(""); if (dataset) workerRequest<TaskSummary[]>(`/datasets/${dataset}/tasks`).then(setTasks).catch((error) => setError(String(error))); }, [dataset]);
+  useEffect(() => { let active = true; setTasks([]); setTaskId(""); if (dataset) workerRequest<TaskSummary[]>(`/datasets/${dataset}/tasks`).then((value) => { if (active) setTasks(value); }).catch((error) => { if (active) setError(String(error)); }); return () => { active = false; }; }, [dataset]);
   const submit = async () => { setBusy(true); setError(""); try {
     const task = tasks.find((task) => task.id === taskId)!;
     if (kind === "manual") await workerRequest("/context/import", "POST", { dataset, taskId, baseCommit: packageCommit, repository: task.repository, files, contextPaths: Object.keys(files) });
@@ -63,16 +63,26 @@ export function PreparationDialog({ kind, onClose, onComplete }: { kind: "contex
 export function RunDialog({ run, onClose }: { run: BenchmarkRun; onClose: () => void }) {
   const { t } = useI18n(); const [file, setFile] = useState("graded.patch"); const [content, setContent] = useState("");
   const [next, setNext] = useState(0); const [more, setMore] = useState(false); const [error, setError] = useState("");
-  const read = async (offset = 0) => { try { setError(""); const result = await workerRequest<{ content: string; nextOffset: number; hasMore: boolean }>(`/run-output?runId=${encodeURIComponent(run.solverRunId ?? "")}&file=${encodeURIComponent(file)}&offset=${offset}`); setContent((old) => offset ? old + result.content : result.content); setNext(result.nextOffset); setMore(result.hasMore); } catch (error) { setError(String(error)); } };
-  useEffect(() => { setContent(""); if (run.solverRunId) void read(); }, [run.solverRunId, file]);
+  const [record, setRecord] = useState<BenchmarkRun>();
+  const [recordError, setRecordError] = useState("");
+  const readVersion = useRef(0);
+  useEffect(() => {
+    let active = true;
+    void workerRequest<BenchmarkRun>(`/run-record?id=${encodeURIComponent(run.id)}`).then((value) => { if (active) { setRecord(value); setRecordError(""); } }).catch((error) => { if (active) setRecordError(String(error)); });
+    return () => { active = false; };
+  }, [run.id, run.updatedAt]);
+  const full = record?.id === run.id ? { ...record, ...run } : run;
+  const read = async (offset = 0) => { const version = ++readVersion.current; try { setError(""); const result = await workerRequest<{ content: string; nextOffset: number; hasMore: boolean }>(`/run-output?runId=${encodeURIComponent(run.solverRunId ?? "")}&file=${encodeURIComponent(file)}&offset=${offset}`); if (version !== readVersion.current) return; setContent((old) => offset ? old + result.content : result.content); setNext(result.nextOffset); setMore(result.hasMore); } catch (error) { if (version === readVersion.current) setError(String(error)); } };
+  useEffect(() => { setContent(""); setMore(false); if (run.solverRunId) void read(); return () => { readVersion.current++; }; }, [run.solverRunId, file]);
   return <Modal title={`${run.taskId} · ${run.arm}`} onClose={onClose}>
     {run.mock && <p className="form-error">{t("Mock provider — infrastructure verification only")}</p>}
-    <pre>{JSON.stringify({ status: run.status, testsPassed: run.testsPassed, constraintVerdict: run.constraintVerdict, failure: run.failure, commit: run.commit, pairingHash: run.pairingHash, contextArtifactId: run.contextArtifactId, inputTokens: run.inputTokens, outputTokens: run.outputTokens, costUsd: run.costUsd, grade: run.grade }, null, 2)}</pre>
+    <pre>{JSON.stringify({ ...full, judgeRecords: undefined }, null, 2)}</pre>
+    {recordError && <p className="form-error" role="alert">{recordError}</p>}
     <select value={file} onChange={(e) => setFile(e.target.value)}>{["graded.patch", "raw_agent.patch", "context_mutation.patch", "trajectory.live.jsonl", "trajectory.jsonl", "result.json", "container.log", "grading/evaluator.log"].map((item) => <option key={item}>{item}</option>)}</select>
     <button className="button secondary" onClick={() => void read()}>{t("Refresh")}</button>
     {error && <p className="form-error">{error}</p>}<pre className="log-view">{content}</pre>{more && <button className="button secondary" onClick={() => void read(next)}>{t("Load more")}</button>}
-    <details><summary>{t("Judge evidence")}</summary><pre>{JSON.stringify(run.judgeRecords ?? [], null, 2)}</pre></details>
-    <button className="button secondary" onClick={() => void saveText(`${run.solverRunId ?? "run"}.json`, JSON.stringify(run, null, 2)).catch((error) => setError(String(error)))}>{t("Export run record")}</button>
+    <details><summary>{t("Judge evidence")}</summary><pre>{recordError ? t("Evidence unavailable") : !record ? t("Loading…") : JSON.stringify(full.judgeRecords ?? [], null, 2)}</pre></details>
+    <button className="button secondary" disabled={record?.id !== run.id || !!recordError} onClick={() => void saveText(`${run.solverRunId ?? "run"}.json`, JSON.stringify(full, null, 2)).catch((error) => setError(String(error)))}>{t("Export run record")}</button>
   </Modal>;
 }
 

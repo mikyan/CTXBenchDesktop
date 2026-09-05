@@ -6,12 +6,19 @@ import { pairedComparisons } from "../domain/metrics";
 import { signedPercent } from "../lib/format";
 import { useI18n } from "../i18n";
 import { relativeTime, titleCase } from "../lib/format";
+import { Pagination } from "../components/Pagination";
+import { pageWindow } from "../domain/pagination";
 
 export function ExperimentsPage({ snapshot, onNewExperiment, onExport, onImport, onAction, onRun }: { snapshot: DashboardSnapshot; onNewExperiment: () => void; onExport: (format: "json" | "csv" | "html") => void; onImport: () => void; onAction: (id: string, action: string) => void; onRun: (run: BenchmarkRun) => void }) {
   const { locale, t } = useI18n();
   const [query, setQuery] = useState("");
   const [selected, setSelected] = useState("");
+  const [runQuery, setRunQuery] = useState("");
+  const [runStatus, setRunStatus] = useState("");
+  const [resultPage, setResultPage] = useState(0);
   const selectedRuns = snapshot.runs.filter((run) => !selected || run.experimentId === selected);
+  const visibleRuns = selectedRuns.filter((run) => (!runStatus || run.status === runStatus) && `${run.taskId} ${run.repository}`.toLowerCase().includes(runQuery.toLowerCase()));
+  const resultsWindow = pageWindow(visibleRuns.length, resultPage);
   const filtered = useMemo(
     () => snapshot.experiments.filter((experiment) => `${experiment.name} ${experiment.dataset}`.toLowerCase().includes(query.toLowerCase())),
     [query, snapshot.experiments],
@@ -70,7 +77,7 @@ export function ExperimentsPage({ snapshot, onNewExperiment, onExport, onImport,
               <div className="experiment-actions">
                 {["running", "preparing"].includes(experiment.status) ? <button className="icon-button" title={t("Pause after current stage")} onClick={() => onAction(experiment.id, "pause")}><Pause size={16} /></button> : ["ready", "paused"].includes(experiment.status) ? <button className="icon-button" title={t("Resume")} onClick={() => onAction(experiment.id, "resume")}><Play size={16} /></button> : ["failed", "cancelled"].includes(experiment.status) ? <button className="button tertiary" onClick={() => onAction(experiment.id, "retry")}>{t("Retry failed runs")}</button> : null}
                 {["running", "preparing", "paused", "ready"].includes(experiment.status) && <button className="button tertiary" onClick={() => onAction(experiment.id, "cancel")}>{t("Cancel")}</button>}
-                <button className="button tertiary" onClick={() => setSelected(experiment.id)}>{t("Results")}</button>
+                <button className="button tertiary" onClick={() => { setSelected(experiment.id); setResultPage(0); }}>{t("Results")}</button>
               </div>
             </article>
           );
@@ -79,12 +86,14 @@ export function ExperimentsPage({ snapshot, onNewExperiment, onExport, onImport,
 
       {!filtered.length && <p className="empty-state">{t("No experiments yet. Import tasks, then create a paired experiment.")}</p>}
       <section className="panel workbench-results"><h2>{t("Run results and evidence")}</h2>
-        <select value={selected} onChange={(e) => setSelected(e.target.value)}><option value="">{t("All experiments")}</option>{snapshot.experiments.map((experiment) => <option key={experiment.id} value={experiment.id}>{experiment.name}</option>)}</select>
+        <select aria-label={t("Select experiment")} value={selected} onChange={(e) => { setSelected(e.target.value); setResultPage(0); }}><option value="">{t("All experiments")}</option>{snapshot.experiments.map((experiment) => <option key={experiment.id} value={experiment.id}>{experiment.name}</option>)}</select>
+        <div className="toolbar"><label>{t("Filter runs")}<input value={runQuery} onChange={(e) => { setRunQuery(e.target.value); setResultPage(0); }} /></label><label>{t("Status")}<select value={runStatus} onChange={(e) => { setRunStatus(e.target.value); setResultPage(0); }}><option value="">{t("All statuses")}</option>{["queued", "running", "grading", "completed", "failed", "cancelled"].map((status) => <option key={status} value={status}>{t(titleCase(status))}</option>)}</select></label></div>
         <p>{t("Real runs only; mock results are excluded.")}</p>
         {pairedComparisons(selectedRuns.filter((run) => !run.mock)).map((block) => <p key={`${block.experimentId}:${block.arm}`}>{snapshot.experiments.find((experiment) => experiment.id === block.experimentId)?.name} · {t(titleCase(block.arm))} · {block.pairs} {t("pairs")} / {block.taskCount} {t("Tasks")} · {t("Knowledge lift")} {signedPercent(block.lift)} · 95% CI {block.ci95 ? block.ci95.map((value) => signedPercent(value)).join(" … ") : t("More tasks needed")} · {t("Repeat variance")} {block.repeatVariance.toFixed(3)}</p>)}
-        <div className="table-scroll"><table className="data-table"><thead><tr>{["Task", "Arm", "Status", "Tests", "Constraint", "Evidence"].map((label) => <th key={label}>{t(label)}</th>)}</tr></thead><tbody>{selectedRuns.map((run) => <tr key={run.id}><td>{run.taskId}{run.mock && <small> · MOCK</small>}</td><td>{t(titleCase(run.arm))} · {run.repeat}</td><td><StatusBadge status={run.status} /></td><td>{run.testsPassed === undefined ? "—" : run.testsPassed ? t("PASS") : t("FAIL")}</td><td>{run.constraintVerdict ? t(titleCase(run.constraintVerdict)) : t("Not judged")}</td><td><button className="text-button" onClick={() => onRun(run)}>{t("Details")}</button></td></tr>)}</tbody></table></div>
+        <div className="table-scroll"><table className="data-table"><thead><tr>{["Task", "Arm", "Status", "Tests", "Constraint", "Evidence"].map((label) => <th key={label}>{t(label)}</th>)}</tr></thead><tbody>{visibleRuns.slice(resultsWindow.start, resultsWindow.end).map((run) => <tr key={run.id}><td>{run.taskId}{run.mock && <small> · MOCK</small>}</td><td>{t(titleCase(run.arm))} · {run.repeat}</td><td><StatusBadge status={run.status} /></td><td>{run.testsPassed === undefined ? "—" : run.testsPassed ? t("PASS") : t("FAIL")}</td><td>{run.constraintVerdict ? t(titleCase(run.constraintVerdict)) : t("Not judged")}</td><td><button className="text-button" onClick={() => onRun(run)}>{t("Details")}</button></td></tr>)}</tbody></table></div>
+        <Pagination total={visibleRuns.length} page={resultPage} onChange={setResultPage} />
       </section>
-      <section className="panel workbench-results"><h2>{t("Preparation queue")}</h2>{snapshot.operations?.map((operation) => <p key={operation.id}><code>{operation.id}</code> · {t(operation.kind)} · {t(titleCase(operation.status))}{operation.failure && <span className="form-error"> {operation.failure}</span>}</p>)}</section>
+      <section className="panel workbench-results"><h2>{t("Preparation queue")}</h2>{[...(snapshot.operations ?? [])].sort((a, b) => b.updatedAt.localeCompare(a.updatedAt)).slice(0, 25).map((operation) => <p key={operation.id}><code>{operation.id}</code> · {t(operation.kind)} · {t(titleCase(operation.status))}{operation.failure && <span className="form-error"> {operation.failure}</span>}</p>)}</section>
 
       <div className="integrity-strip">
         <SquareStack size={17} />

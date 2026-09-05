@@ -172,18 +172,30 @@ class Database:
         with self.connect() as connection:
             connection.execute("UPDATE experiments SET status = ?, updated_at = ? WHERE id = ?", (status, utc_now(), experiment_id))
 
-    def list_runs(self, experiment_id: str | None = None) -> list[dict[str, object]]:
+    def list_runs(self, experiment_id: str | None = None, *, compact: bool = False) -> list[dict[str, object]]:
         with self.connect() as connection:
+            columns = "*, json_remove(COALESCE(result_json, '{}'), '$.judgeRecords', '$.grade') AS visible_result" if compact else "*, result_json AS visible_result"
             rows = connection.execute(
-                "SELECT * FROM runs" + (" WHERE experiment_id = ?" if experiment_id else "") + " ORDER BY ordinal",
+                f"SELECT {columns} FROM runs" + (" WHERE experiment_id = ?" if experiment_id else "") + " ORDER BY ordinal",
                 (experiment_id,) if experiment_id else (),
             ).fetchall()
-        return [{
+        return [self._run_record(row) for row in rows]
+
+    def get_run(self, run_id: str) -> dict:
+        with self.connect() as connection:
+            row = connection.execute('SELECT *, result_json AS visible_result FROM runs WHERE id = ?', (run_id,)).fetchone()
+        if row is None:
+            raise KeyError(run_id)
+        return self._run_record(row)
+
+    @staticmethod
+    def _run_record(row) -> dict:
+        return {
             "id": row["id"], "experimentId": row["experiment_id"], "pairId": row["pair_id"],
             "taskId": row["task_id"], "repeat": row["repeat"], "arm": row["arm"],
             "ordinal": row["ordinal"], "status": row["status"], "updatedAt": row["updated_at"],
-            "repository": "", "commit": "", **json.loads(row["result_json"] or "{}"),
-        } for row in rows]
+            "repository": "", "commit": "", **json.loads(row["visible_result"] or "{}"),
+        }
 
     def update_run(self, run_id: str, status: str, result: dict[str, object]) -> None:
         with self.connect() as connection:
@@ -211,6 +223,13 @@ class Database:
         with self.connect() as connection:
             rows = connection.execute("SELECT payload_json FROM documents WHERE kind = ? ORDER BY id", (kind,)).fetchall()
         return [json.loads(row[0]) for row in rows]
+
+    def list_document_summaries(self, kind: str, fields: tuple[str, ...]) -> list[dict]:
+        with self.connect() as connection:
+            selectors = ', '.join('json_extract(payload_json, ?)' for _ in fields)
+            rows = connection.execute(f'SELECT {selectors} FROM documents WHERE kind = ? ORDER BY id',
+                                      (*('$.' + field for field in fields), kind)).fetchall()
+        return [dict(zip(fields, row)) for row in rows]
 
     def recover_interrupted_jobs(self) -> int:
         """Return in-flight jobs to the durable queue after a worker restart."""

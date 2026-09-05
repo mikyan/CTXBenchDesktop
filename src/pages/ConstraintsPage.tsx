@@ -4,6 +4,7 @@ import { PageTitle, StatusBadge } from "../components/shared";
 import type { DashboardSnapshot } from "../domain/types";
 import { useI18n } from "../i18n";
 import { percent } from "../lib/format";
+import { PreparationQueue } from "../components/PreparationQueue";
 
 export function ConstraintsPage({ snapshot, onMine }: { snapshot: DashboardSnapshot; onMine: () => void }) {
   const { t } = useI18n();
@@ -30,6 +31,7 @@ export function ConstraintsPage({ snapshot, onMine }: { snapshot: DashboardSnaps
         <div className="constraint-metric"><span className="round-icon violet"><BookOpenCheck size={18} /></span><div><span>{t("Curated constraints")}</span><strong>{snapshot.constraints.length}</strong><small>{t("{gold} gold · {silver} silver", { gold: snapshot.constraints.filter((item) => item.quality === "gold").length, silver: snapshot.constraints.filter((item) => item.quality === "silver").length })}</small></div></div>
         <div className="constraint-metric"><span className="round-icon orange"><GitPullRequestArrow size={18} /></span><div><span>{t("Judged decisions")}</span><strong>{totalSatisfied + totalViolated}</strong><small>{t("3-vote research mode")}</small></div></div>
       </section>
+      <PreparationQueue operations={snapshot.operations ?? []} kind="constraints" />
 
       <section className="panel methodology-strip">
         <div><span>1</span><strong>{t("Mine")}</strong><small>{t("Review evidence + adoption")}</small></div><i />

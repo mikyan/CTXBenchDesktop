@@ -10,6 +10,7 @@ from urllib.parse import urlparse
 
 from .database import Database, utc_now
 from .datasets import TaskRecord, custom_task, import_agentbench, import_swebench
+from .safe_files import safe_file
 
 
 def fingerprint(value: object) -> str:
@@ -53,15 +54,26 @@ class Catalog:
         return {key: record[key] for key in ("id", "name", "benchmark", "count", "createdAt")}
 
     def list(self) -> list[dict]:
-        return [self.public(item) for item in self.database.list_documents("datasets")]
+        return self.database.list_document_summaries('datasets', ('id', 'name', 'benchmark', 'count', 'createdAt'))
 
     def tasks(self, dataset: str) -> list[dict]:
         return [{"id": task["id"], "repository": task["repository"], "baseCommit": task["base_commit"],
                  "prompt": task["prompt"], "image": task["image"]}
-                for task in self.database.get_document("datasets", dataset)["tasks"]]
+                for task in self.verify(dataset)["tasks"]]
+
+    def verify(self, dataset: str) -> dict:
+        record = self.database.get_document('datasets', dataset)
+        path = safe_file(self.root / 'datasets', f'{dataset}.json')
+        rows = json.loads(path.read_text(encoding='utf-8'))
+        if fingerprint({'benchmark': record['benchmark'], 'rows': rows}) != dataset:
+            raise ValueError('Frozen dataset contents have changed; import as a new dataset instead.')
+        return record
 
     def task(self, dataset: str, task_id: str) -> TaskRecord:
-        for task in self.database.get_document("datasets", dataset)["tasks"]:
-            if task["id"] == task_id:
-                return TaskRecord(**{**task, "test_command": tuple(task["test_command"])})
-        raise ValueError(f"Task is not in the imported dataset: {task_id}")
+        try:
+            return self.index(dataset)[task_id]
+        except KeyError as error:
+            raise ValueError(f"Task is not in the imported dataset: {task_id}") from error
+
+    def index(self, dataset: str) -> dict[str, TaskRecord]:
+        return {task['id']: TaskRecord(**{**task, 'test_command': tuple(task['test_command'])}) for task in self.verify(dataset)['tasks']}

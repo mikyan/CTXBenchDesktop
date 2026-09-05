@@ -19,7 +19,7 @@ const pause = (milliseconds: number): Promise<void> =>
 
 export async function loadSnapshot(): Promise<DashboardSnapshot> {
   if (new URLSearchParams(window.location.search).get("demo") === "1") return createDemoSnapshot();
-  const snapshot = await workerRequest<DashboardSnapshot>("/snapshot");
+  const snapshot = await workerRequest<DashboardSnapshot>("/snapshot?compact=true");
   const realRuns = snapshot.runs.filter((run) => !run.mock);
   return { ...snapshot, metrics: aggregateDashboard(realRuns), armMetrics: aggregateArms(realRuns) };
 }
@@ -75,7 +75,8 @@ export async function exportSnapshot(snapshot: DashboardSnapshot, format: "json"
   let body: string;
   let mediaType: string;
   if (format === "json") {
-    body = JSON.stringify(snapshot, null, 2);
+    const full = snapshot.runtime === "mock" ? snapshot : { ...snapshot, ...await workerRequest<DashboardSnapshot>("/snapshot") };
+    body = JSON.stringify(full, null, 2);
     mediaType = "application/json";
   } else if (format === "csv") {
     const header = "run_id,experiment_id,task_id,repeat,pair_id,arm,status,mock,tests_passed,constraint_verdict,cost_usd,pairing_hash,context_artifact_id,failure";
@@ -115,6 +116,9 @@ export async function saveText(filename: string, body: string, mediaType = "appl
   const anchor = document.createElement("a");
   anchor.href = url;
   anchor.download = filename;
+  document.body.appendChild(anchor);
   anchor.click();
-  URL.revokeObjectURL(url);
+  anchor.remove();
+  // WebViews may start the download asynchronously after the click returns.
+  window.setTimeout(() => URL.revokeObjectURL(url), 30_000);
 }
