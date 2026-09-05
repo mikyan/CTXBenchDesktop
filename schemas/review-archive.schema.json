@@ -4,11 +4,21 @@
   "title": "Provider-neutral PR review archive",
   "type": "object",
   "additionalProperties": false,
-  "required": ["schemaVersion", "repository", "cutoff", "pullRequests"],
+  "required": ["schemaVersion", "repository", "cutoff", "source", "limits", "pullRequests", "stats"],
   "properties": {
     "schemaVersion": { "const": 1 },
     "repository": { "type": "string" },
     "cutoff": { "type": "string", "format": "date-time" },
+    "source": { "const": "github-pull-request-review-comments" },
+    "limits": {
+      "type": "object",
+      "required": ["maxComments", "maxPullRequests", "maxPages"],
+      "properties": {
+        "maxComments": { "type": "integer", "minimum": 1 },
+        "maxPullRequests": { "type": "integer", "minimum": 1 },
+        "maxPages": { "type": "integer", "minimum": 1 }
+      }
+    },
     "pullRequests": {
       "type": "array",
       "items": {
@@ -37,8 +47,18 @@
               }
             }
           },
-          "commits": { "type": "array", "items": { "type": "object" } }
+          "commits": { "type": "array", "items": { "type": "object" } },
+          "files": { "type": "array", "items": { "type": "object" } }
         }
+      }
+    },
+    "stats": {
+      "type": "object",
+      "required": ["pullRequests", "inspectedPullRequests", "comments"],
+      "properties": {
+        "pullRequests": { "type": "integer", "minimum": 0 },
+        "inspectedPullRequests": { "type": "integer", "minimum": 0 },
+        "comments": { "type": "integer", "minimum": 0 }
       }
     }
   }

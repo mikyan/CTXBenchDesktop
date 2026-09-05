@@ -1,0 +1,355 @@
+import { createContext, useCallback, useContext, useEffect, useMemo, useState } from "react";
+import type { ReactNode } from "react";
+
+export type Locale = "en" | "zh-CN";
+export type TranslationValues = Record<string, string | number>;
+export type Translate = (key: string, values?: TranslationValues) => string;
+
+const STORAGE_KEY = "ctxbench.locale";
+
+const zhCN: Record<string, string> = {
+  "Experiment plan created. Context preparation is queued.": "实验计划已创建，知识上下文准备任务已进入队列。",
+  "Environment diagnostics completed.": "环境诊断已完成。",
+  "Could not start CTXBench": "无法启动 CTXBench",
+  "Retry": "重试",
+  "Opening local benchmark lab…": "正在打开本地基准测试实验室…",
+
+  "Local workspace": "本地工作区",
+  "Benchmark lab": "基准测试实验室",
+  "Search": "搜索",
+  "Search runs, repos, tasks": "搜索运行、仓库或任务",
+  "Mock adapter": "模拟适配器",
+  "WSL worker": "WSL 工作节点",
+  "Help": "帮助",
+  "Notifications": "通知",
+  "Local operator": "本地操作员",
+  "Language": "语言",
+  "English": "英文",
+  "Chinese": "中文",
+
+  "Primary": "主导航",
+  "WORKSPACE": "工作区",
+  "Overview": "概览",
+  "Experiments": "实验",
+  "Knowledge": "知识库",
+  "Constraints": "约束",
+  "Infrastructure": "基础设施",
+  "Settings": "设置",
+  "Local runtime": "本地运行时",
+  "Private by default. No telemetry.": "默认私有，不收集遥测。",
+  "Collapse sidebar": "收起侧栏",
+  "Collapse": "收起",
+
+  "Draft": "草稿",
+  "Queued": "排队中",
+  "Preparing": "准备中",
+  "Running": "运行中",
+  "Paused": "已暂停",
+  "Grading": "评分中",
+  "Completed": "已完成",
+  "Failed": "失败",
+  "Cancelled": "已取消",
+  "Healthy": "正常",
+  "Warning": "警告",
+  "Missing": "缺失",
+  "Checking": "检查中",
+  "Ready": "就绪",
+  "Generating": "生成中",
+  "Invalid": "无效",
+  "Gold": "金标",
+  "Silver": "银标",
+  "None": "无上下文",
+  "Context": "有上下文",
+  "Skill Generated": "Skill 生成",
+  "Manual": "人工提供",
+  "Developer Historical": "仓库历史上下文",
+  "Tree Only": "仅代码树",
+  "History Aware": "包含历史",
+  "Custom": "自定义",
+  "Ctxbench": "CTXBench",
+  "Swebench": "SWE-bench",
+  "Neutral": "中立",
+  "Satisfied": "满足",
+  "Violated": "违反",
+  "PASS": "通过",
+  "FAIL": "失败",
+  "Trend": "趋势",
+  "{percent} percent": "百分之 {percent}",
+
+  "BENCHMARK LAB": "基准测试实验室",
+  "Experiment overview": "实验概览",
+  "Paired coding-agent evaluation, from frozen context to constraint-aware verdicts.": "从冻结知识上下文到约束判定，对编码 Agent 进行严格配对评估。",
+  "View all runs": "查看全部运行",
+  "New experiment": "新建实验",
+  "Benchmark summary": "基准测试摘要",
+  "Functional pass rate": "功能测试通过率",
+  "{count} graded runs": "{count} 次已评分运行",
+  "Knowledge lift": "知识库提升",
+  "context vs none": "有上下文 vs 无上下文",
+  "Pass-patch violations": "通过测试补丁违规率",
+  "PPVR · applicable runs": "PPVR · 适用运行",
+  "Average run cost": "平均运行成本",
+  "solver only": "仅求解 Agent",
+  "PAIRED EFFECT": "配对效果",
+  "Knowledge impact": "知识库影响",
+  "No context": "无上下文",
+  "Generated": "已生成",
+  "absolute pass-rate lift": "通过率绝对提升",
+  "Context wins {wins} of {pairs} pairs": "知识库在 {pairs} 组配对中胜出 {wins} 组",
+  "Tests passed": "测试通过",
+  "Constraints satisfied": "约束满足",
+  "Patch accepted": "补丁被接受",
+  "ACTIVE EXPERIMENT": "当前实验",
+  "No active experiment": "暂无运行中的实验",
+  "Tasks": "任务",
+  "Repeats": "重复次数",
+  "Arms": "实验分支",
+  "ETA": "预计剩余",
+  "skill-generated · grading patch offline": "Skill 生成 · 正在离线评分补丁",
+  "Open experiment": "打开实验",
+  "LATEST VERDICTS": "最新判定",
+  "Recent runs": "最近运行",
+  "All results": "全部结果",
+  "Task": "任务",
+  "Arm": "分支",
+  "Tests": "测试",
+  "Constraint": "约束",
+  "Time": "耗时",
+  "Run actions": "运行操作",
+  "SWE-SHIELD LAYER": "SWE-SHIELD 层",
+  "Design compliance": "设计约束合规",
+  "Three-judge majority on applicable design constraints. Functional tests remain a separate axis.": "对适用设计约束采用三评审多数判定；功能测试仍作为独立评估维度。",
+  "WORKER STREAM": "工作节点动态",
+  "Activity": "活动",
+  "LIVE": "实时",
+  "Paired run completed": "配对运行已完成",
+  "Constraint verdict recorded": "约束判定已记录",
+  "Context reused": "知识上下文已复用",
+  "Grader completed offline": "离线评分已完成",
+  "Worker checkpoint saved": "工作节点检查点已保存",
+
+  "EXPERIMENTS": "实验",
+  "Runs and comparisons": "运行与对比",
+  "Every context arm is paired against a frozen no-context baseline.": "每个上下文分支都与冻结的无上下文基线严格配对。",
+  "Active": "进行中",
+  "Queued runs": "排队运行",
+  "Paired coverage": "配对覆盖率",
+  "Filter experiments": "筛选实验",
+  "Filter": "筛选",
+  "Report": "报告",
+  "{count} experiments": "{count} 个实验",
+  "{tasks} tasks × {repeats}": "{tasks} 个任务 × {repeats}",
+  "seed {seed}": "种子 {seed}",
+  "{completed} / {total} runs": "{completed} / {total} 次运行",
+  "Updated {time}": "更新于 {time}",
+  "Pause": "暂停",
+  "Resume": "继续",
+  "Pair integrity is enforced": "已强制保证配对完整性",
+  "Changing model, budget, image, prompt, network, or resources creates a new experiment block.": "模型、预算、镜像、提示词、网络或资源任一变化，都会创建新的实验分组。",
+  "{count} confounded pairs": "{count} 组混杂配对",
+
+  "KNOWLEDGE ARTIFACTS": "知识库产物",
+  "Generate once. Measure repeatedly.": "一次生成，多次测量。",
+  "Frozen repository context keyed by commit, builder configuration, prompt, and skill version.": "按提交、构建配置、提示词和 Skill 版本寻址的冻结仓库上下文。",
+  "Import package": "导入知识包",
+  "Generate context": "生成知识库",
+  "Ready artifacts": "就绪产物",
+  "Cross-task reuses": "跨任务复用",
+  "Context files": "上下文文件",
+  "Task-informed": "受任务信息影响",
+  "Search repositories or commits": "搜索仓库或提交",
+  "content-addressed cache": "内容寻址缓存",
+  "Inspecting architecture and conventions": "正在分析架构与约定",
+  "Builder isolated · target task hidden": "构建器已隔离 · 目标任务不可见",
+  "Source": "来源",
+  "Capability": "能力范围",
+  "Payload": "内容",
+  "Reused": "复用",
+  "{count} files · {size}": "{count} 个文件 · {size}",
+  "{count} runs": "{count} 次运行",
+  "skill {version}": "Skill {version}",
+  "prompt {hash}": "提示词 {hash}",
+  "Passive context guarantee": "被动上下文保证",
+  "Artifacts are overlaid as repository files only. CTXBench never changes the task prompt, forces reads, or adds retrieval hints.": "产物只作为仓库文件覆盖写入。CTXBench 不修改任务提示词、不强制读取，也不添加检索提示。",
+
+  "SWE-SHIELD COMPATIBLE": "兼容 SWE-SHIELD",
+  "Design constraint compliance": "设计约束合规性",
+  "Mine decisions from review history, associate them with tasks, and judge patches independently from tests.": "从评审历史中挖掘设计决策，将其与任务关联，并独立于测试结果评判补丁。",
+  "Mine constraints": "挖掘约束",
+  "Design satisfaction": "设计满足率",
+  "DSR · all judged issues": "DSR · 全部已判定问题",
+  "Design violation": "设计违反率",
+  "DVR · all judged issues": "DVR · 全部已判定问题",
+  "Curated constraints": "已整理约束",
+  "{gold} gold · {silver} silver": "{gold} 条金标 · {silver} 条银标",
+  "Judged decisions": "已判定决策",
+  "3-vote research mode": "三票研究模式",
+  "Mine": "挖掘",
+  "Review windows + adoption": "评审窗口 + 采纳情况",
+  "Cluster": "聚类",
+  "Semantic + provenance": "语义 + 来源",
+  "Associate": "关联",
+  "Traceability + patch intent": "可追溯性 + 补丁意图",
+  "Judge": "判定",
+  "Applicability, then verdict": "先判断适用性，再给出结论",
+  "Search constraints": "搜索约束",
+  "Repository": "仓库",
+  "All quality": "全部质量等级",
+  "{count} constraints": "{count} 条约束",
+  "Quality": "质量",
+  "Applicable": "适用次数",
+  "Provenance": "来源",
+
+  "LOCAL INFRASTRUCTURE": "本地基础设施",
+  "WSL & container runtime": "WSL 与容器运行时",
+  "Everything runs locally. The desktop app controls an isolated worker inside WSL2.": "所有组件均在本地运行，桌面端负责控制 WSL2 内的隔离工作节点。",
+  "Checking…": "检查中…",
+  "Run diagnostics": "运行诊断",
+  "READINESS": "就绪状态",
+  "System checks": "系统检查",
+  "Action needed": "需要处理",
+  "EXECUTION PATH": "执行路径",
+  "Local topology": "本地拓扑",
+  "Desktop": "桌面端",
+  "Tauri control layer": "Tauri 控制层",
+  "HTTP :48173": "HTTP :48173",
+  "Persistent queue + SQLite": "持久化队列 + SQLite",
+  "Docker socket": "Docker 套接字",
+  "Pi agent": "Pi Agent",
+  "API-only network": "仅 API 网络",
+  "Grader": "评分器",
+  "Offline + clean base": "离线 + 干净基线",
+  "NEXT ACTION": "下一步",
+  "Start the worker": "启动工作节点",
+  "Docker Engine is not available in the selected Ubuntu distribution. Install it explicitly, start the daemon, then run:": "所选 Ubuntu 发行版中 Docker Engine 不可用。请先安装并启动守护进程，然后运行：",
+  "Copy command": "复制命令",
+  "Binds to localhost only": "仅绑定到 localhost",
+  "Resumes queued work after restart": "重启后继续排队任务",
+  "Images export for air-gapped use": "镜像可导出到隔离网络",
+  "SECURITY POLICY": "安全策略",
+  "Runtime boundaries": "运行时边界",
+  "Agent network": "Agent 网络",
+  "API-only": "仅 API",
+  "Provider endpoints from allowlist": "仅允许名单中的 Provider 端点",
+  "Grader network": "评分器网络",
+  "Offline": "离线",
+  "Clean base + graded patch only": "仅使用干净基线与待评分补丁",
+  "Credentials": "凭据",
+  "Runtime-only": "仅运行时注入",
+  "Values redacted from all artifacts": "所有产物均隐藏凭据值",
+  "WSL 2": "WSL 2",
+  "Distribution": "发行版",
+  "Docker Engine": "Docker Engine",
+  "CTXBench worker": "CTXBench 工作节点",
+  "Artifact store": "产物存储",
+  "Docker is not installed in Ubuntu.": "Ubuntu 中尚未安装 Docker。",
+  "Install Docker Engine inside WSL, then start the daemon.": "请在 WSL 中安装 Docker Engine，然后启动守护进程。",
+  "Waiting for Docker Engine on 127.0.0.1:48173.": "正在等待 127.0.0.1:48173 上的 Docker Engine。",
+
+  "PAIRED BENCHMARK": "配对基准测试",
+  "Close": "关闭",
+  "Benchmark source": "基准测试来源",
+  "Choose a task set and frozen baseline.": "选择任务集和冻结基线。",
+  "Experiment name": "实验名称",
+  "Dataset or manifest": "数据集或清单",
+  "{count} preview tasks": "{count} 个预览任务",
+  "selected for this run. Full dataset filtering is available after import.": "已选入本次运行。导入后可筛选完整数据集。",
+  "Context comparison": "上下文对比",
+  "The no-context baseline is mandatory and frozen.": "无上下文基线为强制项，并保持冻结。",
+  "Original context files removed": "移除原始上下文文件",
+  "BASELINE": "基线",
+  "VS": "对比",
+  "Generated once in isolated Pi session": "在隔离的 Pi 会话中生成一次",
+  "Human-authored frozen package": "人工编写的冻结知识包",
+  "Original repository context at base commit": "基线提交中的原始仓库上下文",
+  "Frozen solver configuration": "冻结求解配置",
+  "Both arms receive exactly the same model and budget.": "两个分支使用完全相同的模型与预算。",
+  "Role": "角色",
+  "Provider": "Provider",
+  "Model": "模型",
+  "Thinking": "推理强度",
+  "Knowledge builder": "知识库构建器",
+  "Coding agent": "编码 Agent",
+  "Constraint miner": "约束挖掘器",
+  "Constraint judge": "约束评审器",
+  "Agent image": "Agent 镜像",
+  "Repeat profile": "重复方案",
+  "Smoke": "冒烟测试",
+  "Standard": "标准",
+  "Research": "研究",
+  "Off": "关闭",
+  "Low": "低",
+  "Medium": "中",
+  "High": "高",
+  "Xhigh": "极高",
+  "Max": "最高",
+  "Strict pairing locks prompt, commit, image, CPU, memory, timeout, network, and agent version.": "严格配对会锁定提示词、提交、镜像、CPU、内存、超时、网络和 Agent 版本。",
+  "Planned workload": "计划工作量",
+  "{runs} runs · {keys} context keys": "{runs} 次运行 · {keys} 个上下文键",
+  "Cancel": "取消",
+  "Creating plan…": "正在创建计划…",
+  "Create & prepare": "创建并准备",
+  "Experiment name is required.": "实验名称不能为空。",
+  "A dataset or manifest is required.": "必须提供数据集或清单。",
+  "At least one task is required.": "至少需要一个任务。",
+  "Repeats must be an integer between 1 and 50.": "重复次数必须是 1 到 50 之间的整数。",
+  "The none arm is required for a causal baseline.": "因果基线必须包含无上下文分支。",
+  "At least one context arm is required.": "至少需要一个上下文分支。",
+  "Context arms must be unique.": "上下文分支不能重复。",
+  "A frozen provider and model are required.": "必须指定冻结的 Provider 和模型。",
+  "A pinned container agent image is required.": "必须指定固定版本的 Agent 容器镜像。",
+};
+
+export function normalizeLocale(value?: string | null): Locale {
+  return value?.toLowerCase().startsWith("zh") ? "zh-CN" : "en";
+}
+
+export function translate(locale: Locale, key: string, values: TranslationValues = {}): string {
+  const template = locale === "zh-CN" ? (zhCN[key] ?? key) : key;
+  return template.replace(/\{(\w+)\}/g, (match, name: string) =>
+    Object.prototype.hasOwnProperty.call(values, name) ? String(values[name]) : match,
+  );
+}
+
+function initialLocale(): Locale {
+  if (typeof window === "undefined") return "en";
+  try {
+    const stored = window.localStorage.getItem(STORAGE_KEY);
+    if (stored === "en" || stored === "zh-CN") return stored;
+  } catch {
+    // Storage can be disabled by host policy; system language remains a safe fallback.
+  }
+  return normalizeLocale(window.navigator.language);
+}
+
+interface I18nValue {
+  locale: Locale;
+  setLocale: (locale: Locale) => void;
+  t: Translate;
+}
+
+const I18nContext = createContext<I18nValue | undefined>(undefined);
+
+export function I18nProvider({ children }: { children: ReactNode }) {
+  const [locale, setLocale] = useState<Locale>(initialLocale);
+
+  useEffect(() => {
+    document.documentElement.lang = locale;
+    try {
+      window.localStorage.setItem(STORAGE_KEY, locale);
+    } catch {
+      // A language switch should still work for the current session without storage.
+    }
+  }, [locale]);
+
+  const t = useCallback<Translate>((key, values) => translate(locale, key, values), [locale]);
+  const value = useMemo(() => ({ locale, setLocale, t }), [locale, t]);
+
+  return <I18nContext.Provider value={value}>{children}</I18nContext.Provider>;
+}
+
+export function useI18n(): I18nValue {
+  const context = useContext(I18nContext);
+  if (!context) throw new Error("useI18n must be used inside I18nProvider");
+  return context;
+}

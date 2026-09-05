@@ -2,7 +2,7 @@ from __future__ import annotations
 
 from collections import Counter, defaultdict
 from dataclasses import dataclass
-from typing import Iterable, Literal, Sequence
+from typing import Any, Iterable, Literal, Sequence
 
 Verdict = Literal["satisfied", "violated", "neutral"]
 
@@ -62,6 +62,80 @@ class ComplianceMetrics:
     ppvr: float
     issues: int
     passing_applicable: int
+
+
+def design_constraints_from_document(value: dict[str, Any]) -> tuple[DesignConstraint, ...]:
+    if value.get("schemaVersion") != 1 or not isinstance(value.get("repository"), str):
+        raise ValueError("Invalid constraint document header.")
+    raw_constraints = value.get("constraints")
+    if not isinstance(raw_constraints, list):
+        raise ValueError("Constraint document must contain a constraints array.")
+    quality = value.get("quality", "silver")
+    if quality not in {"silver", "gold"}:
+        raise ValueError("Constraint quality must be silver or gold.")
+    constraints: list[DesignConstraint] = []
+    for raw in raw_constraints:
+        if not isinstance(raw, dict) or not raw.get("id") or not raw.get("problem"):
+            raise ValueError("Every constraint requires an id and problem.")
+        options = raw.get("options")
+        if not isinstance(options, list) or not options:
+            raise ValueError(f"Constraint {raw.get('id')} requires options.")
+        parsed_options = tuple(
+            ConstraintOption(
+                description=str(option["description"]),
+                rationale=str(option["rationale"]),
+                applicability=str(option["applicability"]),
+                reference_snippets=tuple(str(item) for item in option.get("referenceSnippets", [])),
+                provenance=tuple(str(item) for item in option.get("provenance", [])),
+                adopted=bool(option["adopted"]),
+            )
+            for option in options
+        )
+        if not any(option.adopted for option in parsed_options):
+            raise ValueError(f"Constraint {raw['id']} has no adopted option.")
+        constraints.append(
+            DesignConstraint(
+                id=str(raw["id"]),
+                repository=value["repository"],
+                problem=str(raw["problem"]),
+                options=parsed_options,
+                quality=quality,
+            )
+        )
+    if len({constraint.id for constraint in constraints}) != len(constraints):
+        raise ValueError("Constraint ids must be unique.")
+    return tuple(constraints)
+
+
+def judge_votes_from_document(value: dict[str, Any]) -> tuple[tuple[str, JudgeVote], ...]:
+    if value.get("schemaVersion") != 1 or not isinstance(value.get("judge"), str):
+        raise ValueError("Invalid judge document header.")
+    raw_votes = value.get("votes")
+    if not isinstance(raw_votes, list):
+        raise ValueError("Judge document must contain a votes array.")
+    votes: list[tuple[str, JudgeVote]] = []
+    for raw in raw_votes:
+        if not isinstance(raw, dict) or raw.get("verdict") not in {"satisfied", "violated", "neutral"}:
+            raise ValueError("Invalid judge vote.")
+        confidence = float(raw["confidence"])
+        if not 0 <= confidence <= 1:
+            raise ValueError("Judge confidence must be between zero and one.")
+        votes.append(
+            (
+                str(raw["constraintId"]),
+                JudgeVote(
+                    judge=value["judge"],
+                    applicable=bool(raw["applicable"]),
+                    verdict=raw["verdict"],
+                    confidence=confidence,
+                    rationale=str(raw["rationale"]),
+                    references=tuple(str(item) for item in raw.get("references", [])),
+                ),
+            )
+        )
+    if len({constraint_id for constraint_id, _ in votes}) != len(votes):
+        raise ValueError("A judge may vote only once per constraint.")
+    return tuple(votes)
 
 
 def review_windows(comments: Iterable[ReviewComment], size: int = 6) -> list[ReviewWindow]:
@@ -134,6 +208,19 @@ def majority_verdict(votes: Sequence[JudgeVote]) -> Verdict:
     if counts["violated"] >= 2:
         return "violated"
     return "neutral"
+
+
+def aggregate_constraint_votes(
+    constraint_ids: Sequence[str], vote_sets: Sequence[Sequence[tuple[str, JudgeVote]]]
+) -> dict[str, Verdict]:
+    expected = set(constraint_ids)
+    grouped: dict[str, list[JudgeVote]] = {constraint_id: [] for constraint_id in constraint_ids}
+    for vote_set in vote_sets:
+        if {constraint_id for constraint_id, _ in vote_set} != expected:
+            raise ValueError("Every judge must vote exactly once on every constraint.")
+        for constraint_id, vote in vote_set:
+            grouped[constraint_id].append(vote)
+    return {constraint_id: majority_verdict(votes) for constraint_id, votes in grouped.items()}
 
 
 def issue_verdict(constraint_verdicts: Sequence[Verdict]) -> Verdict:

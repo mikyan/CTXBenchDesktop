@@ -8,7 +8,7 @@
   "properties": {
     "schemaVersion": { "const": 1 },
     "runId": { "type": "string" },
-    "mode": { "enum": ["solve", "generate-context", "grade", "judge-constraints"] },
+    "mode": { "enum": ["solve", "generate-context", "grade", "mine-constraints", "judge-constraints"] },
     "prompt": { "type": "string" },
     "model": {
       "type": "object",

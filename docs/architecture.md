@@ -45,4 +45,8 @@ The Pi adapter disables project extensions, Skill discovery, prompt-template dis
 
 The Compose deployment bind-mounts `/var/lib/ctxbench` at the same logical data root and explicitly passes its Docker-host path to the worker. This is required because the worker talks to the host daemon through its socket; generated workspaces, requests, outputs, and the staged generation Skill must all resolve on both sides of that boundary.
 
+Formal grading uses the pinned `ctxbench/official-harness` image. It vendors fixed commits of the upstream SWE-bench and ETH SRI AgentBench harnesses and receives only the generated graded patch plus evaluator-owned task data. The harness container may launch the upstream per-instance grading image through the Docker socket; it never shares Provider credentials with that image.
+
+Historical constraint mining starts from the GitHub repository-wide pull-request review-comment stream. The Worker filters comments and merged PRs against the pinned baseline cutoff before storing them, and preserves review/thread IDs, diff hunks, final PR patches, and commit provenance. The model-based miner sees that archive but not the target task; independent judges see mined constraints, the target task, and the already-produced candidate patch but never participate in solving.
+
 Before mounting a dedicated checkout, the root Worker temporarily assigns that checkout and its run-output directory to the fixed unprivileged Agent UID/GID `10001`. Cleanup restores both trees to the shared data-root owner, so host-side Git operations remain usable. The child container still runs with all Linux capabilities dropped and `no-new-privileges`; ownership changes never target paths outside the validated Worker data root.

@@ -26,6 +26,7 @@
   --violet-soft: rgba(166, 139, 250, .12);
   --shadow: 0 18px 48px rgba(0, 0, 0, .26);
 }
+:root:lang(zh-CN) { font-family: Inter, "Microsoft YaHei UI", "Microsoft YaHei", "Segoe UI Variable", "Segoe UI", sans-serif; }
 
 .mono, code, kbd { font-family: "Cascadia Mono", "SFMono-Regular", Consolas, monospace; }
 
@@ -71,6 +72,11 @@ button:focus-visible, input:focus-visible, select:focus-visible { outline: 2px s
 .runtime-mode { height: 25px; padding: 0 8px; display: flex; align-items: center; gap: 6px; border-radius: 5px; border: 1px solid var(--line); color: #718397; font-size: 9px; font-weight: 600; }
 .runtime-mode span { width: 5px; height: 5px; border-radius: 50%; background: var(--orange); }
 .runtime-mode.desktop span { background: var(--green); }
+.language-switcher { height: 27px; padding: 2px 3px 2px 6px; display: flex; align-items: center; gap: 2px; border: 1px solid var(--line); border-radius: 6px; color: #627589; background: #0b121a; }
+.language-switcher > svg { margin-right: 2px; }
+.language-switcher button { min-width: 25px; height: 21px; padding: 0 5px; border: 0; border-radius: 4px; color: #64768a; background: transparent; font-size: 8px; font-weight: 650; cursor: pointer; }
+.language-switcher button:hover { color: #c6d2dc; }
+.language-switcher button.selected { color: #bce5e3; background: rgba(59, 212, 209, .12); }
 .icon-button { width: 31px; height: 31px; padding: 0; border: 1px solid var(--line); border-radius: 6px; display: grid; place-items: center; background: #0c131b; color: #718195; cursor: pointer; }
 .icon-button:hover { color: #d0dae5; border-color: #314151; background: #111a24; }
 .notification { position: relative; }

@@ -9,6 +9,7 @@ import {
   ShieldCheck,
 } from "lucide-react";
 import type { Page } from "../app-types";
+import { useI18n } from "../i18n";
 
 const navItems: Array<{ id: Page; label: string; icon: typeof Gauge }> = [
   { id: "overview", label: "Overview", icon: Gauge },
@@ -19,6 +20,7 @@ const navItems: Array<{ id: Page; label: string; icon: typeof Gauge }> = [
 ];
 
 export function Sidebar({ page, onNavigate }: { page: Page; onNavigate: (page: Page) => void }) {
+  const { t } = useI18n();
   return (
     <aside className="sidebar">
       <div className="brand-block">
@@ -29,8 +31,8 @@ export function Sidebar({ page, onNavigate }: { page: Page; onNavigate: (page: P
         </div>
       </div>
 
-      <nav className="main-nav" aria-label="Primary">
-        <div className="nav-label">WORKSPACE</div>
+      <nav className="main-nav" aria-label={t("Primary")}>
+        <div className="nav-label">{t("WORKSPACE")}</div>
         {navItems.map((item) => {
           const Icon = item.icon;
           return (
@@ -41,7 +43,7 @@ export function Sidebar({ page, onNavigate }: { page: Page; onNavigate: (page: P
               onClick={() => onNavigate(item.id)}
             >
               <Icon size={17} />
-              <span>{item.label}</span>
+              <span>{t(item.label)}</span>
               {item.id === "experiments" && <em>3</em>}
             </button>
           );
@@ -51,19 +53,19 @@ export function Sidebar({ page, onNavigate }: { page: Page; onNavigate: (page: P
       <div className="sidebar-bottom">
         <button type="button" className="nav-item ghost" onClick={() => onNavigate("infrastructure")}>
           <Settings2 size={17} />
-          <span>Settings</span>
+          <span>{t("Settings")}</span>
         </button>
         <div className="runtime-card">
           <div className="runtime-row">
             <span className="pulse-dot" />
-            <strong>Local runtime</strong>
+            <strong>{t("Local runtime")}</strong>
             <span className="version">v0.1</span>
           </div>
-          <p>Private by default. No telemetry.</p>
+          <p>{t("Private by default. No telemetry.")}</p>
         </div>
-        <button type="button" className="collapse-button" aria-label="Collapse sidebar">
+        <button type="button" className="collapse-button" aria-label={t("Collapse sidebar")}>
           <PanelLeftClose size={16} />
-          <span>Collapse</span>
+          <span>{t("Collapse")}</span>
         </button>
       </div>
     </aside>

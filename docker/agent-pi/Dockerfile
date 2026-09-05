@@ -10,8 +10,8 @@ RUN apt-get update \
     && npm cache clean --force
 
 RUN useradd --create-home --uid 10001 --shell /bin/bash ctxbench \
-    && mkdir -p /workspace /ctxbench/output \
-    && chown -R ctxbench:ctxbench /workspace /ctxbench
+    && mkdir -p /workspace /ctxbench/output /home/ctxbench/.pi/agent/skills \
+    && chown -R ctxbench:ctxbench /workspace /ctxbench /home/ctxbench/.pi
 
 COPY --chown=ctxbench:ctxbench docker/agent-pi/entrypoint.mjs /opt/ctxbench/entrypoint.mjs
 COPY --chown=ctxbench:ctxbench docker/agent-pi/mock-pi.mjs /opt/ctxbench/mock-pi.mjs

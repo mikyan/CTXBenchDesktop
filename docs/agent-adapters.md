@@ -23,7 +23,9 @@ The image must execute its adapter as the default entrypoint, consume the reques
 
 Exit `0` only after outputs are durably written. Use `124` for a timeout and a non-zero code for other failures. Do not persist credentials, provider session state, or home-directory configuration in the image or output.
 
-`model.max_tokens` is the cumulative run budget. The reference Pi adapter adds provider-reported usage from completed assistant messages and aborts before the next turn once the budget is reached. Since providers report usage after a response, the last response can overshoot; that behavior is identical across paired arms and is recorded as `budgetExceeded` plus `cumulativeTokens`.
+`model.max_tokens` is the cumulative run budget. The reference Pi adapter adds provider-reported usage from completed assistant messages and aborts before the next turn once the budget is reached. Since providers report usage after a response, the last response can overshoot; that behavior is identical across paired arms and is recorded as `budgetExceeded` plus `cumulativeTokens`. A budget hit during a tool-use turn is a failed run; a final completed answer that crosses the threshold remains gradeable. Context generation additionally fails when it produces no context files.
+
+The adapter writes `trajectory.live.jsonl` while Pi is running, then writes the canonical redacted `trajectory.jsonl` on exit. Prompt-submission errors terminate immediately instead of occupying the queue until the outer timeout.
 
 ## Isolation rules
 
@@ -34,5 +36,7 @@ The context-generation Skill is mounted by the worker only when `mode` is `gener
 ## Adding internal credentials
 
 Add credential variable names—not values—to `CTXBENCH_EXTRA_ENV_ALLOWLIST`, define the matching variables in the runtime `.env`, and select those names in the run configuration. The worker rejects malformed or non-allowlisted names before starting a container. Any internal adapter must redact the resulting values from stdout, stderr, trajectories, and diagnostic artifacts.
+
+The bundled Pi image supports Xiaomi Token Plan China with provider `xiaomi-token-plan-cn`, model `mimo-v2.5-pro` (or `mimo-v2.5`), and runtime variable `XIAOMI_TOKEN_PLAN_CN_API_KEY`. The API-only proxy admits only the China Token Plan hostname for this adapter.
 
 Pin the image by immutable digest for formal comparisons. Changing the adapter image, agent version, provider, model, prompt, budget, resources, or network policy creates a new comparison block.

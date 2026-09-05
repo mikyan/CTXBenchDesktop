@@ -2,9 +2,11 @@ import { Download, Filter, FlaskConical, MoreHorizontal, Pause, Play, Search, Sq
 import { useMemo, useState } from "react";
 import { PageTitle, ProgressBar, StatusBadge } from "../components/shared";
 import type { DashboardSnapshot } from "../domain/types";
+import { useI18n } from "../i18n";
 import { relativeTime, titleCase } from "../lib/format";
 
 export function ExperimentsPage({ snapshot, onNewExperiment, onExport }: { snapshot: DashboardSnapshot; onNewExperiment: () => void; onExport: (format: "json" | "csv" | "html") => void }) {
+  const { locale, t } = useI18n();
   const [query, setQuery] = useState("");
   const filtered = useMemo(
     () => snapshot.experiments.filter((experiment) => `${experiment.name} ${experiment.dataset}`.toLowerCase().includes(query.toLowerCase())),
@@ -14,27 +16,27 @@ export function ExperimentsPage({ snapshot, onNewExperiment, onExport }: { snaps
   return (
     <div className="page">
       <PageTitle
-        eyebrow="EXPERIMENTS"
-        title="Runs and comparisons"
-        description="Every context arm is paired against a frozen no-context baseline."
-        actions={<button type="button" className="button primary" onClick={onNewExperiment}><FlaskConical size={16} /> New experiment</button>}
+        eyebrow={t("EXPERIMENTS")}
+        title={t("Runs and comparisons")}
+        description={t("Every context arm is paired against a frozen no-context baseline.")}
+        actions={<button type="button" className="button primary" onClick={onNewExperiment}><FlaskConical size={16} /> {t("New experiment")}</button>}
       />
 
       <section className="subnav-stats">
-        <div><span>Active</span><strong>{snapshot.experiments.filter((item) => item.status === "running").length}</strong></div>
-        <div><span>Queued runs</span><strong>56</strong></div>
-        <div><span>Completed</span><strong>{snapshot.experiments.filter((item) => item.status === "completed").length}</strong></div>
-        <div><span>Paired coverage</span><strong>100%</strong></div>
+        <div><span>{t("Active")}</span><strong>{snapshot.experiments.filter((item) => item.status === "running").length}</strong></div>
+        <div><span>{t("Queued runs")}</span><strong>56</strong></div>
+        <div><span>{t("Completed")}</span><strong>{snapshot.experiments.filter((item) => item.status === "completed").length}</strong></div>
+        <div><span>{t("Paired coverage")}</span><strong>100%</strong></div>
       </section>
 
       <div className="toolbar">
-        <label className="table-search"><Search size={15} /><input value={query} onChange={(event) => setQuery(event.target.value)} placeholder="Filter experiments" /></label>
-        <button className="button tertiary"><Filter size={15} /> Filter</button>
+        <label className="table-search"><Search size={15} /><input aria-label={t("Filter experiments")} value={query} onChange={(event) => setQuery(event.target.value)} placeholder={t("Filter experiments")} /></label>
+        <button className="button tertiary"><Filter size={15} /> {t("Filter")}</button>
         <div className="toolbar-spacer" />
         <button className="button tertiary" onClick={() => onExport("json")}><Download size={14} /> JSON</button>
         <button className="button tertiary" onClick={() => onExport("csv")}><Download size={14} /> CSV</button>
-        <button className="button tertiary" onClick={() => onExport("html")}><Download size={14} /> Report</button>
-        <span className="result-count">{filtered.length} experiments</span>
+        <button className="button tertiary" onClick={() => onExport("html")}><Download size={14} /> {t("Report")}</button>
+        <span className="result-count">{t("{count} experiments", { count: filtered.length })}</span>
       </div>
 
       <section className="experiment-list">
@@ -48,22 +50,22 @@ export function ExperimentsPage({ snapshot, onNewExperiment, onExport }: { snaps
               <div className="experiment-main">
                 <div className="experiment-heading"><h3>{experiment.name}</h3><StatusBadge status={experiment.status} /></div>
                 <div className="experiment-meta">
-                  <span>{titleCase(experiment.benchmark)}</span><i />
+                  <span>{t(titleCase(experiment.benchmark))}</span><i />
                   <span>{experiment.model.provider}/{experiment.model.model}</span><i />
-                  <span>{experiment.tasks} tasks × {experiment.repeats}</span><i />
-                  <span>seed {experiment.seed}</span>
+                  <span>{t("{tasks} tasks × {repeats}", { tasks: experiment.tasks, repeats: experiment.repeats })}</span><i />
+                  <span>{t("seed {seed}", { seed: experiment.seed })}</span>
                 </div>
                 <div className="arm-list">
-                  {experiment.arms.map((arm) => <span key={arm} className={arm === "none" ? "arm-tag none" : "arm-tag context"}>{titleCase(arm)}</span>)}
+                  {experiment.arms.map((arm) => <span key={arm} className={arm === "none" ? "arm-tag none" : "arm-tag context"}>{t(titleCase(arm))}</span>)}
                 </div>
               </div>
               <div className="experiment-progress-cell">
-                <div><span>{experiment.completedRuns} / {experiment.totalRuns} runs</span><strong>{Math.round(progress * 100)}%</strong></div>
+                <div><span>{t("{completed} / {total} runs", { completed: experiment.completedRuns, total: experiment.totalRuns })}</span><strong>{Math.round(progress * 100)}%</strong></div>
                 <ProgressBar value={progress} tone={experiment.status === "paused" ? "violet" : "cyan"} />
-                <small>Updated {relativeTime(experiment.updatedAt)}</small>
+                <small>{t("Updated {time}", { time: relativeTime(experiment.updatedAt, locale) })}</small>
               </div>
               <div className="experiment-actions">
-                {experiment.status === "running" ? <button className="icon-button" title="Pause"><Pause size={16} /></button> : <button className="icon-button" title="Resume"><Play size={16} /></button>}
+                {experiment.status === "running" ? <button className="icon-button" title={t("Pause")}><Pause size={16} /></button> : <button className="icon-button" title={t("Resume")}><Play size={16} /></button>}
                 <button className="icon-button"><MoreHorizontal size={17} /></button>
               </div>
             </article>
@@ -73,9 +75,9 @@ export function ExperimentsPage({ snapshot, onNewExperiment, onExport }: { snaps
 
       <div className="integrity-strip">
         <SquareStack size={17} />
-        <div><strong>Pair integrity is enforced</strong><span>Changing model, budget, image, prompt, network, or resources creates a new experiment block.</span></div>
+        <div><strong>{t("Pair integrity is enforced")}</strong><span>{t("Changing model, budget, image, prompt, network, or resources creates a new experiment block.")}</span></div>
         <TriangleAlert size={16} />
-        <span>0 confounded pairs</span>
+        <span>{t("{count} confounded pairs", { count: 0 })}</span>
       </div>
     </div>
   );

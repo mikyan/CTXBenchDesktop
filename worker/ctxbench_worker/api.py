@@ -1,5 +1,7 @@
 from __future__ import annotations
 
+import hashlib
+import json
 import os
 from contextlib import asynccontextmanager
 from pathlib import Path
@@ -8,6 +10,7 @@ from fastapi import FastAPI, HTTPException
 from pydantic import BaseModel, ConfigDict, Field
 
 from .engine import ExperimentEngine, create_engine_from_environment
+from .history import GitHubClient, JsonClient, mine_review_archive
 from .jobs import JobWorker
 from .models import ExperimentSpec, ModelConfig, ResourcePolicy, RunSpec
 
@@ -66,6 +69,15 @@ class RunInput(BaseModel):
     metadata: dict[str, object] = Field(default_factory=dict)
 
 
+class HistoryMineInput(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+    repository: str
+    cutoff: str
+    maxComments: int = Field(default=50, ge=1, le=500)
+    maxPullRequests: int = Field(default=10, ge=1, le=100)
+    maxPages: int = Field(default=10, ge=1, le=100)
+
+
 def _model(value: ModelConfigInput) -> ModelConfig:
     return ModelConfig(
         provider=value.provider,
@@ -112,12 +124,15 @@ def _spec(value: ExperimentInput) -> ExperimentSpec:
     )
 
 
-def create_app(engine: ExperimentEngine | None = None) -> FastAPI:
+def create_app(
+    engine: ExperimentEngine | None = None, history_client: JsonClient | None = None
+) -> FastAPI:
     data_root = Path(os.environ.get("CTXBENCH_DATA_DIR", str(Path.cwd() / "worker-data")))
     selected_engine = engine or create_engine_from_environment(
         data_root, os.environ.get("CTXBENCH_RUNNER", "mock")
     )
     jobs = JobWorker(selected_engine.database, selected_engine.runner)
+    selected_history_client = history_client or GitHubClient(os.environ.get("GITHUB_TOKEN") or None)
 
     @asynccontextmanager
     async def lifespan(_: FastAPI):
@@ -150,7 +165,13 @@ def create_app(engine: ExperimentEngine | None = None) -> FastAPI:
 
     @app.post("/v1/runs", status_code=202)
     def enqueue_run(value: RunInput) -> dict[str, object]:
-        if value.mode not in {"solve", "generate-context", "grade", "judge-constraints"}:
+        if value.mode not in {
+            "solve",
+            "generate-context",
+            "grade",
+            "mine-constraints",
+            "judge-constraints",
+        }:
             raise HTTPException(status_code=422, detail="Unsupported run mode.")
         try:
             resources = _resources(value.resources)
@@ -185,6 +206,37 @@ def create_app(engine: ExperimentEngine | None = None) -> FastAPI:
             return selected_engine.database.get_job(job_id)
         except KeyError as error:
             raise HTTPException(status_code=404, detail="Job not found.") from error
+
+    @app.post("/v1/constraints/review-archive", status_code=201)
+    def create_review_archive(value: HistoryMineInput) -> dict[str, object]:
+        try:
+            archive = mine_review_archive(
+                value.repository,
+                value.cutoff,
+                client=selected_history_client,
+                max_comments=value.maxComments,
+                max_pull_requests=value.maxPullRequests,
+                max_pages=value.maxPages,
+            )
+        except ValueError as error:
+            raise HTTPException(status_code=422, detail=str(error)) from error
+        except OSError as error:
+            raise HTTPException(status_code=502, detail=f"GitHub history request failed: {error}") from error
+        encoded = json.dumps(archive, sort_keys=True, separators=(",", ":")).encode()
+        key = hashlib.sha256(encoded).hexdigest()
+        output = data_root / "review-archives" / f"{key}.json"
+        output.parent.mkdir(parents=True, exist_ok=True)
+        output.write_bytes(encoded)
+        stats = archive["stats"]
+        return {
+            "key": key,
+            "path": str(output),
+            "repository": value.repository,
+            "cutoff": archive["cutoff"],
+            "pullRequests": stats["pullRequests"],
+            "inspectedPullRequests": stats["inspectedPullRequests"],
+            "comments": stats["comments"],
+        }
 
     return app
 

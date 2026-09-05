@@ -19,6 +19,7 @@ services:
       GEMINI_API_KEY: ${GEMINI_API_KEY:-}
       AZURE_OPENAI_API_KEY: ${AZURE_OPENAI_API_KEY:-}
       OPENROUTER_API_KEY: ${OPENROUTER_API_KEY:-}
+      XIAOMI_TOKEN_PLAN_CN_API_KEY: ${XIAOMI_TOKEN_PLAN_CN_API_KEY:-}
       GITHUB_TOKEN: ${GITHUB_TOKEN:-}
     ports:
       - "127.0.0.1:48173:48173"
@@ -50,6 +51,14 @@ services:
       dockerfile: docker/agent-pi/Dockerfile
     image: ctxbench/agent-pi:0.1.0
     command: ["true"]
+
+  official-harness-image:
+    profiles: [build-only]
+    build:
+      context: ..
+      dockerfile: docker/official-harness/Dockerfile
+    image: ctxbench/official-harness:0.1.0
+    command: ["--help"]
 
 networks:
   control:

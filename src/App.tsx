@@ -5,6 +5,7 @@ import { NewExperimentModal } from "./components/NewExperimentModal";
 import { Sidebar } from "./components/Sidebar";
 import { Topbar } from "./components/Topbar";
 import type { CreateExperimentRequest, DashboardSnapshot, Experiment } from "./domain/types";
+import { useI18n } from "./i18n";
 import { createExperiment, diagnoseEnvironment, exportSnapshot, loadSnapshot } from "./lib/desktop";
 import { ConstraintsPage } from "./pages/ConstraintsPage";
 import { DashboardPage } from "./pages/DashboardPage";
@@ -13,6 +14,7 @@ import { InfrastructurePage } from "./pages/InfrastructurePage";
 import { KnowledgePage } from "./pages/KnowledgePage";
 
 export default function App() {
+  const { t } = useI18n();
   const [page, setPage] = useState<Page>("overview");
   const [snapshot, setSnapshot] = useState<DashboardSnapshot>();
   const [loadingError, setLoadingError] = useState<string>();
@@ -47,7 +49,7 @@ export default function App() {
       setSnapshot((current) => current ? { ...current, experiments: [experiment, ...current.experiments] } : current);
       setModalOpen(false);
       setPage("experiments");
-      setToast("Experiment plan created. Context preparation is queued.");
+      setToast(t("Experiment plan created. Context preparation is queued."));
     } catch (error) {
       setToast(error instanceof Error ? error.message : String(error));
     } finally {
@@ -61,17 +63,17 @@ export default function App() {
     try {
       const diagnostics = await diagnoseEnvironment();
       setSnapshot((current) => current ? { ...current, diagnostics } : current);
-      setToast("Environment diagnostics completed.");
+      setToast(t("Environment diagnostics completed."));
     } finally {
       setDiagnosing(false);
     }
   };
 
   if (loadingError) {
-    return <div className="fatal-state"><X size={28} /><h1>Could not start CTXBench</h1><p>{loadingError}</p><button className="button primary" onClick={() => window.location.reload()}>Retry</button></div>;
+    return <div className="fatal-state"><X size={28} /><h1>{t("Could not start CTXBench")}</h1><p>{loadingError}</p><button className="button primary" onClick={() => window.location.reload()}>{t("Retry")}</button></div>;
   }
   if (!snapshot) {
-    return <div className="splash"><div className="splash-mark">CX</div><LoaderCircle className="spin" size={20} /><span>Opening local benchmark lab…</span></div>;
+    return <div className="splash"><div className="splash-mark">CX</div><LoaderCircle className="spin" size={20} /><span>{t("Opening local benchmark lab…")}</span></div>;
   }
 
   return (
@@ -94,9 +96,10 @@ export default function App() {
 }
 
 function Toast({ message, onClose }: { message: string; onClose: () => void }) {
+  const { t } = useI18n();
   useEffect(() => {
     const timer = window.setTimeout(onClose, 4_000);
     return () => window.clearTimeout(timer);
   }, [onClose]);
-  return <div className="toast"><CheckCircle2 size={17} /><span>{message}</span><button onClick={onClose}><X size={14} /></button></div>;
+  return <div className="toast"><CheckCircle2 size={17} /><span>{message}</span><button onClick={onClose} aria-label={t("Close")}><X size={14} /></button></div>;
 }

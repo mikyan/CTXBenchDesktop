@@ -1,7 +1,7 @@
 import { createHash } from "node:crypto";
 import { spawn, spawnSync } from "node:child_process";
 import { StringDecoder } from "node:string_decoder";
-import { cp, lstat, mkdir, readFile, writeFile } from "node:fs/promises";
+import { appendFile, cp, lstat, mkdir, readFile, writeFile } from "node:fs/promises";
 import path from "node:path";
 
 const requestPath = "/ctxbench/request.json";
@@ -14,6 +14,8 @@ if (request.schemaVersion !== 1 || !request.runId || !request.prompt || !request
 }
 
 await mkdir(outputRoot, { recursive: true });
+const liveTrajectoryPath = path.join(outputRoot, "trajectory.live.jsonl");
+await writeFile(liveTrajectoryPath, "", "utf8");
 spawnSync("git", ["config", "--global", "--add", "safe.directory", workspace]);
 
 const secretValues = Object.entries(process.env)
@@ -28,7 +30,9 @@ let sessionStats = null;
 let settled = false;
 let timedOut = false;
 let budgetExceeded = false;
+let budgetInterrupted = false;
 let cumulativeTokens = 0;
+let promptError = null;
 
 let executable = "pi";
 let args = [
@@ -38,6 +42,7 @@ let args = [
   "--no-skills",
   "--no-prompt-templates",
   "--no-approve",
+  "--offline",
   "--provider", request.model.provider,
   "--model", request.model.model,
 ];
@@ -61,6 +66,7 @@ function onRecord(line) {
   if (!line) return;
   const safeLine = redact(line);
   trajectory.push(safeLine);
+  void appendFile(liveTrajectoryPath, `${safeLine}\n`, "utf8");
   let event;
   try {
     event = JSON.parse(line);
@@ -77,8 +83,13 @@ function onRecord(line) {
     );
     if (cumulativeTokens >= request.model.max_tokens && !budgetExceeded) {
       budgetExceeded = true;
+      budgetInterrupted = !["stop", "end_turn"].includes(event.message.stopReason);
       send({ type: "abort" });
     }
+  }
+  if (event.type === "response" && event.id === "ctxbench-prompt" && !event.success) {
+    promptError = event.error ?? "Pi rejected the benchmark prompt.";
+    agent.kill("SIGTERM");
   }
   if (event.type === "agent_settled" && !settled) {
     settled = true;
@@ -132,7 +143,14 @@ await writeFile(path.join(outputRoot, "agent.stderr.log"), stderr, "utf8");
 spawnSync("git", ["add", "-N", "--", "."], { cwd: workspace });
 const git = (...args) => spawnSync("git", args, { cwd: workspace, encoding: "utf8", maxBuffer: 128 * 1024 * 1024 }).stdout ?? "";
 const changedFiles = git("diff", "--name-only", "--", ".").split("\n").map((item) => item.trim()).filter(Boolean);
-const contextPaths = changedFiles.filter(isContextPath);
+const changedContextPaths = changedFiles.filter(isContextPath);
+const currentContextPaths = request.mode === "generate-context"
+  ? [
+      ...git("ls-files", "--cached", "--others", "--exclude-standard", "--", ".").split("\n"),
+      ...git("ls-files", "--others", "--ignored", "--exclude-standard", "--", ".").split("\n"),
+    ].map((item) => item.trim()).filter(Boolean).filter(isContextPath)
+  : [];
+const contextPaths = [...new Set([...changedContextPaths, ...currentContextPaths])].sort();
 
 await writeFile(path.join(outputRoot, "raw_agent.patch"), git("diff", "--binary", "--no-ext-diff", "--", "."), "utf8");
 const contextExclusions = contextPaths.map((relative) => `:(exclude,literal)${relative}`);
@@ -186,12 +204,24 @@ const result = {
   exitCode,
   settled,
   budgetExceeded,
+  budgetInterrupted,
+  promptError,
   cumulativeTokens,
   sessionStats,
   changedFiles,
   contextPaths,
   contextManifest,
 };
+const emptyContextArtifact = request.mode === "generate-context"
+  && Object.keys(contextManifest?.files ?? {}).length === 0;
+result.emptyContextArtifact = emptyContextArtifact;
+result.status = timedOut
+  ? "timed-out"
+  : promptError || budgetInterrupted || emptyContextArtifact
+    ? "failed"
+    : exitCode === 0 || settled
+      ? "completed"
+      : "failed";
 await writeFile(path.join(outputRoot, "result.json"), JSON.stringify(result, null, 2), "utf8");
 process.exit(result.status === "completed" ? 0 : timedOut ? 124 : budgetExceeded ? 125 : 1);
 

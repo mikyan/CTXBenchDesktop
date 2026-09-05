@@ -1,6 +1,7 @@
 import type { ReactNode } from "react";
 import { CheckCircle2, CircleAlert, CircleDashed, CircleX, LoaderCircle } from "lucide-react";
 import type { DiagnosticItem, ExperimentStatus, RunStatus } from "../domain/types";
+import { useI18n } from "../i18n";
 import { titleCase } from "../lib/format";
 
 type StatusValue = ExperimentStatus | RunStatus | DiagnosticItem["status"] | "ready" | "generating" | "invalid" | "gold" | "silver";
@@ -14,11 +15,12 @@ const toneForStatus = (status: StatusValue): string => {
 };
 
 export function StatusBadge({ status, label }: { status: StatusValue; label?: string }) {
+  const { t } = useI18n();
   const tone = toneForStatus(status);
   return (
     <span className={`status-badge ${tone}`}>
       <span className="status-dot" />
-      {label ?? titleCase(status)}
+      {label ?? t(titleCase(status))}
     </span>
   );
 }
@@ -54,9 +56,10 @@ export function PageTitle({
 }
 
 export function ProgressBar({ value, tone = "cyan" }: { value: number; tone?: "cyan" | "violet" | "green" | "red" }) {
+  const { t } = useI18n();
   const bounded = Math.max(0, Math.min(1, value));
   return (
-    <div className="progress-track" aria-label={`${Math.round(bounded * 100)} percent`}>
+    <div className="progress-track" aria-label={t("{percent} percent", { percent: Math.round(bounded * 100) })}>
       <div className={`progress-fill ${tone}`} style={{ width: `${bounded * 100}%` }} />
     </div>
   );

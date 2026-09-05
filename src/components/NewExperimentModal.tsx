@@ -2,6 +2,7 @@ import { Check, ChevronDown, FlaskConical, Info, ShieldCheck, X } from "lucide-r
 import { useMemo, useState } from "react";
 import type { BenchmarkKind, ContextArm, CreateExperimentRequest } from "../domain/types";
 import { validateExperimentRequest } from "../domain/planner";
+import { useI18n } from "../i18n";
 import { titleCase } from "../lib/format";
 
 const presets: Record<BenchmarkKind, { dataset: string; tasks: string[] }> = {
@@ -30,6 +31,7 @@ export function NewExperimentModal({
   onClose: () => void;
   onCreate: (request: CreateExperimentRequest) => Promise<void>;
 }) {
+  const { t } = useI18n();
   const [benchmark, setBenchmark] = useState<BenchmarkKind>("ctxbench");
   const [name, setName] = useState("AGENTBench · generated context");
   const [dataset, setDataset] = useState(presets.ctxbench.dataset);
@@ -89,38 +91,38 @@ export function NewExperimentModal({
       <div className="modal" role="dialog" aria-modal="true" aria-labelledby="new-experiment-title">
         <header className="modal-header">
           <div className="modal-title-icon"><FlaskConical size={20} /></div>
-          <div><span>PAIRED BENCHMARK</span><h2 id="new-experiment-title">New experiment</h2></div>
-          <button className="icon-button" onClick={onClose} aria-label="Close"><X size={18} /></button>
+          <div><span>{t("PAIRED BENCHMARK")}</span><h2 id="new-experiment-title">{t("New experiment")}</h2></div>
+          <button className="icon-button" onClick={onClose} aria-label={t("Close")}><X size={18} /></button>
         </header>
 
         <div className="modal-body">
           <div className="form-section">
-            <div className="form-section-title"><span>1</span><div><strong>Benchmark source</strong><small>Choose a task set and frozen baseline.</small></div></div>
+            <div className="form-section-title"><span>1</span><div><strong>{t("Benchmark source")}</strong><small>{t("Choose a task set and frozen baseline.")}</small></div></div>
             <div className="segmented benchmark-options">
               {(["ctxbench", "swebench", "custom"] as const).map((value) => (
                 <button key={value} className={benchmark === value ? "selected" : ""} onClick={() => updateBenchmark(value)}>
-                  {value === "ctxbench" ? "CTXBench" : value === "swebench" ? "SWE-bench" : "Custom"}
+                  {value === "ctxbench" ? "CTXBench" : value === "swebench" ? "SWE-bench" : t("Custom")}
                   {benchmark === value && <Check size={14} />}
                 </button>
               ))}
             </div>
             <div className="form-grid two">
-              <label><span>Experiment name</span><input value={name} onChange={(event) => setName(event.target.value)} /></label>
-              <label><span>Dataset or manifest</span><div className="select-wrap"><input value={dataset} onChange={(event) => setDataset(event.target.value)} /><ChevronDown size={14} /></div></label>
+              <label><span>{t("Experiment name")}</span><input value={name} onChange={(event) => setName(event.target.value)} /></label>
+              <label><span>{t("Dataset or manifest")}</span><div className="select-wrap"><input value={dataset} onChange={(event) => setDataset(event.target.value)} /><ChevronDown size={14} /></div></label>
             </div>
-            <div className="dataset-summary"><Info size={15} /><span><strong>{taskIds.length} preview tasks</strong> selected for this run. Full dataset filtering is available after import.</span></div>
+            <div className="dataset-summary"><Info size={15} /><span><strong>{t("{count} preview tasks", { count: taskIds.length })}</strong> {t("selected for this run. Full dataset filtering is available after import.")}</span></div>
           </div>
 
           <div className="form-section">
-            <div className="form-section-title"><span>2</span><div><strong>Context comparison</strong><small>The no-context baseline is mandatory and frozen.</small></div></div>
+            <div className="form-section-title"><span>2</span><div><strong>{t("Context comparison")}</strong><small>{t("The no-context baseline is mandatory and frozen.")}</small></div></div>
             <div className="arm-comparison">
-              <div className="arm-choice fixed"><span className="radio checked" /><div><strong>No context</strong><small>Original context files removed</small></div><em>BASELINE</em></div>
-              <div className="versus">VS</div>
+              <div className="arm-choice fixed"><span className="radio checked" /><div><strong>{t("No context")}</strong><small>{t("Original context files removed")}</small></div><em>{t("BASELINE")}</em></div>
+              <div className="versus">{t("VS")}</div>
               <div className="arm-select">
                 {(["skill-generated", "manual", "developer-historical"] as const).map((arm) => (
                   <button className={contextArm === arm ? "selected" : ""} onClick={() => setContextArm(arm)} key={arm}>
                     <span className={`radio ${contextArm === arm ? "checked" : ""}`} />
-                    <div><strong>{titleCase(arm)}</strong><small>{arm === "skill-generated" ? "Generated once in isolated Pi session" : arm === "manual" ? "Human-authored frozen package" : "Original repository context at base commit"}</small></div>
+                    <div><strong>{t(titleCase(arm))}</strong><small>{t(arm === "skill-generated" ? "Generated once in isolated Pi session" : arm === "manual" ? "Human-authored frozen package" : "Original repository context at base commit")}</small></div>
                   </button>
                 ))}
               </div>
@@ -128,26 +130,26 @@ export function NewExperimentModal({
           </div>
 
           <div className="form-section">
-            <div className="form-section-title"><span>3</span><div><strong>Frozen solver configuration</strong><small>Both arms receive exactly the same model and budget.</small></div></div>
+            <div className="form-section-title"><span>3</span><div><strong>{t("Frozen solver configuration")}</strong><small>{t("Both arms receive exactly the same model and budget.")}</small></div></div>
             <div className="profile-editor">
-              <div className="profile-head"><span>Role</span><span>Provider</span><span>Model</span><span>Thinking</span></div>
+              <div className="profile-head"><span>{t("Role")}</span><span>{t("Provider")}</span><span>{t("Model")}</span><span>{t("Thinking")}</span></div>
               <ProfileRow role="Knowledge builder" provider={builderProvider} model={builderModel} thinking="high" onProvider={setBuilderProvider} onModel={setBuilderModel} />
               <ProfileRow role="Coding agent" provider={provider} model={model} thinking={thinking} onProvider={setProvider} onModel={setModel} onThinking={setThinking} />
               <ProfileRow role="Constraint miner" provider={minerProvider} model={minerModel} thinking="medium" onProvider={setMinerProvider} onModel={setMinerModel} />
               <ProfileRow role="Constraint judge" provider={judgeProvider} model={judgeModel} thinking="high" onProvider={setJudgeProvider} onModel={setJudgeModel} />
             </div>
-            <label className="repeat-field"><span>Agent image</span><input value={agentImage} onChange={(event) => setAgentImage(event.target.value)} /></label>
-            <label className="repeat-field"><span>Repeat profile</span><select value={repeats} onChange={(event) => setRepeats(Number(event.target.value))}><option value={1}>1 · Smoke</option><option value={5}>5 · Standard</option><option value={10}>10 · Research</option></select></label>
-            <div className="integrity-note"><ShieldCheck size={16} /><span>Strict pairing locks prompt, commit, image, CPU, memory, timeout, network, and agent version.</span></div>
+            <label className="repeat-field"><span>{t("Agent image")}</span><input value={agentImage} onChange={(event) => setAgentImage(event.target.value)} /></label>
+            <label className="repeat-field"><span>{t("Repeat profile")}</span><select value={repeats} onChange={(event) => setRepeats(Number(event.target.value))}><option value={1}>1 · {t("Smoke")}</option><option value={5}>5 · {t("Standard")}</option><option value={10}>10 · {t("Research")}</option></select></label>
+            <div className="integrity-note"><ShieldCheck size={16} /><span>{t("Strict pairing locks prompt, commit, image, CPU, memory, timeout, network, and agent version.")}</span></div>
           </div>
 
-          {error && <div className="form-error">{error}</div>}
+          {error && <div className="form-error">{t(error)}</div>}
         </div>
 
         <footer className="modal-footer">
-          <div><span>Planned workload</span><strong>{taskIds.length * repeats * 2} runs · {taskIds.length} context keys</strong></div>
-          <button className="button secondary" onClick={onClose} disabled={creating}>Cancel</button>
-          <button className="button primary" onClick={submit} disabled={creating}>{creating ? "Creating plan…" : "Create & prepare"}</button>
+          <div><span>{t("Planned workload")}</span><strong>{t("{runs} runs · {keys} context keys", { runs: taskIds.length * repeats * 2, keys: taskIds.length })}</strong></div>
+          <button className="button secondary" onClick={onClose} disabled={creating}>{t("Cancel")}</button>
+          <button className="button primary" onClick={submit} disabled={creating}>{creating ? t("Creating plan…") : t("Create & prepare")}</button>
         </footer>
       </div>
     </div>
@@ -163,14 +165,15 @@ function ProfileRow({ role, provider, model, thinking, onProvider, onModel, onTh
   onModel: (value: string) => void;
   onThinking?: (value: CreateExperimentRequest["model"]["thinking"]) => void;
 }) {
+  const { t } = useI18n();
   return (
     <div className="profile-row">
-      <strong>{role}</strong>
-      <input aria-label={`${role} provider`} value={provider} onChange={(event) => onProvider(event.target.value)} />
-      <input aria-label={`${role} model`} value={model} onChange={(event) => onModel(event.target.value)} />
+      <strong>{t(role)}</strong>
+      <input aria-label={`${t(role)} ${t("Provider")}`} value={provider} onChange={(event) => onProvider(event.target.value)} />
+      <input aria-label={`${t(role)} ${t("Model")}`} value={model} onChange={(event) => onModel(event.target.value)} />
       {onThinking ? (
-        <select aria-label={`${role} thinking`} value={thinking} onChange={(event) => onThinking(event.target.value as typeof thinking)}><option>off</option><option>low</option><option>medium</option><option>high</option><option>xhigh</option><option>max</option></select>
-      ) : <span className="thinking-lock">{thinking}</span>}
+        <select aria-label={`${t(role)} ${t("Thinking")}`} value={thinking} onChange={(event) => onThinking(event.target.value as typeof thinking)}><option value="off">{t("Off")}</option><option value="low">{t("Low")}</option><option value="medium">{t("Medium")}</option><option value="high">{t("High")}</option><option value="xhigh">{t("Xhigh")}</option><option value="max">{t("Max")}</option></select>
+      ) : <span className="thinking-lock">{t(titleCase(thinking))}</span>}
     </div>
   );
 }

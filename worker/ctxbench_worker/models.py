@@ -6,7 +6,7 @@ from typing import Any, Literal
 BenchmarkKind = Literal["swebench", "ctxbench", "custom"]
 ContextArm = Literal["none", "skill-generated", "manual", "developer-historical"]
 NetworkPolicy = Literal["offline", "api-only", "unrestricted"]
-RunMode = Literal["solve", "generate-context", "grade", "judge-constraints"]
+RunMode = Literal["solve", "generate-context", "grade", "mine-constraints", "judge-constraints"]
 
 
 @dataclass(frozen=True)

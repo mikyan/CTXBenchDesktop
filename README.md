@@ -51,9 +51,13 @@ docker compose -f docker/compose.yaml --profile build-only build
 docker compose -f docker/compose.yaml up -d ctxbench-worker
 ```
 
+The build-only profile also produces `ctxbench/official-harness:0.1.0`. That image pins the upstream SWE-bench and ETH SRI AgentBench revisions and exposes `inspect-agentbench`, `inspect-swebench`, `export-task`, `grade-agentbench`, and `grade-swebench`. Mount the Docker socket only into this evaluator image, never into solver images. Mount `/var/lib/ctxbench` at the same path when grading so upstream child containers can preserve their reports.
+
 The install script creates `/var/lib/ctxbench`, which Compose bind-mounts at the same path so child agent containers can safely receive workspaces through the host Docker daemon. To use another WSL-native location, set `CTXBENCH_HOST_DATA_DIR` to its absolute path before starting Compose.
 
 The worker binds only to `127.0.0.1:48173`. API credentials remain runtime-only and are passed to agent containers from an explicit environment-variable allowlist.
+
+Historical design evidence can be collected with `POST /v1/constraints/review-archive`. The request fixes a GitHub `owner/name`, cutoff timestamp, and bounded page/PR/comment limits. The worker retains only review comments from PRs merged by the cutoff and stores a content-addressed evaluator-only archive under `/var/lib/ctxbench/review-archives`. `GITHUB_TOKEN` is optional for public repositories and is never written to the archive.
 
 ## Repository layout
 
