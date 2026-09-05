@@ -5,11 +5,11 @@ import type { DashboardSnapshot } from "../domain/types";
 import { useI18n } from "../i18n";
 import { bytes, relativeTime, titleCase } from "../lib/format";
 
-export function KnowledgePage({ snapshot }: { snapshot: DashboardSnapshot }) {
+export function KnowledgePage({ snapshot, onImport, onGenerate, onView }: { snapshot: DashboardSnapshot; onImport: () => void; onGenerate: () => void; onView: (id: string) => void }) {
   const { locale, t } = useI18n();
   const [query, setQuery] = useState("");
   const artifacts = useMemo(
-    () => snapshot.artifacts.filter((artifact) => artifact.repository.toLowerCase().includes(query.toLowerCase())),
+    () => snapshot.artifacts.filter((artifact) => `${artifact.repository} ${artifact.commit}`.toLowerCase().includes(query.toLowerCase())),
     [query, snapshot.artifacts],
   );
   const reuse = snapshot.artifacts.reduce((sum, artifact) => sum + artifact.tasksReused, 0);
@@ -22,15 +22,15 @@ export function KnowledgePage({ snapshot }: { snapshot: DashboardSnapshot }) {
         description={t("Frozen repository context keyed by commit, builder configuration, prompt, and skill version.")}
         actions={
           <>
-            <button className="button secondary"><ArchiveRestore size={16} /> {t("Import package")}</button>
-            <button className="button primary"><Plus size={16} /> {t("Generate context")}</button>
+            <button className="button secondary" onClick={onImport}><ArchiveRestore size={16} /> {t("Import package")}</button>
+            <button className="button primary" onClick={onGenerate}><Plus size={16} /> {t("Generate context")}</button>
           </>
         }
       />
 
       <section className="knowledge-summary">
         <div><DatabaseZap size={19} /><span>{t("Ready artifacts")}</span><strong>{snapshot.artifacts.filter((item) => item.status === "ready").length}</strong></div>
-        <div><RefreshCw size={19} /><span>{t("Cross-task reuses")}</span><strong>{reuse}</strong></div>
+        <div><RefreshCw size={19} /><span>{t("Artifact-backed runs")}</span><strong>{reuse}</strong></div>
         <div><FileCode2 size={19} /><span>{t("Context files")}</span><strong>{snapshot.artifacts.reduce((sum, item) => sum + item.files, 0)}</strong></div>
         <div><Fingerprint size={19} /><span>{t("Task-informed")}</span><strong>{snapshot.artifacts.filter((item) => item.informed).length}</strong></div>
       </section>
@@ -51,8 +51,7 @@ export function KnowledgePage({ snapshot }: { snapshot: DashboardSnapshot }) {
             </div>
             {artifact.status === "generating" ? (
               <div className="generation-block">
-                <div><span>{t("Inspecting architecture and conventions")}</span><strong>62%</strong></div>
-                <ProgressBar value={0.62} />
+                <div><span>{t("Inspecting architecture and conventions")}</span></div>
                 <small>{t("Builder isolated · target task hidden")}</small>
               </div>
             ) : (
@@ -63,12 +62,13 @@ export function KnowledgePage({ snapshot }: { snapshot: DashboardSnapshot }) {
                   <div><span>{t("Payload")}</span><strong>{t("{count} files · {size}", { count: artifact.files, size: bytes(artifact.bytes) })}</strong></div>
                   <div><span>{t("Reused")}</span><strong>{t("{count} runs", { count: artifact.tasksReused })}</strong></div>
                 </div>
-                <div className="artifact-files"><FileCode2 size={14} /><span>AGENTS.md</span><span>.ctx/architecture.md</span><span>.ctx/conventions.md</span></div>
+                <div className="artifact-files"><FileCode2 size={14} />{artifact.filePaths?.map((path) => <span key={path}>{path}</span>)}</div>
               </>
             )}
             <div className="artifact-footer">
-              <span>{t("skill {version}", { version: artifact.skillVersion })}</span>
-              <span>{t("prompt {hash}", { hash: artifact.promptHash })}</span>
+              <button className="text-button" onClick={() => onView(artifact.id)}>{t("View package")}</button>
+              <span title={artifact.skillVersion}>{t("skill {version}", { version: artifact.skillVersion.slice(0, 12) })}</span>
+              <span title={artifact.promptHash}>{t("prompt {hash}", { hash: artifact.promptHash.slice(0, 12) })}</span>
               <time>{relativeTime(artifact.generatedAt, locale)}</time>
             </div>
           </article>

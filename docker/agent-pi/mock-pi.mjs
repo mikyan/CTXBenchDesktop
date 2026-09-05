@@ -1,6 +1,7 @@
 import { createInterface } from "node:readline";
 import { mkdir, writeFile } from "node:fs/promises";
 import path from "node:path";
+import { spawnSync } from "node:child_process";
 
 const mode = process.argv[2] ?? "solve";
 const send = (value) => process.stdout.write(`${JSON.stringify(value)}\n`);
@@ -24,11 +25,18 @@ async function performRun(message) {
       "utf8",
     );
   } else if (mode === "solve") {
+    const delay = Number(process.env.CTXBENCH_TEST_DELAY_SECONDS ?? 0);
+    if (delay > 0) await new Promise((resolve) => setTimeout(resolve, delay * 1000));
     await writeFile(
       "ctxbench_mock_solution.txt",
       `Containerized mock solver completed. Prompt bytes: ${Buffer.byteLength(message)}\n`,
       "utf8",
     );
+    // Exercise committed AND staged changes through the production patch extractor.
+    spawnSync("git", ["add", "ctxbench_mock_solution.txt"]);
+    spawnSync("git", ["-c", "user.name=Mock", "-c", "user.email=mock@ctxbench.invalid", "commit", "-qm", "Mock solution"]);
+    await writeFile("ctxbench_mock_staged.txt", "Staged fixture\n");
+    spawnSync("git", ["add", "ctxbench_mock_staged.txt"]);
   }
   const assistant = {
     role: "assistant",

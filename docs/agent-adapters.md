@@ -35,7 +35,7 @@ The context-generation Skill is mounted by the worker only when `mode` is `gener
 
 ## Adding internal credentials
 
-Add credential variable names—not values—to `CTXBENCH_EXTRA_ENV_ALLOWLIST`, define the matching variables in the runtime `.env`, and select those names in the run configuration. The worker rejects malformed or non-allowlisted names before starting a container. Any internal adapter must redact the resulting values from stdout, stderr, trajectories, and diagnostic artifacts.
+Use Infrastructure's runtime credential form to add internal names/values in worker memory, then select only the names in the experiment. For persistent deployment, add names to `CTXBENCH_EXTRA_ENV_ALLOWLIST` **and explicitly pass those variables into the worker's Compose environment** (for example through a local Compose override). A `.env` interpolation file alone does not automatically forward arbitrary variables. Never put credentials into Dockerfiles or build arguments. Any internal adapter must redact values from its outputs.
 
 The bundled Pi image supports Xiaomi Token Plan China with provider `xiaomi-token-plan-cn`, model `mimo-v2.5-pro` (or `mimo-v2.5`), and runtime variable `XIAOMI_TOKEN_PLAN_CN_API_KEY`. The API-only proxy admits only the China Token Plan hostname for this adapter.
 

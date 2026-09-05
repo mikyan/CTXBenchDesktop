@@ -10,6 +10,7 @@ from pathlib import Path, PurePosixPath
 from typing import Protocol
 
 from .models import RunResult, RunSpec
+from .safe_files import safe_file
 
 ENV_NAME = re.compile(r"^[A-Z][A-Z0-9_]{1,127}$")
 DEFAULT_SECRET_ALLOWLIST = frozenset(
@@ -37,12 +38,15 @@ def selected_environment(names: tuple[str, ...], allowlist: frozenset[str]) -> d
     invalid = [name for name in names if not ENV_NAME.fullmatch(name) or name not in allowlist]
     if invalid:
         raise ValueError(f"Environment variables are not allowlisted: {', '.join(invalid)}")
+    missing = [name for name in names if not os.environ.get(name)]
+    if missing:
+        raise ValueError(f"Configure these runtime variables first: {', '.join(missing)}")
     return {name: os.environ[name] for name in names if name in os.environ}
 
 
 def _within(root: Path, candidate: str) -> Path:
     resolved = Path(candidate).resolve()
-    if resolved != root and root not in resolved.parents:
+    if resolved == root or root not in resolved.parents:
         raise ValueError(f"Path escapes configured root: {candidate}")
     return resolved
 
@@ -139,6 +143,15 @@ class DockerRunner:
             raise ValueError(f"Docker bind source is outside the shared data root: {candidate}") from error
         return str(self.host_data_root.joinpath(*relative.parts))
 
+    def cancel(self, run_id: str) -> None:
+        import docker
+        client = docker.from_env()
+        try:
+            for container in client.containers.list(filters={"label": f"io.ctxbench.run={run_id}"}):
+                container.kill()
+        finally:
+            client.close()
+
     def run(self, spec: RunSpec) -> RunResult:
         try:
             import docker
@@ -168,6 +181,11 @@ class DockerRunner:
         )
 
         environment = selected_environment(spec.env_names, self.env_allowlist)
+        secrets = tuple(environment.values())
+        def redact(value: str) -> str:
+            for secret in sorted(secrets, key=len, reverse=True):
+                value = value.replace(secret, "[REDACTED]")
+            return value
         network_mode = (
             "none"
             if spec.resources.network == "offline"
@@ -214,6 +232,7 @@ class DockerRunner:
                 detach=True,
                 name=f"ctxbench-{spec.run_id[:40]}",
                 working_dir="/workspace",
+                user="10001:10001",
                 environment=environment,
                 volumes=volumes,
                 network=network_mode,
@@ -226,8 +245,15 @@ class DockerRunner:
             )
             wait = container.wait(timeout=spec.resources.timeout_minutes * 60 + 30)
             exit_code = int(wait.get("StatusCode", 1))
-            logs = container.logs(stdout=True, stderr=True, tail=4000).decode(errors="replace")
-            (output / "container.log").write_text(logs, encoding="utf-8")
+            logs = redact(container.logs(stdout=True, stderr=True, tail=4000).decode(errors="replace"))
+            safe_file(output, "container.log").write_text(logs, encoding="utf-8")
+            for artifact in output.rglob("*"):
+                if artifact.is_file() and not artifact.is_symlink() and artifact.suffix in {".json", ".jsonl", ".log", ".patch", ".md", ".txt"}:
+                    artifact = safe_file(output, artifact.relative_to(output).as_posix())
+                    content = artifact.read_text(encoding="utf-8", errors="replace")
+                    cleaned = redact(content)
+                    if cleaned != content:
+                        artifact.write_text(cleaned, encoding="utf-8")
             return RunResult(
                 run_id=spec.run_id,
                 status="completed" if exit_code == 0 else "failed",
@@ -248,7 +274,7 @@ class DockerRunner:
                 exit_code=124 if "timed out" in str(error).lower() else 1,
                 duration_seconds=time.monotonic() - started,
                 output_dir=str(output),
-                failure=f"{type(error).__name__}: {error}",
+                failure=redact(f"{type(error).__name__}: {error}"),
             )
         finally:
             request_path.unlink(missing_ok=True)
@@ -261,3 +287,4 @@ class DockerRunner:
                 _chown_tree(workspace, repositories_owner.st_uid, repositories_owner.st_gid)
             if output_assigned:
                 _chown_tree(output, artifacts_owner.st_uid, artifacts_owner.st_gid)
+            client.close()

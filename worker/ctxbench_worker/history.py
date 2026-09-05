@@ -73,6 +73,7 @@ def mine_review_archive(
             value
             for value in values
             if value.get("body") and _instant(str(value["created_at"])) <= cutoff_time
+            and _instant(str(value.get("updated_at") or value["created_at"])) <= cutoff_time
         ]
         comments.extend(eligible)
 
@@ -96,6 +97,9 @@ def mine_review_archive(
         merged_at = pull.get("merged_at") if isinstance(pull, dict) else None
         if not merged_at or _instant(str(merged_at)) > cutoff_time:
             continue
+        # GitHub does not expose historic PR text revisions. Do not use text edited after cutoff.
+        historic_text = not pull.get("updated_at") or _instant(str(pull["updated_at"])) <= cutoff_time
+        body = (pull.get("body") or "") if historic_text else ""
         values = values[: max_comments - retained_comments]
         commits = client.get(
             f"repos/{repository}/pulls/{number}/commits", {"per_page": "100"}
@@ -105,9 +109,9 @@ def mine_review_archive(
             {
                 "id": f"#{number}",
                 "url": pull.get("html_url"),
-                "title": pull.get("title"),
-                "body": pull.get("body") or "",
-                "issueIds": sorted(set(re.findall(r"#(\d+)", pull.get("body") or ""))),
+                "title": pull.get("title") if historic_text else "",
+                "body": body,
+                "issueIds": sorted(set(re.findall(r"#(\d+)", body))),
                 "baseCommit": pull.get("base", {}).get("sha"),
                 "mergeCommit": pull.get("merge_commit_sha"),
                 "mergedAt": merged_at,

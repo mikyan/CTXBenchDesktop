@@ -6,7 +6,7 @@
   "build": {
     "beforeDevCommand": "npm run dev",
     "devUrl": "http://localhost:43173",
-    "beforeBuildCommand": "npm run build",
+    "beforeBuildCommand": "npm run build && node scripts/stage-deployment.mjs",
     "frontendDist": "../dist"
   },
   "app": {
@@ -29,7 +29,10 @@
     }
   },
   "bundle": {
-    "active": false,
-    "targets": "all"
+    "active": true,
+    "targets": ["nsis"],
+    "resources": { "../.desktop-deployment/": "deployment/" },
+    "icon": ["icons/icon.ico"],
+    "windows": { "nsis": { "languages": ["SimpChinese", "English"], "displayLanguageSelector": true } }
   }
 }

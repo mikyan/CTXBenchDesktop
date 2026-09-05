@@ -32,7 +32,7 @@ class TaskRecord:
 
 def _repository(value: str) -> str:
     parsed = urlparse(value)
-    if parsed.scheme and parsed.scheme not in {"https", "ssh", "git"}:
+    if parsed.scheme and parsed.scheme not in {"https", "ssh", "git"} and not Path(value).is_absolute():
         raise ValueError(f"Unsupported repository URL scheme: {parsed.scheme}")
     if not value.strip():
         raise ValueError("Repository is required.")
@@ -105,19 +105,19 @@ def import_swebench(rows: Iterable[Mapping[str, Any]]) -> list[TaskRecord]:
 def import_agentbench(rows: Iterable[Mapping[str, Any]]) -> list[TaskRecord]:
     result: list[TaskRecord] = []
     for row in rows:
-        repository = str(row.get("repo") or row.get("repository"))
+        repository = str(row.get("base_repo") or row.get("repo") or row.get("repository"))
         task_id = str(row.get("instance_id") or row.get("id"))
         result.append(
             TaskRecord(
                 id=task_id,
                 repository=f"https://github.com/{repository}.git" if "://" not in repository else repository,
-                base_commit=str(row.get("base_commit") or row.get("baseCommit")),
-                prompt=str(row.get("problem_statement") or row.get("task")),
-                image=str(row["image"]) if row.get("image") else None,
+                base_commit=str(row.get("base_sha") or row.get("base_commit") or row.get("baseCommit")),
+                prompt=str(row.get("problem_description") or row.get("problem_statement") or row.get("task")),
+                image=str(row.get("docker_image") or row.get("image")) if row.get("docker_image") or row.get("image") else None,
                 build=row.get("build"),
                 test_command=tuple(row.get("test_command") or ("pytest", "-q")),
                 hidden_test_patch=str(row["test_patch"]) if row.get("test_patch") else None,
-                gold_patch=str(row["patch"]) if row.get("patch") else None,
+                gold_patch=str(row.get("clean_pr_patch") or row.get("patch")) if row.get("clean_pr_patch") or row.get("patch") else None,
                 source="agentbench",
             )
         )

@@ -44,7 +44,6 @@ export function Sidebar({ page, onNavigate }: { page: Page; onNavigate: (page: P
             >
               <Icon size={17} />
               <span>{t(item.label)}</span>
-              {item.id === "experiments" && <em>3</em>}
             </button>
           );
         })}
@@ -63,10 +62,6 @@ export function Sidebar({ page, onNavigate }: { page: Page; onNavigate: (page: P
           </div>
           <p>{t("Private by default. No telemetry.")}</p>
         </div>
-        <button type="button" className="collapse-button" aria-label={t("Collapse sidebar")}>
-          <PanelLeftClose size={16} />
-          <span>{t("Collapse")}</span>
-        </button>
       </div>
     </aside>
   );

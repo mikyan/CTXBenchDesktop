@@ -11,7 +11,9 @@ import {
   Sparkles,
   TrendingUp,
 } from "lucide-react";
-import type { DashboardSnapshot } from "../domain/types";
+import type { BenchmarkRun, DashboardSnapshot } from "../domain/types";
+import { useState } from "react";
+import { aggregateArms, aggregateDashboard } from "../domain/metrics";
 import { useI18n } from "../i18n";
 import { duration, money, percent, relativeTime, signedPercent, titleCase } from "../lib/format";
 import { PageTitle, ProgressBar, StatusBadge } from "../components/shared";
@@ -20,16 +22,32 @@ export function DashboardPage({
   snapshot,
   onNewExperiment,
   onOpenExperiments,
+  onRun,
 }: {
   snapshot: DashboardSnapshot;
   onNewExperiment: () => void;
   onOpenExperiments: () => void;
+  onRun: (run: BenchmarkRun) => void;
 }) {
   const { locale, t } = useI18n();
-  const { metrics } = snapshot;
+  const [block, setBlock] = useState("");
+  const [chosenArm, setChosenArm] = useState("");
+  const blockRuns = snapshot.runs.filter((run) => !run.mock && (!block || run.experimentId === block));
+  const contextArms = [...new Set(blockRuns.filter((run) => run.arm !== "none").map((run) => run.arm))];
+  const selectedArm = contextArms.find((arm) => arm === chosenArm) ?? contextArms[0];
+  const eligibleExperiments = new Set(blockRuns.filter((run) => run.arm === selectedArm).map((run) => run.experimentId));
+  const runs = selectedArm ? blockRuns.filter((run) => eligibleExperiments.has(run.experimentId) && (run.arm === "none" || run.arm === selectedArm)) : blockRuns;
+  const metrics = aggregateDashboard(runs);
+  const armMetrics = aggregateArms(runs);
+  const pairCount = metrics.pairedWins + metrics.pairedLosses + metrics.pairedTies;
   const active = snapshot.experiments.find((experiment) => experiment.status === "running");
-  const baseline = snapshot.armMetrics.find((item) => item.arm === "none");
-  const context = snapshot.armMetrics.find((item) => item.arm === "skill-generated");
+  const baseline = armMetrics.find((item) => item.arm === "none");
+  const context = armMetrics.find((item) => item.arm !== "none");
+  const live = snapshot.runs.find((run) => ["running", "grading", "preparing"].includes(run.status));
+  const armRate = (arm: string, passing: boolean) => {
+    const judged = runs.filter((run) => run.arm === arm && run.status === "completed" && run.constraintVerdict !== undefined);
+    return judged.length ? judged.filter((run) => run.constraintVerdict === "satisfied" && (!passing || run.testsPassed)).length / judged.length : undefined;
+  };
 
   return (
     <div className="page dashboard-page">
@@ -47,42 +65,44 @@ export function DashboardPage({
         }
       />
 
+      <div className="toolbar"><label>{t("Comparison block")} <select value={block} onChange={(event) => setBlock(event.target.value)}><option value="">{t("All real experiments")}</option>{snapshot.experiments.filter((item) => item.model.provider !== "mock").map((item) => <option value={item.id} key={item.id}>{item.name} · {item.model.model}</option>)}</select></label><span className="muted">{t("Real runs only; mock results are excluded.")}</span></div>
+      {contextArms.length > 0 && <div className="toolbar"><label>{t("Comparison arm")} <select value={selectedArm} onChange={(event) => setChosenArm(event.target.value)}>{contextArms.map((arm) => <option key={arm} value={arm}>{t(titleCase(arm))}</option>)}</select></label></div>}
       <section className="metric-grid" aria-label={t("Benchmark summary")}>
         <MetricCard
           label={t("Functional pass rate")}
-          value={percent(metrics.passRate)}
+          value={metrics.totalRuns ? percent(metrics.passRate) : "—"}
           detail={t("{count} graded runs", { count: metrics.totalRuns })}
-          trend="+4.8 pp"
+          trend=""
           icon={<CheckCircle2 size={17} />}
           tone="green"
-          spark={[42, 47, 45, 53, 58, 61, 63]}
+          spark={[]}
         />
         <MetricCard
           label={t("Knowledge lift")}
-          value={signedPercent(metrics.knowledgeLift)}
+          value={pairCount ? signedPercent(metrics.knowledgeLift) : "—"}
           detail={t("context vs none")}
           trend={`${metrics.pairedWins}W / ${metrics.pairedLosses}L`}
           icon={<TrendingUp size={17} />}
           tone="cyan"
-          spark={[12, 18, 15, 24, 31, 28, 38]}
+          spark={[]}
         />
         <MetricCard
           label={t("Pass-patch violations")}
-          value={percent(metrics.passPatchViolationRate)}
+          value={metrics.passingApplicable ? percent(metrics.passPatchViolationRate) : "—"}
           detail={t("PPVR · applicable runs")}
-          trend="−2.1 pp"
+          trend=""
           icon={<ShieldAlert size={17} />}
           tone="orange"
-          spark={[40, 37, 42, 33, 31, 29, 26]}
+          spark={[]}
         />
         <MetricCard
           label={t("Average run cost")}
-          value={money(metrics.avgCostUsd, locale)}
-          detail={t("solver only")}
-          trend="−$0.07"
+          value={runs.some((run) => run.status === "completed" && typeof run.costUsd === "number") ? money(metrics.avgCostUsd, locale) : "—"}
+          detail={t("Provider-reported · solver only")}
+          trend=""
           icon={<CircleDollarSign size={17} />}
           tone="violet"
-          spark={[50, 49, 44, 46, 39, 38, 36]}
+          spark={[]}
         />
       </section>
 
@@ -95,20 +115,20 @@ export function DashboardPage({
             </div>
             <div className="legend">
               <span><i className="legend-dot baseline" />{t("No context")}</span>
-              <span><i className="legend-dot context" />{t("Generated")}</span>
+              <span><i className="legend-dot context" />{selectedArm ? t(titleCase(selectedArm)) : t("Context")}</span>
             </div>
           </div>
           <div className="impact-summary">
             <div>
-              <strong>{signedPercent(metrics.knowledgeLift)}</strong>
+              <strong>{pairCount ? signedPercent(metrics.knowledgeLift) : "—"}</strong>
               <span>{t("absolute pass-rate lift")}</span>
             </div>
             <div className="win-chip"><Sparkles size={14} /> {t("Context wins {wins} of {pairs} pairs", { wins: metrics.pairedWins, pairs: metrics.pairedWins + metrics.pairedLosses + metrics.pairedTies })}</div>
           </div>
           <div className="bar-chart">
-            <BarGroup label={t("Tests passed")} first={baseline?.passRate ?? 0} second={context?.passRate ?? 0} />
-            <BarGroup label={t("Constraints satisfied")} first={0.69} second={0.82} />
-            <BarGroup label={t("Patch accepted")} first={0.44} second={0.63} />
+            <BarGroup label={t("Tests passed")} first={baseline?.passRate} second={context?.passRate} />
+            <BarGroup label={t("Constraints satisfied")} first={armRate("none", false)} second={armRate(context?.arm ?? "skill-generated", false)} />
+            <BarGroup label={t("Pass & satisfied")} first={armRate("none", true)} second={armRate(context?.arm ?? "skill-generated", true)} />
           </div>
           <div className="chart-axis"><span>0</span><span>25</span><span>50</span><span>75</span><span>100%</span></div>
         </div>
@@ -131,19 +151,19 @@ export function DashboardPage({
                 <ProgressBar value={active.completedRuns / active.totalRuns} />
               </div>
               <div className="run-stage-grid">
-                <Stage value="24" label={t("Tasks")} />
+                <Stage value={String(active.tasks)} label={t("Tasks")} />
                 <Stage value={`${active.repeats}×`} label={t("Repeats")} />
-                <Stage value="2" label={t("Arms")} />
-                <Stage value="~38m" label={t("ETA")} />
+                <Stage value={String(active.arms.length)} label={t("Arms")} />
+                <Stage value="—" label={t("ETA")} />
               </div>
               <div className="live-run">
                 <div className="live-icon"><Play size={14} fill="currentColor" /></div>
                 <div>
-                  <strong>sympy__sympy-20590</strong>
-                  <span>{t("skill-generated · grading patch offline")}</span>
+                  <strong>{live?.taskId ?? t("Preparing")}</strong>
+                  <span>{live ? `${t(titleCase(live.arm))} · ${t(titleCase(live.status))}` : "—"}</span>
                 </div>
                 <Clock3 size={15} />
-                <time>08:41</time>
+                <time>{duration(live?.durationSeconds, locale)}</time>
               </div>
               <button type="button" className="button panel-button" onClick={onOpenExperiments}>
                 {t("Open experiment")} <ArrowUpRight size={15} />
@@ -166,16 +186,16 @@ export function DashboardPage({
                 <tr><th>{t("Task")}</th><th>{t("Arm")}</th><th>{t("Tests")}</th><th>{t("Constraint")}</th><th>{t("Time")}</th><th /></tr>
               </thead>
               <tbody>
-                {[...snapshot.runs].reverse().slice(0, 6).map((run) => (
+                {[...runs].filter((run) => run.status !== "queued").sort((a, b) => (b.updatedAt ?? "").localeCompare(a.updatedAt ?? "")).slice(0, 6).map((run) => (
                   <tr key={run.id}>
                     <td>
                       <div className="primary-cell"><strong>{run.taskId.split("__").at(-1)}</strong><span>{run.repository}</span></div>
                     </td>
                     <td><span className={`arm-tag ${run.arm === "none" ? "none" : "context"}`}>{t(run.arm === "none" ? "None" : "Context")}</span></td>
-                    <td><span className={`result-mark ${run.testsPassed ? "pass" : "fail"}`}>{t(run.testsPassed ? "PASS" : "FAIL")}</span></td>
-                    <td><span className={`verdict ${run.constraintVerdict}`}>{t(titleCase(run.constraintVerdict ?? "neutral"))}</span></td>
+                    <td><span className={`result-mark ${run.testsPassed === undefined ? "" : run.testsPassed ? "pass" : "fail"}`}>{run.testsPassed === undefined ? "—" : t(run.testsPassed ? "PASS" : "FAIL")}</span></td>
+                    <td><span className={`verdict ${run.constraintVerdict}`}>{run.constraintVerdict ? t(titleCase(run.constraintVerdict)) : t("Not judged")}</span></td>
                     <td className="mono muted">{duration(run.durationSeconds, locale)}</td>
-                    <td><button className="row-menu" aria-label={t("Run actions")}><MoreHorizontal size={16} /></button></td>
+                    <td><button className="row-menu" aria-label={t("Run actions")} onClick={() => onRun(run)}><MoreHorizontal size={16} /></button></td>
                   </tr>
                 ))}
               </tbody>
@@ -193,12 +213,12 @@ export function DashboardPage({
           </div>
           <div className="shield-body">
             <div className="donut" style={{ "--satisfied": `${metrics.dsr * 100}%`, "--violated": `${(metrics.dsr + metrics.dvr) * 100}%` } as React.CSSProperties}>
-              <div><strong>{percent(metrics.dsr, 0)}</strong><span>DSR</span></div>
+              <div><strong>{metrics.judgedRuns ? percent(metrics.dsr, 0) : "—"}</strong><span>DSR</span></div>
             </div>
             <div className="shield-stats">
-              <ShieldStat color="green" label={t("Satisfied")} value={metrics.dsr} />
-              <ShieldStat color="red" label={t("Violated")} value={metrics.dvr} />
-              <ShieldStat color="slate" label={t("Neutral")} value={metrics.dnr} />
+              <ShieldStat color="green" label={t("Satisfied")} value={metrics.judgedRuns ? metrics.dsr : undefined} />
+              <ShieldStat color="red" label={t("Violated")} value={metrics.judgedRuns ? metrics.dvr : undefined} />
+              <ShieldStat color="slate" label={t("Neutral")} value={metrics.judgedRuns ? metrics.dnr : undefined} />
             </div>
           </div>
           <p className="panel-note">{t("Three-judge majority on applicable design constraints. Functional tests remain a separate axis.")}</p>
@@ -215,7 +235,7 @@ export function DashboardPage({
                 <div className={`activity-icon ${item.kind}`}>
                   {item.kind === "artifact" ? <DatabaseZap size={14} /> : item.kind === "constraint" ? <ShieldAlert size={14} /> : <CheckCircle2 size={14} />}
                 </div>
-                <div><strong>{t(item.message)}</strong><span>{item.detail}</span></div>
+                <div><strong>{t(item.message)}</strong><span>{t(item.detail)}</span></div>
                 <time>{relativeTime(item.timestamp, locale)}</time>
               </div>
             ))}
@@ -233,7 +253,7 @@ function MetricCard({ label, value, detail, trend, icon, tone, spark }: {
   return (
     <div className={`metric-card ${tone}`}>
       <div className="metric-label"><span className="metric-icon">{icon}</span>{label}</div>
-      <div className="metric-content"><strong>{value}</strong><Sparkline points={points} /></div>
+      <div className="metric-content"><strong>{value}</strong>{spark.length > 1 && <Sparkline points={points} />}</div>
       <div className="metric-footer"><span>{detail}</span><em>{trend}</em></div>
     </div>
   );
@@ -250,13 +270,13 @@ function Sparkline({ points }: { points: string }) {
   );
 }
 
-function BarGroup({ label, first, second }: { label: string; first: number; second: number }) {
+function BarGroup({ label, first, second }: { label: string; first?: number; second?: number }) {
   return (
     <div className="bar-group">
       <span>{label}</span>
       <div className="bars">
-        <div className="bar baseline" style={{ width: `${first * 100}%` }}><em>{percent(first, 0)}</em></div>
-        <div className="bar context" style={{ width: `${second * 100}%` }}><em>{percent(second, 0)}</em></div>
+        <div className="bar baseline" style={{ width: `${(first ?? 0) * 100}%` }}><em>{first === undefined ? "—" : percent(first, 0)}</em></div>
+        <div className="bar context" style={{ width: `${(second ?? 0) * 100}%` }}><em>{second === undefined ? "—" : percent(second, 0)}</em></div>
       </div>
     </div>
   );
@@ -266,6 +286,6 @@ function Stage({ value, label }: { value: string; label: string }) {
   return <div><strong>{value}</strong><span>{label}</span></div>;
 }
 
-function ShieldStat({ color, label, value }: { color: string; label: string; value: number }) {
-  return <div><i className={color} /><span>{label}</span><strong>{percent(value, 0)}</strong></div>;
+function ShieldStat({ color, label, value }: { color: string; label: string; value?: number }) {
+  return <div><i className={color} /><span>{label}</span><strong>{value === undefined ? "—" : percent(value, 0)}</strong></div>;
 }

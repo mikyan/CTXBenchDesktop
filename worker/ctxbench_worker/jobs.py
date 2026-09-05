@@ -41,6 +41,7 @@ class JobWorker:
         self._thread: threading.Thread | None = None
 
     def start(self) -> int:
+        self._stop.clear()
         recovered = self.database.recover_interrupted_jobs()
         if self._thread is None or not self._thread.is_alive():
             self._thread = threading.Thread(target=self._loop, name="ctxbench-job-worker", daemon=True)
@@ -69,6 +70,10 @@ class JobWorker:
                 payload = job["payload"]
                 if not isinstance(payload, dict):
                     raise ValueError("Job payload is not an object.")
+                if job["attempts"] > 1:
+                    if hasattr(self.runner, "cancel"):
+                        self.runner.cancel(str(payload["run_id"]))
+                    raise ValueError("Interrupted raw run requires a new run ID and clean workspace. Use experiments for checkpointed recovery.")
                 result = self.runner.run(run_spec_from_dict(payload))
                 terminal = "completed" if result.status == "completed" else "failed"
                 self.database.finish_job(str(job["id"]), terminal, asdict(result))

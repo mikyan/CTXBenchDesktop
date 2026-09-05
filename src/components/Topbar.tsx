@@ -9,11 +9,6 @@ export function Topbar({ runtime }: { runtime: "desktop" | "mock" }) {
         {t("Local workspace")} <span>/</span> {t("Benchmark lab")}
       </div>
       <div className="topbar-actions">
-        <label className="command-search">
-          <Search size={14} />
-          <input aria-label={t("Search")} placeholder={t("Search runs, repos, tasks")} />
-          <kbd>⌘ K</kbd>
-        </label>
         <span className={`runtime-mode ${runtime}`}>
           <span /> {runtime === "mock" ? t("Mock adapter") : t("WSL worker")}
         </span>
@@ -22,8 +17,7 @@ export function Topbar({ runtime }: { runtime: "desktop" | "mock" }) {
           <button type="button" className={locale === "en" ? "selected" : ""} aria-pressed={locale === "en"} title={t("English")} onClick={() => setLocale("en")}>EN</button>
           <button type="button" className={locale === "zh-CN" ? "selected" : ""} aria-pressed={locale === "zh-CN"} title={t("Chinese")} onClick={() => setLocale("zh-CN")}>中</button>
         </div>
-        <button type="button" className="icon-button" aria-label={t("Help")}><CircleHelp size={17} /></button>
-        <button type="button" className="icon-button notification" aria-label={t("Notifications")}><Bell size={17} /><span /></button>
+        <a className="icon-button" aria-label={t("Help")} href="https://github.com/mikyan/CTXBenchDesktop" target="_blank" rel="noreferrer"><CircleHelp size={17} /></a>
         <div className="avatar" title={t("Local operator")}>LB</div>
       </div>
     </div>

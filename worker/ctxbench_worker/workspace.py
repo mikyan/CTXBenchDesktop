@@ -57,13 +57,19 @@ def prepare_context(
 
     transformations: list[Transformation] = []
     existing = discover_context_files(root)
+    existing.extend(root.joinpath(*safe_relative_path(name).parts) for name in declared_paths
+                    if root.joinpath(*safe_relative_path(name).parts).exists())
+    existing = sorted(set(existing))
     if arm == "developer-historical":
         return [Transformation("retain", path.relative_to(root).as_posix()) for path in existing]
 
     for path in existing:
-        target = _contained(root, path)
-        relative = target.relative_to(root).as_posix()
-        target.unlink(missing_ok=True)
+        relative = path.relative_to(root).as_posix()
+        if path.is_symlink():
+            path.unlink()
+        else:
+            target = _contained(root, path)
+            target.unlink(missing_ok=True)
         transformations.append(Transformation("remove", relative))
     context_folder = root / ".ctx"
     if context_folder.exists() and not any(context_folder.iterdir()):

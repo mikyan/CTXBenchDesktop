@@ -39,6 +39,12 @@ class ExperimentSpec:
     resources: ResourcePolicy
     seed: int
     profiles: dict[str, ModelConfig] = field(default_factory=dict)
+    env_names: tuple[str, ...] = ()
+    context_artifacts: dict[str, str] = field(default_factory=dict)
+    prepare_only: bool = False
+    evaluate_constraints: bool = False
+    judge_profiles: tuple[ModelConfig, ...] = ()
+    constraint_packages: dict[str, str] = field(default_factory=dict)
 
 
 @dataclass(frozen=True)

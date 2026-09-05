@@ -17,6 +17,8 @@ await mkdir(outputRoot, { recursive: true });
 const liveTrajectoryPath = path.join(outputRoot, "trajectory.live.jsonl");
 await writeFile(liveTrajectoryPath, "", "utf8");
 spawnSync("git", ["config", "--global", "--add", "safe.directory", workspace]);
+const initialCommit = spawnSync("git", ["rev-parse", "HEAD"], { cwd: workspace, encoding: "utf8" }).stdout?.trim();
+if (!/^[0-9a-f]{40}$/.test(initialCommit ?? "")) throw new Error("Workspace must have a frozen Git baseline.");
 
 const secretValues = Object.entries(process.env)
   .filter(([name, value]) => value && /(KEY|TOKEN|SECRET|PASSWORD|CREDENTIAL)/i.test(name))
@@ -79,7 +81,7 @@ function onRecord(line) {
   if (event.type === "message_end" && event.message?.role === "assistant" && event.message.usage) {
     const usage = event.message.usage;
     cumulativeTokens += Number(
-      usage.totalTokens ?? usage.input + usage.output + usage.cacheRead + usage.cacheWrite,
+      usage.totalTokens ?? (usage.input ?? 0) + (usage.output ?? 0) + (usage.cacheRead ?? 0) + (usage.cacheWrite ?? 0),
     );
     if (cumulativeTokens >= request.model.max_tokens && !budgetExceeded) {
       budgetExceeded = true;
@@ -123,11 +125,9 @@ const timeout = setTimeout(() => {
 }, Math.max(1, request.timeoutSeconds ?? 2700) * 1000);
 
 const capability = request.metadata?.capability ?? "tree-only";
-const prompt = request.mode === "generate-context"
-  ? `/skill:ctxbench-generate-context\n\nCapability: ${capability}. Generate a frozen repository context artifact from this exact baseline checkout.`
-  : request.prompt;
+const prompt = request.prompt;
 
-if (request.model.thinking && request.model.thinking !== "off") {
+if (request.model.thinking) {
   send({ type: "set_thinking_level", level: request.model.thinking });
 }
 send({ id: "ctxbench-prompt", type: "prompt", message: prompt });
@@ -141,28 +141,32 @@ await writeFile(path.join(outputRoot, "trajectory.jsonl"), `${trajectory.join("\
 await writeFile(path.join(outputRoot, "agent.stderr.log"), stderr, "utf8");
 
 spawnSync("git", ["add", "-N", "--", "."], { cwd: workspace });
-const git = (...args) => spawnSync("git", args, { cwd: workspace, encoding: "utf8", maxBuffer: 128 * 1024 * 1024 }).stdout ?? "";
-const changedFiles = git("diff", "--name-only", "--", ".").split("\n").map((item) => item.trim()).filter(Boolean);
+const git = (...args) => {
+  const result = spawnSync("git", args, { cwd: workspace, encoding: "utf8", maxBuffer: 128 * 1024 * 1024 });
+  if (result.status !== 0) throw new Error(`Git patch extraction failed: ${redact(result.stderr ?? String(result.error))}`);
+  return result.stdout;
+};
+const changedFiles = git("diff", initialCommit, "--name-only", "-z", "--", ".").split("\0").filter(Boolean);
 const changedContextPaths = changedFiles.filter(isContextPath);
 const currentContextPaths = request.mode === "generate-context"
   ? [
-      ...git("ls-files", "--cached", "--others", "--exclude-standard", "--", ".").split("\n"),
-      ...git("ls-files", "--others", "--ignored", "--exclude-standard", "--", ".").split("\n"),
-    ].map((item) => item.trim()).filter(Boolean).filter(isContextPath)
+      ...git("ls-files", "-z", "--cached", "--others", "--exclude-standard", "--", ".").split("\0"),
+      ...git("ls-files", "-z", "--others", "--ignored", "--exclude-standard", "--", ".").split("\0"),
+    ].filter(Boolean).filter(isContextPath)
   : [];
 const contextPaths = [...new Set([...changedContextPaths, ...currentContextPaths])].sort();
 
-await writeFile(path.join(outputRoot, "raw_agent.patch"), git("diff", "--binary", "--no-ext-diff", "--", "."), "utf8");
+await writeFile(path.join(outputRoot, "raw_agent.patch"), redact(git("diff", initialCommit, "--binary", "--no-ext-diff", "--", ".")), "utf8");
 const contextExclusions = contextPaths.map((relative) => `:(exclude,literal)${relative}`);
 await writeFile(
   path.join(outputRoot, "graded.patch"),
-  git("diff", "--binary", "--no-ext-diff", "--", ".", ...contextExclusions),
+  redact(git("diff", initialCommit, "--binary", "--no-ext-diff", "--", ".", ...contextExclusions)),
   "utf8",
 );
 await writeFile(
   path.join(outputRoot, "context_mutation.patch"),
   contextPaths.length
-    ? git("diff", "--binary", "--no-ext-diff", "--", ...contextPaths.map((relative) => `:(literal)${relative}`))
+    ? redact(git("diff", initialCommit, "--binary", "--no-ext-diff", "--", ...contextPaths.map((relative) => `:(literal)${relative}`)))
     : "",
   "utf8",
 );

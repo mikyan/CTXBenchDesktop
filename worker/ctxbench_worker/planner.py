@@ -14,6 +14,8 @@ def validate_experiment(spec: ExperimentSpec) -> list[str]:
         errors.append("A dataset or manifest is required.")
     if not spec.task_ids:
         errors.append("At least one task is required.")
+    if len(set(spec.task_ids)) != len(spec.task_ids):
+        errors.append("Task IDs must be unique.")
     if not 1 <= spec.repeats <= 50:
         errors.append("Repeats must be between 1 and 50.")
     if "none" not in spec.arms:

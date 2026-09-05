@@ -10,8 +10,12 @@ from typing import Any
 import pyarrow.parquet as parquet
 
 
+def load_rows(dataset: Path) -> list[dict[str, Any]]:
+    return parquet.read_table(dataset).to_pylist() if dataset.suffix == ".parquet" else json.loads(dataset.read_text(encoding="utf-8"))
+
+
 def load_row(dataset: Path, instance_id: str) -> dict[str, Any]:
-    for row in parquet.read_table(dataset).to_pylist():
+    for row in load_rows(dataset):
         if row.get("instance_id") == instance_id:
             return row
     raise KeyError(f"Instance not found: {instance_id}")
@@ -171,6 +175,8 @@ def grade_swebench(dataset: Path, instance_id: str, patch_path: Path, output: Pa
 def parse_args() -> argparse.Namespace:
     parser = argparse.ArgumentParser()
     commands = parser.add_subparsers(dest="command", required=True)
+    catalog_parser = commands.add_parser("catalog")
+    catalog_parser.add_argument("--dataset", type=Path, required=True)
 
     inspect_parser = commands.add_parser("inspect-agentbench")
     inspect_parser.add_argument("--dataset", type=Path, required=True)
@@ -195,7 +201,12 @@ def parse_args() -> argparse.Namespace:
 
 def main() -> None:
     args = parse_args()
-    if args.command == "inspect-agentbench":
+    if args.command.startswith("grade-"):
+        from policy import configure
+        configure()
+    if args.command == "catalog":
+        print(json.dumps(load_rows(args.dataset), default=str))
+    elif args.command == "inspect-agentbench":
         inspect_agentbench(args.dataset)
     elif args.command == "inspect-swebench":
         inspect_swebench(args.dataset)

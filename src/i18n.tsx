@@ -1,5 +1,7 @@
-import { createContext, useCallback, useContext, useEffect, useMemo, useState } from "react";
+import { useCallback, useContext, useEffect, useMemo, useState } from "react";
 import type { ReactNode } from "react";
+import { workbenchChinese } from "./i18n.workbench";
+import { I18nContext, type I18nValue } from "./i18n.context";
 
 export type Locale = "en" | "zh-CN";
 export type TranslationValues = Record<string, string | number>;
@@ -8,6 +10,7 @@ export type Translate = (key: string, values?: TranslationValues) => string;
 const STORAGE_KEY = "ctxbench.locale";
 
 const zhCN: Record<string, string> = {
+  ...workbenchChinese,
   "Experiment plan created. Context preparation is queued.": "实验计划已创建，知识上下文准备任务已进入队列。",
   "Environment diagnostics completed.": "环境诊断已完成。",
   "Could not start CTXBench": "无法启动 CTXBench",
@@ -321,14 +324,6 @@ function initialLocale(): Locale {
   }
   return normalizeLocale(window.navigator.language);
 }
-
-interface I18nValue {
-  locale: Locale;
-  setLocale: (locale: Locale) => void;
-  t: Translate;
-}
-
-const I18nContext = createContext<I18nValue | undefined>(undefined);
 
 export function I18nProvider({ children }: { children: ReactNode }) {
   const [locale, setLocale] = useState<Locale>(initialLocale);

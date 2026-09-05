@@ -54,6 +54,27 @@ class FakeClient:
 
 
 class HistoryMiningTests(unittest.TestCase):
+    def test_comment_edited_after_cutoff_is_excluded(self):
+        class EditedClient(FakeClient):
+            def get(self, path, query=None):
+                values = super().get(path, query)
+                if path.endswith('pulls/comments') and values:
+                    values[0]['updated_at'] = '2025-01-01T00:00:00Z'
+                return values
+        archive = mine_review_archive('acme/widget', '2024-06-01T00:00:00Z', client=EditedClient())
+        self.assertEqual(archive['stats']['comments'], 0)
+
+    def test_future_edited_pr_description_is_not_mined(self):
+        class EditedClient(FakeClient):
+            def get(self, path, query=None):
+                value = super().get(path, query)
+                if path.endswith('pulls/7'):
+                    value['updated_at'] = '2025-01-01T00:00:00Z'
+                return value
+        archive = mine_review_archive('acme/widget', '2024-06-01T00:00:00Z', client=EditedClient())
+        self.assertEqual(archive['pullRequests'][0]['body'], '')
+        self.assertTrue(archive['pullRequests'][0]['comments'])
+
     def test_excludes_post_cutoff_comments_and_preserves_provenance(self) -> None:
         archive = mine_review_archive(
             "acme/widget",

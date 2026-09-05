@@ -1,0 +1,32 @@
+name: Desktop and worker checks
+on: [push, pull_request]
+permissions:
+  contents: read
+jobs:
+  windows:
+    runs-on: windows-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '24'
+          cache: npm
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.13'
+      - run: npm ci
+      - run: python -m pip install -r worker/requirements-dev.txt
+      - run: npm test
+      - run: npm run worker:test
+      - run: npm run build
+      - run: node scripts/stage-deployment.mjs
+      - run: cargo test --manifest-path src-tauri/Cargo.toml --locked
+  linux-boundaries:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.13'
+      - run: python -m pip install -r worker/requirements-dev.txt
+      - run: python -m unittest discover -s worker/tests -v

@@ -1,5 +1,5 @@
 use serde::{Deserialize, Serialize};
-use serde_json::{Value, json};
+use serde_json::Value;
 use std::process::Command;
 use std::time::Duration;
 use tauri::Manager;
@@ -55,11 +55,18 @@ fn decode_command_output(bytes: &[u8]) -> String {
     }
 }
 
-fn wsl_output(script: &str) -> Result<String, String> {
-    let output = Command::new("wsl.exe")
-        .args(["-d", "Ubuntu", "--", "sh", "-lc", script])
-        .output()
-        .map_err(|error| error.to_string())?;
+fn wsl_output(distribution: &str, args: &[&str]) -> Result<String, String> {
+    use std::os::windows::process::CommandExt;
+    use std::process::Stdio;
+    let mut child = Command::new("wsl.exe").args(["-d", distribution, "--"]).args(args)
+        .creation_flags(0x08000000).stdout(Stdio::piped()).stderr(Stdio::piped())
+        .spawn().map_err(|error| error.to_string())?;
+    let deadline = std::time::Instant::now() + Duration::from_secs(15);
+    while child.try_wait().map_err(|error| error.to_string())?.is_none() {
+        if std::time::Instant::now() > deadline { let _ = child.kill(); let _ = child.wait(); return Err("WSL diagnostic timed out.".into()); }
+        std::thread::sleep(Duration::from_millis(50));
+    }
+    let output = child.wait_with_output().map_err(|error| error.to_string())?;
     if output.status.success() {
         Ok(decode_command_output(&output.stdout))
     } else {
@@ -77,7 +84,7 @@ async fn worker_healthy() -> Result<String, String> {
         .send()
         .await
         .map_err(|error| error.to_string())?;
-    let payload: Value = response.json().await.map_err(|error| error.to_string())?;
+    let payload: Value = response.error_for_status().map_err(|error| error.to_string())?.json().await.map_err(|error| error.to_string())?;
     Ok(payload
         .get("version")
         .and_then(Value::as_str)
@@ -86,13 +93,18 @@ async fn worker_healthy() -> Result<String, String> {
 }
 
 #[tauri::command]
-async fn diagnose_environment(app: tauri::AppHandle) -> Vec<DiagnosticItem> {
-    let wsl = wsl_output("uname -r");
-    let distribution = wsl_output("printf 'Ubuntu · WSL 2'");
-    let docker = wsl_output("docker version --format '{{.Server.Version}}' 2>/dev/null");
+async fn diagnose_environment(_app: tauri::AppHandle, distribution: Option<String>) -> Vec<DiagnosticItem> {
+    let distro = distribution.unwrap_or_else(|| "Ubuntu".into());
+    let selected = distro.clone();
+    let (wsl, distribution, docker) = tauri::async_runtime::spawn_blocking(move || (
+        wsl_output(&selected, &["uname", "-r"]),
+        wsl_output(&selected, &["cat", "/etc/os-release"]),
+        wsl_output(&selected, &["docker", "version", "--format", "{{.Server.Version}}"]),
+    )).await.unwrap_or_else(|_| (Err("WSL check failed.".into()), Err("Distribution check failed.".into()), Err("Docker check failed.".into())));
     let worker = worker_healthy().await;
-    let storage = app.path().app_data_dir();
-    let wsl_ok = wsl.is_ok();
+    let runtime = if worker.is_ok() { worker_request("GET".into(), "/runtime".into(), None).await } else { Err("Worker storage is unavailable.".into()) };
+    let storage = runtime.and_then(|value| value.get("dataDirectory").and_then(Value::as_str).map(str::to_owned).ok_or_else(|| "Worker storage is unavailable.".to_string()));
+    let wsl_ok = wsl.as_ref().map(|kernel| kernel.to_lowercase().contains("wsl2")).unwrap_or(false);
     let distribution_ok = distribution.is_ok();
     let docker_ok = docker.is_ok();
     let worker_ok = worker.is_ok();
@@ -104,7 +116,7 @@ async fn diagnose_environment(app: tauri::AppHandle) -> Vec<DiagnosticItem> {
             label: "WSL 2",
             status: if wsl_ok { "healthy" } else { "missing" },
             detail: wsl
-                .map(|kernel| format!("Ubuntu · kernel {kernel}"))
+                .map(|kernel| format!("{distro} · kernel {kernel}"))
                 .unwrap_or_else(|_| "WSL2 Ubuntu is unavailable.".into()),
             fix: if wsl_ok {
                 None
@@ -159,7 +171,7 @@ async fn diagnose_environment(app: tauri::AppHandle) -> Vec<DiagnosticItem> {
             label: "Artifact store",
             status: if storage_ok { "healthy" } else { "warning" },
             detail: storage
-                .map(|path| path.display().to_string())
+                .map(|path| format!("WSL: {path}"))
                 .unwrap_or_else(|_| "Application data directory is unavailable.".into()),
             fix: None,
         },
@@ -168,38 +180,62 @@ async fn diagnose_environment(app: tauri::AppHandle) -> Vec<DiagnosticItem> {
 
 #[tauri::command]
 async fn bootstrap(app: tauri::AppHandle) -> Result<Value, String> {
-    let diagnostics = diagnose_environment(app).await;
-    let client = reqwest::Client::builder()
-        .timeout(Duration::from_secs(2))
-        .build()
-        .map_err(|error| error.to_string())?;
-    let experiments = match client
-        .get(format!("{WORKER_BASE_URL}/experiments"))
-        .send()
-        .await
-    {
-        Ok(response) if response.status().is_success() => {
-            response.json::<Value>().await.unwrap_or_else(|_| json!([]))
-        }
-        _ => json!([]),
-    };
+    let diagnostics = diagnose_environment(app, None).await;
+    let mut snapshot = worker_request("GET".into(), "/snapshot".into(), None).await?;
+    snapshot["diagnostics"] = serde_json::to_value(diagnostics).map_err(|error| error.to_string())?;
+    Ok(snapshot)
+}
 
-    Ok(json!({
-        "metrics": {
-            "totalRuns": 0, "passRate": 0.0, "knowledgeLift": 0.0,
-            "passPatchViolationRate": 0.0, "avgCostUsd": 0.0,
-            "pairedWins": 0, "pairedLosses": 0, "pairedTies": 0,
-            "dsr": 0.0, "dvr": 0.0, "dnr": 0.0
-        },
-        "armMetrics": [],
-        "experiments": experiments,
-        "runs": [],
-        "artifacts": [],
-        "constraints": [],
-        "diagnostics": diagnostics,
-        "activity": [],
-        "runtime": "desktop"
-    }))
+#[tauri::command]
+async fn worker_request(method: String, path: String, body: Option<Value>) -> Result<Value, String> {
+    if !path.starts_with('/') || path.contains("..") || path.contains('\\') || path.starts_with("//") {
+        return Err("Invalid worker route.".into());
+    }
+    let method = match method.as_str() {
+        "GET" => reqwest::Method::GET,
+        "POST" => reqwest::Method::POST,
+        _ => return Err("Unsupported worker method.".into()),
+    };
+    let client = reqwest::Client::builder().timeout(Duration::from_secs(300)).build().map_err(|error| error.to_string())?;
+    let mut request = client.request(method, format!("{WORKER_BASE_URL}{path}"));
+    if let Some(body) = body { request = request.json(&body); }
+    let response = request.send().await.map_err(|_| "The WSL worker is unavailable. Start it from Infrastructure and retry.".to_string())?;
+    let status = response.status();
+    let payload: Value = response.json().await.map_err(|_| "Worker returned an invalid response.".to_string())?;
+    if status.is_success() { Ok(payload) } else { Err(payload.get("detail").map(|detail| detail.as_str().map(str::to_owned).unwrap_or_else(|| detail.to_string())).unwrap_or_else(|| format!("Worker error: {status}"))) }
+}
+
+#[tauri::command]
+async fn save_export(filename: String, content: String) -> Result<Option<String>, String> {
+    tauri::async_runtime::spawn_blocking(move || {
+        if let Some(path) = rfd::FileDialog::new().set_file_name(&filename).save_file() {
+            std::fs::write(&path, content).map_err(|error| error.to_string())?;
+            Ok(Some(path.display().to_string()))
+        } else { Ok(None) }
+    }).await.map_err(|error| error.to_string())?
+}
+
+#[tauri::command]
+async fn worker_control(app: tauri::AppHandle, action: String, distribution: String) -> Result<String, String> {
+    let deployment = if cfg!(debug_assertions) {
+        std::path::PathBuf::from(env!("CARGO_MANIFEST_DIR")).parent().unwrap().to_path_buf()
+    } else { app.path().resource_dir().map_err(|error| error.to_string())?.join("deployment") };
+    tauri::async_runtime::spawn_blocking(move || {
+        use std::os::windows::process::CommandExt;
+        let translated = Command::new("wsl.exe").args(["-d", &distribution, "--", "wslpath", "-a", &deployment.display().to_string()]).creation_flags(0x08000000).output().map_err(|error| error.to_string())?;
+        if !translated.status.success() { return Err(decode_command_output(&translated.stderr)); }
+        let root = decode_command_output(&translated.stdout);
+        let mut command = Command::new("wsl.exe");
+        command.args(["-d", &distribution, "--", "docker", "compose", "-f", &format!("{root}/docker/compose.yaml")]);
+        match action.as_str() {
+            "start" => { command.args(["up", "-d", "ctxbench-worker"]); },
+            "stop" => { command.args(["stop", "ctxbench-worker"]); },
+            "build" => { command.args(["--profile", "build-only", "build"]); },
+            _ => return Err("Unsupported infrastructure action.".into()),
+        }
+        let output = command.creation_flags(0x08000000).output().map_err(|error| error.to_string())?;
+        if output.status.success() { Ok("Worker action completed.".into()) } else { Err("Worker action failed. Check Docker and the packaged deployment prerequisites.".into()) }
+    }).await.map_err(|error| error.to_string())?
 }
 
 #[tauri::command]
@@ -236,6 +272,7 @@ pub fn run() {
             bootstrap,
             diagnose_environment,
             create_experiment
+            ,worker_request, save_export, worker_control
         ])
         .run(tauri::generate_context!())
         .expect("error while running CTXBench Desktop");

@@ -1,12 +1,13 @@
-import { useEffect, useState } from "react";
+import { useCallback, useEffect, useState } from "react";
 import { CheckCircle2, LoaderCircle, X } from "lucide-react";
 import type { Page } from "./app-types";
-import { NewExperimentModal } from "./components/NewExperimentModal";
+import { ExperimentComposer } from "./components/ExperimentComposer";
+import { DatasetDialog, PreparationDialog, RunDialog, PackageDialog } from "./components/WorkbenchDialogs";
 import { Sidebar } from "./components/Sidebar";
 import { Topbar } from "./components/Topbar";
-import type { CreateExperimentRequest, DashboardSnapshot, Experiment } from "./domain/types";
+import type { BenchmarkRun, CreateExperimentRequest, DashboardSnapshot, DiagnosticItem } from "./domain/types";
 import { useI18n } from "./i18n";
-import { createExperiment, diagnoseEnvironment, exportSnapshot, loadSnapshot } from "./lib/desktop";
+import { createExperiment, diagnoseEnvironment, exportSnapshot, loadSnapshot, workerRequest } from "./lib/desktop";
 import { ConstraintsPage } from "./pages/ConstraintsPage";
 import { DashboardPage } from "./pages/DashboardPage";
 import { ExperimentsPage } from "./pages/ExperimentsPage";
@@ -21,10 +22,25 @@ export default function App() {
   const [modalOpen, setModalOpen] = useState(false);
   const [creating, setCreating] = useState(false);
   const [diagnosing, setDiagnosing] = useState(false);
+  const [diagnostics, setDiagnostics] = useState<DiagnosticItem[]>([]);
   const [toast, setToast] = useState<string>();
+  const closeToast = useCallback(() => setToast(undefined), []);
+  const [dialog, setDialog] = useState<"dataset" | "context" | "manual" | "constraints">();
+  const [selectedRun, setSelectedRun] = useState<BenchmarkRun>();
+  const [selectedPackage, setSelectedPackage] = useState<string>();
+  const refresh = () => loadSnapshot().then((value) => { setSnapshot((old) => ({ ...value, diagnostics: old?.diagnostics ?? value.diagnostics })); setLoadingError(undefined); }).catch((error: unknown) => setLoadingError(error instanceof Error ? error.message : String(error)));
 
   useEffect(() => {
-    loadSnapshot().then(setSnapshot).catch((error: unknown) => setLoadingError(error instanceof Error ? error.message : String(error)));
+    let alive = true;
+    let timer: number;
+    const poll = async () => {
+      try { const value = await loadSnapshot(); if (alive) { setSnapshot((old) => ({ ...value, diagnostics: old?.diagnostics ?? value.diagnostics })); setLoadingError(undefined); } }
+      catch (error) { if (alive) setLoadingError(String(error)); }
+      if (alive) timer = window.setTimeout(poll, 3000);
+    };
+    void poll();
+    void diagnoseEnvironment().then((diagnostics) => { if (alive) setDiagnostics(diagnostics); }).catch(() => {});
+    return () => { alive = false; window.clearTimeout(timer); };
   }, []);
 
   useEffect(() => {
@@ -51,26 +67,29 @@ export default function App() {
       setPage("experiments");
       setToast(t("Experiment plan created. Context preparation is queued."));
     } catch (error) {
-      setToast(error instanceof Error ? error.message : String(error));
+      throw error;
     } finally {
       setCreating(false);
     }
   };
 
-  const handleDiagnose = async () => {
+  const handleDiagnose = async (distribution?: string) => {
     setDiagnosing(true);
     setSnapshot((current) => current ? { ...current, diagnostics: current.diagnostics.map((item) => ({ ...item, status: "checking" })) } : current);
     try {
-      const diagnostics = await diagnoseEnvironment();
+      const diagnostics = await diagnoseEnvironment(distribution);
+      setDiagnostics(diagnostics);
       setSnapshot((current) => current ? { ...current, diagnostics } : current);
       setToast(t("Environment diagnostics completed."));
+    } catch (error) {
+      setToast(String(error));
     } finally {
       setDiagnosing(false);
     }
   };
 
-  if (loadingError) {
-    return <div className="fatal-state"><X size={28} /><h1>{t("Could not start CTXBench")}</h1><p>{loadingError}</p><button className="button primary" onClick={() => window.location.reload()}>{t("Retry")}</button></div>;
+  if (loadingError && !snapshot) {
+    return <div className="offline-shell"><Topbar runtime="desktop" /><div className="content-scroll"><p className="connection-banner" role="alert">{t("Worker disconnected")} · {t(loadingError)}</p><InfrastructurePage diagnostics={diagnostics} onDiagnose={(distribution) => { void handleDiagnose(distribution); void refresh(); }} diagnosing={diagnosing} /></div></div>;
   }
   if (!snapshot) {
     return <div className="splash"><div className="splash-mark">CX</div><LoaderCircle className="spin" size={20} /><span>{t("Opening local benchmark lab…")}</span></div>;
@@ -82,15 +101,21 @@ export default function App() {
       <main className="main-shell">
         <Topbar runtime={snapshot.runtime} />
         <div className="content-scroll">
-          {page === "overview" && <DashboardPage snapshot={snapshot} onNewExperiment={() => setModalOpen(true)} onOpenExperiments={() => setPage("experiments")} />}
-          {page === "experiments" && <ExperimentsPage snapshot={snapshot} onNewExperiment={() => setModalOpen(true)} onExport={(format) => exportSnapshot(snapshot, format)} />}
-          {page === "knowledge" && <KnowledgePage snapshot={snapshot} />}
-          {page === "constraints" && <ConstraintsPage snapshot={snapshot} />}
-          {page === "infrastructure" && <InfrastructurePage diagnostics={snapshot.diagnostics} onDiagnose={handleDiagnose} diagnosing={diagnosing} />}
+          {loadingError && <p className="connection-banner" role="alert">{t("Worker disconnected — showing last received data")}</p>}
+          {snapshot.runtime === "mock" && <p className="connection-banner">{t("Demo data — not benchmark results")}</p>}
+          {page === "overview" && <DashboardPage snapshot={snapshot} onNewExperiment={() => setModalOpen(true)} onOpenExperiments={() => setPage("experiments")} onRun={setSelectedRun} />}
+          {page === "experiments" && <ExperimentsPage snapshot={snapshot} onNewExperiment={() => setModalOpen(true)} onImport={() => setDialog("dataset")} onRun={setSelectedRun} onAction={(id, action) => { void workerRequest(`/experiments/${id}/${action}`, "POST").then(refresh).catch((error) => setToast(String(error))); }} onExport={(format) => { void exportSnapshot(snapshot, format).catch((error) => setToast(String(error))); }} />}
+          {page === "knowledge" && <KnowledgePage snapshot={snapshot} onImport={() => setDialog("manual")} onGenerate={() => setDialog("context")} onView={setSelectedPackage} />}
+          {page === "constraints" && <ConstraintsPage snapshot={snapshot} onMine={() => setDialog("constraints")} />}
+          {page === "infrastructure" && <InfrastructurePage diagnostics={diagnostics} onDiagnose={handleDiagnose} diagnosing={diagnosing} />}
         </div>
       </main>
-      <NewExperimentModal open={modalOpen} creating={creating} onClose={() => setModalOpen(false)} onCreate={handleCreate} />
-      {toast && <Toast message={toast} onClose={() => setToast(undefined)} />}
+      {modalOpen && <ExperimentComposer creating={creating} onClose={() => setModalOpen(false)} onCreate={handleCreate} artifacts={snapshot.artifacts} />}
+      {dialog === "dataset" && <DatasetDialog onClose={() => setDialog(undefined)} onComplete={() => void refresh()} />}
+      {dialog && dialog !== "dataset" && <PreparationDialog kind={dialog} onClose={() => setDialog(undefined)} onComplete={() => void refresh()} />}
+      {selectedRun && <RunDialog run={snapshot.runs.find((run) => run.id === selectedRun.id) ?? selectedRun} onClose={() => setSelectedRun(undefined)} />}
+      {selectedPackage && <PackageDialog id={selectedPackage} onClose={() => setSelectedPackage(undefined)} />}
+      {toast && <Toast message={toast} onClose={closeToast} />}
     </div>
   );
 }

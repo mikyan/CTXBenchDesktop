@@ -2,6 +2,7 @@ import { invoke } from "@tauri-apps/api/core";
 import { createDemoSnapshot } from "../data/demo";
 import { planExperimentRuns } from "../domain/planner";
 import { renderSnapshotHtml } from "../domain/report";
+import { aggregateArms, aggregateDashboard } from "../domain/metrics";
 import type {
   CreateExperimentRequest,
   DashboardSnapshot,
@@ -17,19 +18,34 @@ const pause = (milliseconds: number): Promise<void> =>
   new Promise((resolve) => window.setTimeout(resolve, milliseconds));
 
 export async function loadSnapshot(): Promise<DashboardSnapshot> {
-  if (isTauri()) return invoke<DashboardSnapshot>("bootstrap");
-  await pause(240);
-  return createDemoSnapshot();
+  if (new URLSearchParams(window.location.search).get("demo") === "1") return createDemoSnapshot();
+  const snapshot = await workerRequest<DashboardSnapshot>("/snapshot");
+  const realRuns = snapshot.runs.filter((run) => !run.mock);
+  return { ...snapshot, metrics: aggregateDashboard(realRuns), armMetrics: aggregateArms(realRuns) };
 }
 
-export async function diagnoseEnvironment(): Promise<DiagnosticItem[]> {
-  if (isTauri()) return invoke<DiagnosticItem[]>("diagnose_environment");
-  await pause(850);
-  return createDemoSnapshot().diagnostics;
+export async function workerRequest<T>(path: string, method: "GET" | "POST" = "GET", body?: unknown): Promise<T> {
+  if (isTauri()) return invoke<T>("worker_request", { method, path, body: body ?? null });
+  const response = await fetch(`/worker${path}`, { method, headers: body ? { "Content-Type": "application/json" } : {}, body: body ? JSON.stringify(body) : undefined });
+  let payload;
+  try { payload = await response.json(); } catch { throw new Error("The WSL worker is unavailable. Start it from Infrastructure and retry."); }
+  if (!response.ok) throw new Error(typeof payload.detail === "string" ? payload.detail : JSON.stringify(payload.detail ?? payload));
+  return payload as T;
+}
+
+export async function controlWorker(action: "start" | "stop" | "build", distribution = "Ubuntu"): Promise<string> {
+  if (!isTauri()) throw new Error("Worker controls require the desktop application.");
+  return invoke<string>("worker_control", { action, distribution });
+}
+
+export async function diagnoseEnvironment(distribution = localStorage.getItem("ctxbench-distribution") || "Ubuntu"): Promise<DiagnosticItem[]> {
+  if (isTauri()) return invoke<DiagnosticItem[]>("diagnose_environment", { distribution });
+  const health = await workerRequest<{ version: string; runner: string }>("/health");
+  return [{ id: "worker", label: "CTXBench worker", status: "healthy", detail: `${health.version} · ${health.runner}` }];
 }
 
 export async function createExperiment(request: CreateExperimentRequest): Promise<Experiment> {
-  if (isTauri()) return invoke<Experiment>("create_experiment", { request });
+  if (new URLSearchParams(window.location.search).get("demo") !== "1") return workerRequest<Experiment>("/experiments", "POST", request);
   await pause(500);
   const id = `exp-${crypto.randomUUID().slice(0, 8)}`;
   const runs = planExperimentRuns(id, request);
@@ -55,26 +71,32 @@ export async function createExperiment(request: CreateExperimentRequest): Promis
   };
 }
 
-export function exportSnapshot(snapshot: DashboardSnapshot, format: "json" | "csv" | "html"): void {
+export async function exportSnapshot(snapshot: DashboardSnapshot, format: "json" | "csv" | "html"): Promise<void> {
   let body: string;
   let mediaType: string;
   if (format === "json") {
     body = JSON.stringify(snapshot, null, 2);
     mediaType = "application/json";
   } else if (format === "csv") {
-    const header = "run_id,experiment_id,task_id,arm,status,tests_passed,constraint_verdict,cost_usd";
+    const header = "run_id,experiment_id,task_id,repeat,pair_id,arm,status,mock,tests_passed,constraint_verdict,cost_usd,pairing_hash,context_artifact_id,failure";
     const rows = snapshot.runs.map((run) =>
       [
         run.id,
         run.experimentId,
         run.taskId,
+        run.repeat,
+        run.pairId,
         run.arm,
         run.status,
+        run.mock ?? false,
         run.testsPassed ?? "",
         run.constraintVerdict ?? "",
         run.costUsd ?? "",
+        run.pairingHash ?? "",
+        run.contextArtifactId ?? "",
+        run.failure ?? "",
       ]
-        .map((value) => `"${String(value).replaceAll('"', '""')}"`)
+        .map((value) => `"${String(value).replace(/^[=+@\-\t\r]/, "'$&").replaceAll('"', '""')}"`)
         .join(","),
     );
     body = [header, ...rows].join("\n");
@@ -84,10 +106,15 @@ export function exportSnapshot(snapshot: DashboardSnapshot, format: "json" | "cs
     mediaType = "text/html";
   }
 
+  await saveText(`ctxbench-export-${new Date().toISOString().slice(0, 10)}.${format}`, body, mediaType);
+}
+
+export async function saveText(filename: string, body: string, mediaType = "application/json"): Promise<void> {
+  if (isTauri()) { await invoke("save_export", { filename, content: body }); return; }
   const url = URL.createObjectURL(new Blob([body], { type: mediaType }));
   const anchor = document.createElement("a");
   anchor.href = url;
-  anchor.download = `ctxbench-export-${new Date().toISOString().slice(0, 10)}.${format}`;
+  anchor.download = filename;
   anchor.click();
   URL.revokeObjectURL(url);
 }

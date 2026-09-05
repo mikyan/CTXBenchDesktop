@@ -62,6 +62,12 @@ CREATE TABLE IF NOT EXISTS artifacts (
     path TEXT NOT NULL,
     created_at TEXT NOT NULL
 );
+CREATE TABLE IF NOT EXISTS documents (
+    kind TEXT NOT NULL,
+    id TEXT NOT NULL,
+    payload_json TEXT NOT NULL,
+    PRIMARY KEY (kind, id)
+);
 """
 
 
@@ -146,6 +152,65 @@ class Database:
         with self.connect() as connection:
             rows = connection.execute("SELECT * FROM experiments ORDER BY created_at DESC").fetchall()
         return [self._experiment_record(row) for row in rows]
+
+    def get_spec(self, experiment_id: str) -> ExperimentSpec:
+        from .models import ModelConfig, ResourcePolicy
+        with self.connect() as connection:
+            row = connection.execute("SELECT spec_json FROM experiments WHERE id = ?", (experiment_id,)).fetchone()
+        if row is None:
+            raise KeyError(experiment_id)
+        value = json.loads(row[0])
+        value["model"] = ModelConfig(**value["model"])
+        value["resources"] = ResourcePolicy(**value["resources"])
+        value["profiles"] = {key: ModelConfig(**item) for key, item in value.get("profiles", {}).items()}
+        value["judge_profiles"] = tuple(ModelConfig(**item) for item in value.get("judge_profiles", []))
+        for key in ("arms", "task_ids", "env_names"):
+            value[key] = tuple(value.get(key, []))
+        return ExperimentSpec(**value)
+
+    def set_experiment_status(self, experiment_id: str, status: str) -> None:
+        with self.connect() as connection:
+            connection.execute("UPDATE experiments SET status = ?, updated_at = ? WHERE id = ?", (status, utc_now(), experiment_id))
+
+    def list_runs(self, experiment_id: str | None = None) -> list[dict[str, object]]:
+        with self.connect() as connection:
+            rows = connection.execute(
+                "SELECT * FROM runs" + (" WHERE experiment_id = ?" if experiment_id else "") + " ORDER BY ordinal",
+                (experiment_id,) if experiment_id else (),
+            ).fetchall()
+        return [{
+            "id": row["id"], "experimentId": row["experiment_id"], "pairId": row["pair_id"],
+            "taskId": row["task_id"], "repeat": row["repeat"], "arm": row["arm"],
+            "ordinal": row["ordinal"], "status": row["status"], "updatedAt": row["updated_at"],
+            "repository": "", "commit": "", **json.loads(row["result_json"] or "{}"),
+        } for row in rows]
+
+    def update_run(self, run_id: str, status: str, result: dict[str, object]) -> None:
+        with self.connect() as connection:
+            row = connection.execute("SELECT experiment_id, result_json FROM runs WHERE id = ?", (run_id,)).fetchone()
+            if row is None:
+                raise KeyError(run_id)
+            merged = {**json.loads(row["result_json"] or "{}"), **result}
+            connection.execute("UPDATE runs SET status = ?, result_json = ?, updated_at = ? WHERE id = ?", (status, json.dumps(merged), utc_now(), run_id))
+            connection.execute("""UPDATE experiments SET completed_runs =
+                (SELECT COUNT(*) FROM runs WHERE experiment_id = ? AND status IN ('completed', 'failed', 'cancelled')),
+                updated_at = ? WHERE id = ?""", (row["experiment_id"], utc_now(), row["experiment_id"]))
+
+    def put_document(self, kind: str, key: str, value: dict[str, object]) -> None:
+        with self.connect() as connection:
+            connection.execute("INSERT INTO documents VALUES (?, ?, ?) ON CONFLICT(kind, id) DO UPDATE SET payload_json = excluded.payload_json", (kind, key, json.dumps(value)))
+
+    def get_document(self, kind: str, key: str) -> dict[str, object]:
+        with self.connect() as connection:
+            row = connection.execute("SELECT payload_json FROM documents WHERE kind = ? AND id = ?", (kind, key)).fetchone()
+        if row is None:
+            raise KeyError(key)
+        return json.loads(row[0])
+
+    def list_documents(self, kind: str) -> list[dict[str, object]]:
+        with self.connect() as connection:
+            rows = connection.execute("SELECT payload_json FROM documents WHERE kind = ? ORDER BY id", (kind,)).fetchall()
+        return [json.loads(row[0]) for row in rows]
 
     def recover_interrupted_jobs(self) -> int:
         """Return in-flight jobs to the durable queue after a worker restart."""
@@ -259,4 +324,10 @@ class Database:
                 "network": spec["resources"]["network"],
             },
             "seed": spec["seed"],
+            "envNames": spec.get("env_names", []),
+            "contextArtifacts": spec.get("context_artifacts", {}),
+            "constraintPackages": spec.get("constraint_packages", {}),
+            "evaluateConstraints": spec.get("evaluate_constraints", False),
+            "prepareOnly": spec.get("prepare_only", False),
+            "judgeProfiles": spec.get("judge_profiles", []),
         }

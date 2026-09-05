@@ -29,7 +29,7 @@ class ContextIdentity:
 def safe_relative_path(value: str) -> PurePosixPath:
     normalized = value.replace("\\", "/")
     path = PurePosixPath(normalized)
-    if path.is_absolute() or ".." in path.parts or not path.parts:
+    if path.is_absolute() or ".." in path.parts or not path.parts or ":" in normalized or any(part.lower() == ".git" for part in path.parts):
         raise ValueError(f"Unsafe artifact path: {value}")
     return path
 
@@ -73,7 +73,11 @@ class ArtifactStore:
         key = identity.key()
         target = self.path_for(key)
         if self.contains(key):
+            self.verify(key)
             return target
+
+        if not files:
+            raise ValueError("Context package must contain at least one file.")
 
         invalid = [path for path in files if not is_context_owned(path, declared_paths)]
         if invalid:
@@ -110,3 +114,19 @@ class ArtifactStore:
             if staging.exists():
                 shutil.rmtree(staging)
             raise
+
+    def verify(self, key: str) -> dict[str, object]:
+        target = self.path_for(key)
+        manifest = json.loads((target / "manifest.json").read_text(encoding="utf-8"))
+        if manifest.get("key") != key or not manifest.get("files"):
+            raise ValueError("Invalid context manifest.")
+        identity_hash = hashlib.sha256(json.dumps(manifest["identity"], sort_keys=True, separators=(",", ":")).encode()).hexdigest()
+        if identity_hash != key:
+            raise ValueError("Context identity was modified.")
+        for name, digest in manifest["files"].items():
+            path = target / "files" / safe_relative_path(name)
+            if path.is_symlink() or not path.is_file() or target not in path.resolve().parents:
+                raise ValueError(f"Missing or unsafe context file: {name}")
+            if hashlib.sha256(path.read_bytes()).hexdigest() != digest:
+                raise ValueError(f"Context artifact was modified: {name}")
+        return manifest

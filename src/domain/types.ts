@@ -1,6 +1,6 @@
 export type BenchmarkKind = "swebench" | "ctxbench" | "custom";
 export type ContextArm = "none" | "skill-generated" | "manual" | "developer-historical";
-export type ExperimentStatus = "draft" | "preparing" | "running" | "paused" | "completed" | "failed";
+export type ExperimentStatus = "draft" | "preparing" | "ready" | "running" | "paused" | "completed" | "failed" | "cancelled";
 export type RunStatus = "queued" | "preparing" | "running" | "grading" | "completed" | "failed" | "cancelled";
 export type ConstraintVerdict = "satisfied" | "violated" | "neutral";
 export type KnowledgeCapability = "tree-only" | "history-aware" | "task-informed";
@@ -62,6 +62,7 @@ export interface BenchmarkRun extends PlannedRun {
   repository: string;
   commit: string;
   startedAt?: string;
+  updatedAt?: string;
   durationSeconds?: number;
   testsPassed?: boolean;
   constraintVerdict?: ConstraintVerdict;
@@ -71,6 +72,15 @@ export interface BenchmarkRun extends PlannedRun {
   contextArtifactId?: string;
   contextMutated?: boolean;
   failure?: string;
+  pairingHash?: string;
+  agentImageDigest?: string;
+  promptHash?: string;
+  solverRunId?: string;
+  outputDir?: string;
+  mock?: boolean;
+  constraintQuality?: "silver" | "gold";
+  judgeRecords?: unknown[];
+  grade?: unknown;
 }
 
 export interface KnowledgeArtifact {
@@ -88,6 +98,7 @@ export interface KnowledgeArtifact {
   promptHash: string;
   skillVersion: string;
   informed: boolean;
+  filePaths?: string[];
 }
 
 export interface ConstraintRecord {
@@ -125,6 +136,9 @@ export interface DashboardMetrics {
   dsr: number;
   dvr: number;
   dnr: number;
+  judgedRuns?: number;
+  passingApplicable?: number;
+  failedRuns?: number;
 }
 
 export interface DiagnosticItem {
@@ -153,6 +167,9 @@ export interface DashboardSnapshot {
   diagnostics: DiagnosticItem[];
   activity: ActivityItem[];
   runtime: "desktop" | "mock";
+  runner?: string;
+  datasets?: DatasetRecord[];
+  operations?: OperationRecord[];
 }
 
 export interface CreateExperimentRequest {
@@ -167,4 +184,15 @@ export interface CreateExperimentRequest {
   agentImage: string;
   resources: ResourcePolicy;
   seed: number;
+  envNames?: string[];
+  contextArtifacts?: Record<string, string>;
+  prepareOnly?: boolean;
+  evaluateConstraints?: boolean;
+  judgeProfiles?: FrozenModelConfig[];
+  constraintPackages?: Record<string, string>;
 }
+
+export interface DatasetRecord { id: string; name: string; benchmark: BenchmarkKind; count: number; createdAt: string }
+export interface TaskSummary { id: string; repository: string; baseCommit: string; prompt: string; image?: string }
+export interface OperationRecord { id: string; kind: string; status: string; createdAt: string; updatedAt: string; failure?: string }
+export interface RuntimeSettings { runner: string; dataDirectory: string; credentials: { name: string; configured: boolean }[]; datasetFiles: string[] }

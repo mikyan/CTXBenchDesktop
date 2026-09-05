@@ -1,0 +1,219 @@
+"""Clean baseline checkouts and evaluator containers, never solver-visible secrets."""
+from __future__ import annotations
+
+import hashlib
+import json
+import os
+import subprocess
+import tarfile
+import time
+import uuid
+from pathlib import Path
+
+from .datasets import TaskRecord
+from .models import ResourcePolicy
+from .artifacts import safe_relative_path
+
+
+def git(workspace: Path, *arguments: str, data: bytes | None = None) -> bytes:
+    result = subprocess.run(["git", "-c", "core.hooksPath=/dev/null", "-C", str(workspace), *arguments],
+                            input=data, stdout=subprocess.PIPE, stderr=subprocess.PIPE, timeout=300)
+    if result.returncode:
+        raise RuntimeError(result.stderr.decode(errors="replace")[-3000:])
+    return result.stdout
+
+
+def seal(workspace: Path) -> str:
+    git(workspace, "init", "-q")
+    git(workspace, "config", "user.name", "CTXBench")
+    git(workspace, "config", "user.email", "local@ctxbench.invalid")
+    git(workspace, "add", "--all", "--force", "--", ".")
+    git(workspace, "commit", "-qm", "Frozen evaluation input", "--allow-empty")
+    return git(workspace, "rev-parse", "HEAD").decode().strip()
+
+
+class Runtime:
+    def __init__(self, root: Path, runner):
+        self.root, self.runner = root, runner
+
+    def host_path(self, path: Path) -> str:
+        return self.runner._mount_source(path)
+
+    def cancel_grade(self, output: Path) -> None:
+        import docker
+        client = docker.from_env()
+        scope = hashlib.sha256(str(output).encode()).hexdigest()[:20]
+        try:
+            for container in client.containers.list(all=True, filters={"label": f"io.ctxbench.grade-scope={scope}"}):
+                try:
+                    container.remove(force=True)
+                except docker.errors.NotFound:
+                    pass
+        finally:
+            client.close()
+
+    def command(self, image: str, command: list[str], *, volumes: dict, output: Path,
+                resources: ResourcePolicy, network: str = "none", socket: bool = False) -> bytes:
+        import docker
+        client = docker.from_env()
+        output.mkdir(parents=True, exist_ok=True)
+        if socket:
+            volumes["/var/run/docker.sock"] = {"bind": "/var/run/docker.sock", "mode": "rw"}
+        container = None
+        scope = hashlib.sha256(str(output).encode()).hexdigest()[:20]
+        self.cancel_grade(output)
+        try:
+            container = client.containers.run(image, command, detach=True, volumes=volumes,
+                environment={"CTXBENCH_GRADER_CPUS": str(resources.cpus), "CTXBENCH_GRADER_MEMORY": f"{resources.memory_gb}g", "CTXBENCH_GRADE_SCOPE": scope,
+                             "CTXBENCH_GRADE_IMAGES_PATH": str(output / "child-images.json") if socket else ""},
+                network=network, nano_cpus=int(resources.cpus * 1e9), mem_limit=f"{resources.memory_gb}g",
+                pids_limit=1024, labels={"io.ctxbench.evaluator": "true", "io.ctxbench.grade-scope": scope},
+                **({} if socket else {"cap_drop": ["ALL"], "security_opt": ["no-new-privileges:true"]}))
+            status = container.wait(timeout=resources.timeout_minutes * 60 + 60)["StatusCode"]
+            log = container.logs()
+            (output / "evaluator.log").write_bytes(log)
+            if status:
+                raise RuntimeError(f"Evaluator exited {status}: {log.decode(errors='replace')[-2500:]}")
+            return log
+        finally:
+            if container is not None:
+                try:
+                    container.remove(force=True)
+                except docker.errors.NotFound:
+                    pass
+            if socket:
+                for child in client.containers.list(all=True, filters={"label": f"io.ctxbench.grade-scope={scope}"}):
+                    child.remove(force=True)
+            client.close()
+
+    def resolve_image(self, name: str) -> str:
+        import docker
+        client = docker.from_env()
+        try:
+            try:
+                image = client.images.get(name)
+            except docker.errors.ImageNotFound:
+                image = client.images.pull(name)
+            # Containerd-backed Docker can discard the last reference when a mutable tag
+            # is rebuilt. Keep an explicit immutable tag for every experiment image.
+            image.tag("ctxbench/frozen", image.id.replace(":", "-"))
+            return image.id
+        finally:
+            client.close()
+
+    def prepare_test_image(self, task: TaskRecord) -> str:
+        """Build once from untouched baseline, never from an agent's candidate patch."""
+        if task.image:
+            return self.resolve_image(task.image)
+        if not task.build:
+            raise ValueError("Custom task requires an image or baseline build recipe.")
+        dockerfile = safe_relative_path(str(task.build.get("dockerfile", "Dockerfile")))
+        workspace = self.checkout(task, "image-build")
+        context_value = str(task.build.get("context", "."))
+        context = workspace if context_value == "." else workspace / safe_relative_path(context_value)
+        if context.is_symlink() or (context != workspace and workspace not in context.resolve().parents):
+            raise ValueError("Build context must remain inside the baseline.")
+        source = context / dockerfile
+        if source.is_symlink() or not source.is_file() or workspace not in source.resolve().parents:
+            raise ValueError("Build Dockerfile must be a regular file inside the baseline repository.")
+        import docker
+        client = docker.from_env()
+        try:
+            built, _ = client.images.build(path=str(context), dockerfile=dockerfile.as_posix(), buildargs=dict(task.build.get("args", {})), rm=True, timeout=3600)
+            built.tag("ctxbench/frozen", built.id.replace(":", "-"))
+            return built.id
+        finally:
+            client.close()
+
+    def baseline(self, task: TaskRecord) -> tuple[Path, str]:
+        key = hashlib.sha256(f"{task.repository}@{task.base_commit}".encode()).hexdigest()
+        source = self.root / "sources" / key
+        source.mkdir(parents=True, exist_ok=True)
+        if not (source / ".git").exists():
+            git(source, "init", "-q")
+            git(source, "remote", "add", "origin", task.repository)
+        try:
+            git(source, "cat-file", "-e", f"{task.base_commit}^{{commit}}")
+        except RuntimeError:
+            git(source, "fetch", "--depth=1", "origin", task.base_commit)
+        cutoff = git(source, "show", "-s", "--format=%cI", task.base_commit).decode().strip()
+        return source, cutoff
+
+    def checkout(self, task: TaskRecord, label: str) -> Path:
+        source, _ = self.baseline(task)
+        workspace = self.root / "repositories" / f"{label}-{uuid.uuid4().hex[:8]}"
+        workspace.mkdir(parents=True)
+        archive = workspace.parent / f"{workspace.name}.tar"
+        archive.write_bytes(git(source, "archive", "--format=tar", task.base_commit))
+        try:
+            with tarfile.open(archive) as tar:
+                tar.extractall(workspace, filter="data")
+            # No source Git history, remotes, future objects or target PR refs enter an agent mount.
+            seal(workspace)
+        finally:
+            archive.unlink(missing_ok=True)
+        return workspace
+
+    def evaluator_workspace(self, label: str, files: dict[str, str]) -> Path:
+        workspace = self.root / "repositories" / f"{label}-{uuid.uuid4().hex[:8]}"
+        workspace.mkdir(parents=True)
+        for name, content in files.items():
+            (workspace / name).write_text(content, encoding="utf-8")
+        seal(workspace)
+        return workspace
+
+    def import_parquet(self, path: Path) -> list[dict]:
+        relative = path.resolve().relative_to((self.root / "datasets").resolve())
+        output = self.root / "imports" / uuid.uuid4().hex
+        raw = self.command("ctxbench/official-harness:0.1.0", ["catalog", "--dataset", f"/datasets/{relative.as_posix()}"],
+            volumes={self.host_path(self.root / "datasets"): {"bind": "/datasets", "mode": "ro"}},
+            output=output, resources=ResourcePolicy(timeout_minutes=10))
+        return json.loads(raw)
+
+    def grade(self, task: TaskRecord, dataset_path: Path, patch: Path, output: Path,
+              resources: ResourcePolicy, harness_image: str) -> dict:
+        started = time.monotonic()
+        if task.source in {"swebench", "agentbench"}:
+            self.command(harness_image, [f"grade-{task.source}", "--dataset", str(dataset_path),
+                "--instance-id", task.id, "--patch", str(patch), "--output", str(output)],
+                volumes={self.host_path(self.root): {"bind": str(self.root), "mode": "rw"}},
+                output=output, resources=resources, socket=True, network="bridge")
+            summary = json.loads((output / "summary.json").read_text(encoding="utf-8"))
+            if not isinstance(summary.get("resolved"), bool):
+                raise ValueError("Official harness did not return a boolean resolution.")
+            observed = output / "child-images.json"
+            if observed.exists():
+                summary["graderImageDigests"] = json.loads(observed.read_text())
+        else:
+            workspace = self.checkout(task, "grader")
+            if patch.stat().st_size:
+                git(workspace, "apply", "--binary", "--whitespace=nowarn", "-", data=patch.read_bytes())
+            if task.hidden_test_patch:
+                git(workspace, "apply", "--binary", "--whitespace=nowarn", "-", data=task.hidden_test_patch.encode())
+            import docker
+            client = docker.from_env()
+            container = None
+            try:
+                image = task.image
+                if not image:
+                    raise ValueError("Custom test image must be frozen during preparation.")
+                self.cancel_grade(output)
+                container = client.containers.run(image, list(task.test_command), entrypoint="", working_dir="/workspace",
+                    detach=True, volumes={self.host_path(workspace): {"bind": "/workspace", "mode": "rw"}},
+                    network="none", nano_cpus=int(resources.cpus * 1e9), mem_limit=f"{resources.memory_gb}g",
+                    pids_limit=1024, cap_drop=["ALL"], security_opt=["no-new-privileges:true"],
+                    labels={"io.ctxbench.evaluator": "true", "io.ctxbench.grade-scope": hashlib.sha256(str(output).encode()).hexdigest()[:20]})
+                exit_code = container.wait(timeout=resources.timeout_minutes * 60)["StatusCode"]
+                output.mkdir(parents=True, exist_ok=True)
+                (output / "evaluator.log").write_bytes(container.logs())
+                summary = {"resolved": exit_code == 0, "exitCode": exit_code, "benchmark": "custom", "instanceId": task.id, "graderImageDigests": [image]}
+            finally:
+                if container is not None:
+                    try:
+                        container.remove(force=True)
+                    except docker.errors.NotFound:
+                        pass
+                client.close()
+        summary["durationSeconds"] = time.monotonic() - started
+        (output / "summary.json").write_text(json.dumps(summary, indent=2), encoding="utf-8")
+        return summary

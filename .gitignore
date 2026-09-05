@@ -19,3 +19,5 @@ coverage/
 __pycache__/
 *.py[cod]
 src-tauri/gen/schemas/
+.desktop-deployment/
+acceptance-results/

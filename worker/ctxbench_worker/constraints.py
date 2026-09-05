@@ -87,10 +87,12 @@ def design_constraints_from_document(value: dict[str, Any]) -> tuple[DesignConst
                 applicability=str(option["applicability"]),
                 reference_snippets=tuple(str(item) for item in option.get("referenceSnippets", [])),
                 provenance=tuple(str(item) for item in option.get("provenance", [])),
-                adopted=bool(option["adopted"]),
+                adopted=option["adopted"],
             )
             for option in options
         )
+        if any(not isinstance(option.adopted, bool) or not option.provenance for option in parsed_options):
+            raise ValueError("Constraint adoption must be boolean and backed by provenance.")
         if not any(option.adopted for option in parsed_options):
             raise ValueError(f"Constraint {raw['id']} has no adopted option.")
         constraints.append(
@@ -120,6 +122,10 @@ def judge_votes_from_document(value: dict[str, Any]) -> tuple[tuple[str, JudgeVo
         confidence = float(raw["confidence"])
         if not 0 <= confidence <= 1:
             raise ValueError("Judge confidence must be between zero and one.")
+        if not isinstance(raw.get("applicable"), bool):
+            raise ValueError("Judge applicability must be boolean.")
+        if not raw["applicable"] and raw["verdict"] != "neutral":
+            raise ValueError("Inapplicable constraints must have a neutral verdict.")
         votes.append(
             (
                 str(raw["constraintId"]),
@@ -213,6 +219,8 @@ def majority_verdict(votes: Sequence[JudgeVote]) -> Verdict:
 def aggregate_constraint_votes(
     constraint_ids: Sequence[str], vote_sets: Sequence[Sequence[tuple[str, JudgeVote]]]
 ) -> dict[str, Verdict]:
+    if len(vote_sets) != 3:
+        raise ValueError("Research judgment requires exactly three independent judges.")
     expected = set(constraint_ids)
     grouped: dict[str, list[JudgeVote]] = {constraint_id: [] for constraint_id in constraint_ids}
     for vote_set in vote_sets:

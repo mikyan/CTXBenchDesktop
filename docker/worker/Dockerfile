@@ -5,6 +5,7 @@ ENV PYTHONDONTWRITEBYTECODE=1 \
     CTXBENCH_DATA_DIR=/var/lib/ctxbench
 
 WORKDIR /opt/ctxbench
+RUN apt-get update && apt-get install -y --no-install-recommends git ca-certificates && rm -rf /var/lib/apt/lists/*
 COPY worker/requirements.txt ./requirements.txt
 RUN pip install --no-cache-dir --requirement requirements.txt
 
