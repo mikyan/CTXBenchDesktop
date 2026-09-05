@@ -1,4 +1,4 @@
-import { useEffect, useState } from "react";
+import { useEffect, useRef, useState } from "react";
 import type { ContextArm, CreateExperimentRequest, DatasetRecord, FrozenModelConfig, KnowledgeArtifact, RuntimeSettings, TaskSummary, TokenBudgetRecord } from "../domain/types";
 import { useI18n } from "../i18n";
 import { workerRequest } from "../lib/desktop";
@@ -24,6 +24,7 @@ export function ExperimentComposer({ creating, onClose, onCreate, artifacts }: {
   const [availableConstraints, setAvailableConstraints] = useState<{ id: string; repository: string; commit: string; count: number; historyVersion?: number }[]>([]);
   const [checking, setChecking] = useState(false);
   const [budgets, setBudgets] = useState<TokenBudgetRecord[]>([]); const [budgetId, setBudgetId] = useState("");
+  const modelEdited = useRef(false);
   const [preflight, setPreflight] = useState<{ request: string; report: { runs: number; builderInvocations: number; minerInvocations: number; judgeInvocations: number; configuredTokenAllowance: number; storage: { freeBytes: number; ready: boolean } } }>();
   useEffect(() => {
     workerRequest<DatasetRecord[]>("/datasets").then(setDatasets).catch((error) => setError(String(error)));
@@ -31,7 +32,7 @@ export function ExperimentComposer({ creating, onClose, onCreate, artifacts }: {
     workerRequest<typeof availableConstraints>("/constraint-packages").then(setAvailableConstraints).catch(() => {});
     workerRequest<RuntimeSettings>("/runtime").then((settings) => {
       const mimo = settings.credentials.find((item) => item.name === "XIAOMI_TOKEN_PLAN_CN_API_KEY" && item.configured);
-      if (mimo) { setEnv(mimo.name); const profile = { ...defaultProfile(), provider: "xiaomi-token-plan-cn", model: "mimo-v2.5-pro" }; setProfiles({ solver: profile, builder: { ...profile, maxTokens: 800000 }, constraintMiner: profile, constraintJudge: profile }); }
+      if (mimo) { setEnv(mimo.name); if (!modelEdited.current) { const profile = { ...defaultProfile(), provider: "xiaomi-token-plan-cn", model: "mimo-v2.5-pro" }; setProfiles({ solver: profile, builder: { ...profile, maxTokens: 800000 }, constraintMiner: profile, constraintJudge: profile }); } }
     }).catch(() => {});
   }, []);
   useEffect(() => { let current = true; setTasks([]); setSelected([]); setPackages({}); if (dataset) workerRequest<TaskSummary[]>(`/datasets/${dataset}/tasks`).then((tasks) => { if (current) setTasks(tasks); }).catch((error) => setError(String(error))); return () => { current = false; }; }, [dataset]);
@@ -55,7 +56,11 @@ export function ExperimentComposer({ creating, onClose, onCreate, artifacts }: {
   };
   return <Modal title={t("New experiment")} onClose={onClose}>
     <label>{t("Experiment name")}<input value={name} onChange={(e) => setName(e.target.value)} /></label>
-    <label>{t("Shared token budget")}<select value={budgetId} onChange={(e) => setBudgetId(e.target.value)}><option value="">{t("No shared budget")}</option>{budgets.map((budget) => <option key={budget.id} value={budget.id}>{budget.id} · {budget.model} · {budget.remainingTokens.toLocaleString()}</option>)}</select></label>
+    <label>{t("Shared token budget")}<select value={budgetId} onChange={(e) => {
+      setBudgetId(e.target.value); const budget = budgets.find((item) => item.id === e.target.value);
+      if (budget) { modelEdited.current = true; const bind = (profile: FrozenModelConfig) => ({ ...profile, provider: budget.provider, model: budget.model });
+        setProfiles((current) => ({ builder: bind(current.builder), solver: bind(current.solver), constraintMiner: bind(current.constraintMiner), constraintJudge: bind(current.constraintJudge) })); setJudges((current) => current.map(bind)); }
+    }}><option value="">{t("No shared budget")}</option>{budgets.map((budget) => <option key={budget.id} value={budget.id}>{budget.id} · {budget.model} · {budget.remainingTokens.toLocaleString()}</option>)}</select></label>
     <label>{t("Dataset or manifest")}<select value={dataset} onChange={(e) => setDataset(e.target.value)}><option value="">{t("Select an imported dataset")}</option>{datasets.map((item) => <option key={item.id} value={item.id}>{item.name} · {item.count}</option>)}</select></label>
     {!datasets.length && <p>{t("Import a dataset from the experiments page first.")}</p>}
     <label>{t("Filter tasks")}<input value={query} onChange={(e) => setQuery(e.target.value)} /></label>
@@ -65,7 +70,7 @@ export function ExperimentComposer({ creating, onClose, onCreate, artifacts }: {
     <label>{t("Context comparison")}<select value={arm} onChange={(e) => setArm(e.target.value as typeof arm)}><option value="skill-generated">{t("Skill generated")}</option><option value="manual">{t("Frozen package (generated or manual)")}</option><option value="developer-historical">{t("Developer historical")}</option></select></label>
     {arm === "manual" && selected.map((id) => { const task = tasks.find((task) => task.id === id)!; return <label key={id}>{id}<select value={packages[id] ?? ""} onChange={(e) => setPackages({ ...packages, [id]: e.target.value })}><option value="">{t("Select matching package")}</option>{artifacts.filter((item) => item.repository === task.repository && item.commit === task.baseCommit && item.status === "ready").map((item) => <option key={item.id} value={item.id}>{item.source} · {item.id.slice(0, 16)} · {item.files} {t("files")}</option>)}</select></label>; })}
     <div className="form-grid two"><label>{t("Repeats")}<input type="number" min={1} max={50} value={repeats} onChange={(e) => setRepeats(Number(e.target.value))} /></label><label>{t("Random seed")}<input type="number" value={seed} onChange={(e) => setSeed(Number(e.target.value))} /></label></div>
-    {(Object.keys(profiles) as (keyof typeof profiles)[]).filter((role) => constraints || !role.startsWith("constraint")).map((role) => <ProfileEditor key={role} title={t(role)} value={profiles[role]} onChange={(value) => setProfiles({ ...profiles, [role]: value })} />)}
+    {(Object.keys(profiles) as (keyof typeof profiles)[]).filter((role) => constraints || !role.startsWith("constraint")).map((role) => <ProfileEditor key={role} title={t(role)} value={profiles[role]} onChange={(value) => { modelEdited.current = true; setProfiles({ ...profiles, [role]: value }); }} />)}
     <label className="check-line"><input type="checkbox" checked={constraints} onChange={(e) => setConstraints(e.target.checked)} />{t("Mine historical constraints and run three independent judges")}</label>
     {constraints && selected.map((id) => { const task = tasks.find((task) => task.id === id)!; return <label key={`constraints-${id}`}>{t("Frozen constraints")} · {id}<select value={constraintPackages[id] ?? ""} onChange={(event) => setConstraintPackages({ ...constraintPackages, [id]: event.target.value })}><option value="">{t("Mine or reuse matching miner cache")}</option>{availableConstraints.filter((item) => `https://github.com/${item.repository}.git` === task.repository && item.commit === task.baseCommit).map((item) => <option key={item.id} value={item.id}>{item.id.slice(0, 12)} · {item.count} · history v{item.historyVersion ?? 1}</option>)}</select></label>; })}
     {constraints && <><label className="check-line"><input type="checkbox" checked={judges.length === 3} onChange={(e) => setJudges(e.target.checked ? Array.from({ length: 3 }, () => ({ ...profiles.constraintJudge })) : [])} />{t("Configure each judge separately")}</label>{judges.map((judge, index) => <ProfileEditor key={index} title={`${t("Constraint judge")} ${index + 1}`} value={judge} onChange={(value) => setJudges(judges.map((item, i) => i === index ? value : item))} />)}<p>{t("Automatic mining is silver quality. Empty or inapplicable constraints are reported as neutral.")}</p></>}

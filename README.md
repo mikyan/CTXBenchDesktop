@@ -55,6 +55,8 @@ For cross-experiment spending control, create a **Shared token budget** on the E
 
 `scripts/run-campaign.py` freezes a 638-task official dataset plan without spending by default; `--execute` explicitly starts real calls against an existing Worker. `--budget-id`, `--root`, and an immutable `--agent-image` are required. It alternates datasets using seeded repository round-robin order after two disclosed compatibility cases, prepares each baseline once, and runs two repetitions per arm. A matching existing constraint package is recorded explicitly; unavailable historical mining is deferred, never counted as a neutral/pass result. `--stop-after 2` verifies the compatibility prefix before the remainder. Supplying `--host-volume` with an empty read-only directory on the Windows volume that contains WSL lets the coordinator check actual host capacity and stop at 25 GiB free. Three consecutive cases without any functional grading also stop the campaign for diagnosis. Keep one coordinator per frozen plan; restart it with the same arguments and state directory to resume without duplicating experiments.
 
+To stop the whole campaign from the desktop, pause the active experiment after its current stage, or cancel it. The coordinator then exits without starting the next task. Closing the desktop window alone does not stop the Worker or campaign. Resume the experiment and restart the coordinator explicitly when ready; never run two coordinators for one plan.
+
 Token budget means cumulative Provider-reported tokens, including cached input. Repository exploration/mining may require substantially more tokens than one answer. Provider-reported cost can be zero for subscription products; it is not a bill calculation.
 
 ## Build and test

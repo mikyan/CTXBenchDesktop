@@ -130,7 +130,11 @@ def execute(api, plan, root, host_volume, stop_after):
         experiment = existing[0] if existing else request(api, '/experiments', body)
         state['activeExperimentId'] = experiment['id']
         save('running')
-        if experiment['status'] in {'completed', 'failed', 'cancelled'}:
+        if experiment['status'] == 'cancelled':
+            # A desktop cancellation must not silently start another paid case.
+            save('execution_cancelled')
+            return
+        if experiment['status'] in {'completed', 'failed'}:
             snapshot = request(api, '/snapshot?compact=true')
             runs = [run for run in snapshot['runs'] if run['experimentId'] == experiment['id']]
             state['results'].append({**item, 'experimentId': experiment['id'], 'status': experiment['status'],
