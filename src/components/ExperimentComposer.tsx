@@ -1,5 +1,5 @@
 import { useEffect, useState } from "react";
-import type { ContextArm, CreateExperimentRequest, DatasetRecord, FrozenModelConfig, KnowledgeArtifact, RuntimeSettings, TaskSummary } from "../domain/types";
+import type { ContextArm, CreateExperimentRequest, DatasetRecord, FrozenModelConfig, KnowledgeArtifact, RuntimeSettings, TaskSummary, TokenBudgetRecord } from "../domain/types";
 import { useI18n } from "../i18n";
 import { workerRequest } from "../lib/desktop";
 import { Modal, ProfileEditor, defaultProfile } from "./WorkbenchDialogs";
@@ -23,9 +23,11 @@ export function ExperimentComposer({ creating, onClose, onCreate, artifacts }: {
   const [constraintPackages, setConstraintPackages] = useState<Record<string, string>>({});
   const [availableConstraints, setAvailableConstraints] = useState<{ id: string; repository: string; commit: string; count: number; historyVersion?: number }[]>([]);
   const [checking, setChecking] = useState(false);
+  const [budgets, setBudgets] = useState<TokenBudgetRecord[]>([]); const [budgetId, setBudgetId] = useState("");
   const [preflight, setPreflight] = useState<{ request: string; report: { runs: number; builderInvocations: number; minerInvocations: number; judgeInvocations: number; configuredTokenAllowance: number; storage: { freeBytes: number; ready: boolean } } }>();
   useEffect(() => {
     workerRequest<DatasetRecord[]>("/datasets").then(setDatasets).catch((error) => setError(String(error)));
+    workerRequest<TokenBudgetRecord[]>("/token-budgets").then(setBudgets).catch((error) => setError(String(error)));
     workerRequest<typeof availableConstraints>("/constraint-packages").then(setAvailableConstraints).catch(() => {});
     workerRequest<RuntimeSettings>("/runtime").then((settings) => {
       const mimo = settings.credentials.find((item) => item.name === "XIAOMI_TOKEN_PLAN_CN_API_KEY" && item.configured);
@@ -36,7 +38,7 @@ export function ExperimentComposer({ creating, onClose, onCreate, artifacts }: {
   const visible = tasks.filter((task) => `${task.id} ${task.repository}`.toLowerCase().includes(query.toLowerCase()));
   const selectedPackages = (values: Record<string, string>) => Object.fromEntries(selected.filter((id) => values[id]).map((id) => [id, values[id]]));
   const request: CreateExperimentRequest = { name, benchmark: datasets.find((item) => item.id === dataset)?.benchmark ?? "custom", dataset, taskIds: selected, arms: ["none", arm], repeats, seed, profiles, model: profiles.solver,
-    agentImage: image, resources: { cpus: cpu, memoryGb: memory, timeoutMinutes: timeout, network }, envNames: env.split(/[\s,]+/).filter(Boolean), prepareOnly, evaluateConstraints: constraints, contextArtifacts: selectedPackages(packages), constraintPackages: selectedPackages(constraintPackages), judgeProfiles: judges };
+    agentImage: image, resources: { cpus: cpu, memoryGb: memory, timeoutMinutes: timeout, network }, envNames: env.split(/[\s,]+/).filter(Boolean), prepareOnly, evaluateConstraints: constraints, contextArtifacts: selectedPackages(packages), constraintPackages: selectedPackages(constraintPackages), judgeProfiles: judges, budgetId };
   const requestJson = JSON.stringify(request);
   const checked = preflight?.request === requestJson ? preflight.report : undefined;
   const check = async () => {
@@ -53,6 +55,7 @@ export function ExperimentComposer({ creating, onClose, onCreate, artifacts }: {
   };
   return <Modal title={t("New experiment")} onClose={onClose}>
     <label>{t("Experiment name")}<input value={name} onChange={(e) => setName(e.target.value)} /></label>
+    <label>{t("Shared token budget")}<select value={budgetId} onChange={(e) => setBudgetId(e.target.value)}><option value="">{t("No shared budget")}</option>{budgets.map((budget) => <option key={budget.id} value={budget.id}>{budget.id} · {budget.model} · {budget.remainingTokens.toLocaleString()}</option>)}</select></label>
     <label>{t("Dataset or manifest")}<select value={dataset} onChange={(e) => setDataset(e.target.value)}><option value="">{t("Select an imported dataset")}</option>{datasets.map((item) => <option key={item.id} value={item.id}>{item.name} · {item.count}</option>)}</select></label>
     {!datasets.length && <p>{t("Import a dataset from the experiments page first.")}</p>}
     <label>{t("Filter tasks")}<input value={query} onChange={(e) => setQuery(e.target.value)} /></label>

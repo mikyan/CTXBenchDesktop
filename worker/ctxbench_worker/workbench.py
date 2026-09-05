@@ -22,6 +22,7 @@ from .workspace import prepare_context
 from .safe_files import safe_file
 from .checkpoints import GradeCheckpoint, digest, stage_evidence, verify_stage
 from .preflight import estimate, storage_status
+from .budgets import TokenBudget, BudgetExhausted
 
 GENERATION_PROMPT = "/skill:ctxbench-generate-context\n\nCapability: tree-only. Generate a frozen repository context artifact from this exact baseline checkout."
 
@@ -55,11 +56,13 @@ class Workbench:
         self._active: dict[str, str] = {}
         self._lock = threading.RLock()
         self._scope = threading.local()
+        self.budgets = TokenBudget(self.db)
 
     def start(self):
         if self._thread and self._thread.is_alive():
             return
         self._stop.clear()
+        self.budgets.recover(self.engine.runner)
         # Even a paused/cancelled operation may have an orphan after a process crash.
         # Reap only stages owned by this database before admitting further work.
         if hasattr(self.engine.runner, 'cancel'):
@@ -127,6 +130,8 @@ class Workbench:
         return experiment
 
     def validate_inputs(self, spec: ExperimentSpec) -> list:
+        if spec.budget_id:
+            self.budgets.validate(spec.budget_id, [spec.model, *spec.profiles.values(), *spec.judge_profiles])
         dataset = self.db.get_document("datasets", spec.dataset)
         if dataset["benchmark"] != spec.benchmark:
             raise ValueError("The imported dataset belongs to another benchmark.")
@@ -154,7 +159,8 @@ class Workbench:
     def preflight(self, spec: ExperimentSpec) -> dict:
         tasks = self.validate_inputs(spec)
         return {**estimate(spec, tasks), 'storage': storage_status(self.root),
-                'workerUsesDocker': isinstance(self.engine.runner, DockerRunner)}
+                'workerUsesDocker': isinstance(self.engine.runner, DockerRunner),
+                'sharedBudget': self.budgets.snapshot(spec.budget_id) if spec.budget_id else None}
 
     def control(self, experiment_id: str, action: str) -> dict:
         with self._lock:
@@ -263,7 +269,7 @@ class Workbench:
         model = ModelConfig(**payload["model"])
         return ExperimentSpec("Preparation", "custom", payload["dataset"], ("none", "skill-generated"), 1,
             (payload["taskId"],), model, payload["agentImage"], ResourcePolicy(**payload["resources"]), 0,
-            profiles={"builder": model, "constraintMiner": model}, env_names=tuple(payload.get("envNames", [])))
+            profiles={"builder": model, "constraintMiner": model}, env_names=tuple(payload.get("envNames", [])), budget_id=payload.get('budgetId', ''))
 
     def redact(self, text: str) -> str:
         names = getattr(self.engine.runner, "env_allowlist", ())
@@ -294,6 +300,14 @@ class Workbench:
         elif mode == "judge-constraints":
             expected_document = json.loads(safe_file(workspace, "constraints.json").read_text(encoding="utf-8"))
         output = self.root / "runs" / run_id
+        if spec.budget_id:
+            self.budgets.validate(spec.budget_id, [model])
+            try:
+                self.budgets.reserve(spec.budget_id, run_id, model.max_tokens, mode=mode, experiment_id=experiment_id, output=str(output))
+            except BudgetExhausted as error:
+                if experiment_id:
+                    self.db.set_experiment_status(experiment_id, 'paused')
+                raise Interrupted(str(error)) from error
         scope_id = experiment_id or getattr(self._scope, "operation_id", None) or key
         stage = {"id": key, "status": "running", "runId": run_id, "experimentId": experiment_id,
                  "operationId": getattr(self._scope, "operation_id", None), "workspace": str(workspace), "output": str(output), "startedAt": utc_now()}
@@ -350,6 +364,14 @@ class Workbench:
             self.db.put_document("stages", key, stage)
             return stage
         finally:
+            if spec.budget_id:
+                try:
+                    accounting = json.loads(safe_file(output, 'result.json').read_text(encoding='utf-8'))
+                    if not isinstance(accounting, dict):
+                        accounting = None
+                except (ValueError, OSError):
+                    accounting = None
+                self.budgets.settle(run_id, accounting)
             with self._lock:
                 self._active.pop(scope_id, None)
 
@@ -624,6 +646,7 @@ class Workbench:
         operations = self.db.list_documents("operations")
         # Model requests, dataset gold patches and credentials are never part of a dashboard snapshot.
         return {"experiments": self.db.list_experiments(), "runs": runs, "artifacts": artifacts,
+            "tokenBudgets": [self.budgets.snapshot(item['id']) for item in self.db.list_documents('tokenBudgets')],
             "constraints": constraints, "datasets": self.catalog.list(), "operations": [
                 {**{key: item[key] for key in ("id", "kind", "status", "createdAt", "updatedAt", "failure") if key in item},
                  "taskId": item["payload"].get("taskId"), "dataset": item["payload"].get("dataset"),

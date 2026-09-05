@@ -45,6 +45,7 @@ class ExperimentSpec:
     evaluate_constraints: bool = False
     judge_profiles: tuple[ModelConfig, ...] = ()
     constraint_packages: dict[str, str] = field(default_factory=dict)
+    budget_id: str = ''
 
 
 @dataclass(frozen=True)

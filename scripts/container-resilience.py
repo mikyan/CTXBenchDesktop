@@ -99,12 +99,13 @@ try:
         volumes={str(root): {'bind': str(root), 'mode': 'rw'},
                  '/var/run/docker.sock': {'bind': '/var/run/docker.sock', 'mode': 'rw'}})
     wait(health, 'isolated Worker health', 30)
+    request('/token-budgets', {'id': 'resilience', 'limitTokens': 1000000, 'provider': 'mock', 'model': 'deterministic'})
     dataset = request('/datasets', {'name': 'Crash fixture', 'benchmark': 'custom', 'rows': [{
         'id': 'resilience', 'repository': str(source), 'baseCommit': commit, 'prompt': 'Complete the infrastructure fixture.',
         'image': 'ctxbench/agent-pi:0.1.0',
         'test': {'command': ['python3', '-c', "from pathlib import Path; assert Path('ctxbench_mock_solution.txt').is_file(); assert Path('ctxbench_mock_staged.txt').is_file()"]}}]})
     preparation = request('/prepare/context', {'dataset': dataset['id'], 'taskId': 'resilience', 'model': profile,
-        'resources': resources, 'envNames': env_names, 'agentImage': 'ctxbench/agent-pi:0.1.0'})
+        'resources': resources, 'envNames': env_names, 'agentImage': 'ctxbench/agent-pi:0.1.0', 'budgetId': 'resilience'})
     wait(lambda: next((stage for stage in stages() if stage.get('operationId') == preparation['id'] and stage['status'] == 'running'), None), 'builder started')
     request(f"/operations/{preparation['id']}/pause", {})
     request(f"/operations/{preparation['id']}/resume", {})
@@ -114,7 +115,7 @@ try:
     body = {'name': 'Crash and restore', 'benchmark': 'custom', 'dataset': dataset['id'], 'taskIds': ['resilience'],
             'arms': ['none', 'skill-generated'], 'repeats': 2, 'seed': 42, 'model': profile,
             'profiles': {role: profile for role in ('builder', 'solver', 'constraintMiner', 'constraintJudge')},
-            'resources': resources, 'agentImage': 'ctxbench/agent-pi:0.1.0', 'envNames': env_names, 'prepareOnly': True}
+            'resources': resources, 'agentImage': 'ctxbench/agent-pi:0.1.0', 'envNames': env_names, 'prepareOnly': True, 'budgetId': 'resilience'}
     preflight = request('/preflight', body)
     assert preflight['runs'] == 4
     experiment = request('/experiments', body)
@@ -142,10 +143,13 @@ try:
     worker.restart(timeout=10)
     wait(health, 'final restart health', 30)
     assert saved == json.dumps(request('/snapshot'), sort_keys=True)
+    budget = request('/token-budgets/resilience')
+    assert budget['reportedTokens'] > 0 and budget['reservedTokens'] == 0
+    assert budget['unconfirmedTokens'] >= 1000 and budget['chargedTokens'] >= budget['reportedTokens']
     summary = {'passed': True, 'root': str(root), 'independentPauseResume': True,
                'forcedWorkerKillRecovered': True, 'orphanAgentRemoved': True, 'freshSolverWorkspace': True,
                'generationStages': 1, 'completedRuns': len(results) + len(retry_results),
-               'immediateCancelRetry': True, 'evidenceAfterRestartUnchanged': True}
+               'immediateCancelRetry': True, 'evidenceAfterRestartUnchanged': True, 'sharedBudget': budget}
     (root / 'summary.json').write_text(json.dumps(summary, indent=2))
     print(json.dumps(summary, indent=2))
 finally:

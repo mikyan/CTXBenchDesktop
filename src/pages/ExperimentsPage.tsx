@@ -8,6 +8,7 @@ import { useI18n } from "../i18n";
 import { relativeTime, titleCase } from "../lib/format";
 import { Pagination } from "../components/Pagination";
 import { pageWindow } from "../domain/pagination";
+import { TokenBudgets } from "../components/TokenBudgets";
 
 export function ExperimentsPage({ snapshot, onNewExperiment, onExport, onImport, onAction, onRun }: { snapshot: DashboardSnapshot; onNewExperiment: () => void; onExport: (format: "json" | "csv" | "html") => void; onImport: () => void; onAction: (id: string, action: string) => void; onRun: (run: BenchmarkRun) => void }) {
   const { locale, t } = useI18n();
@@ -39,6 +40,7 @@ export function ExperimentsPage({ snapshot, onNewExperiment, onExport, onImport,
         <div><span>{t("Completed")}</span><strong>{snapshot.experiments.filter((item) => item.status === "completed").length}</strong></div>
         <div><span>{t("Imported datasets")}</span><strong>{snapshot.datasets?.length ?? 0}</strong></div>
       </section>
+      <TokenBudgets budgets={snapshot.tokenBudgets ?? []} />
 
       <div className="toolbar">
         <label className="table-search"><Search size={15} /><input aria-label={t("Filter experiments")} value={query} onChange={(event) => setQuery(event.target.value)} placeholder={t("Filter experiments")} /></label>

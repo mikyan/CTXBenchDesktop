@@ -349,4 +349,5 @@ class Database:
             "evaluateConstraints": spec.get("evaluate_constraints", False),
             "prepareOnly": spec.get("prepare_only", False),
             "judgeProfiles": spec.get("judge_profiles", []),
+            "budgetId": spec.get("budget_id", ''),
         }

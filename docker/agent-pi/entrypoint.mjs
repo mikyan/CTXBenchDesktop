@@ -203,6 +203,7 @@ if (request.mode === "generate-context") {
 
 const result = {
   schemaVersion: 1,
+  budgetProtocolVersion: 1,
   runId: request.runId,
   status: timedOut ? "timed-out" : budgetExceeded && !settled ? "failed" : exitCode === 0 || settled ? "completed" : "failed",
   exitCode,

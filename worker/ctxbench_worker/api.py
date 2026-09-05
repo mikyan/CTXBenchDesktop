@@ -65,6 +65,7 @@ class ExperimentInput(BaseModel):
     evaluateConstraints: bool = False
     judgeProfiles: list[ModelConfigInput] = Field(default_factory=list)
     constraintPackages: dict[str, str] = Field(default_factory=dict)
+    budgetId: str = ''
 
 
 class RunInput(BaseModel):
@@ -137,6 +138,7 @@ def _spec(value: ExperimentInput) -> ExperimentSpec:
         prepare_only=value.prepareOnly, evaluate_constraints=value.evaluateConstraints,
         judge_profiles=tuple(_model(profile) for profile in value.judgeProfiles),
         constraint_packages=value.constraintPackages,
+        budget_id=value.budgetId,
     )
 
 
@@ -203,6 +205,18 @@ def create_app(
     @app.post('/v1/preflight')
     def preflight(value: ExperimentInput):
         return workbench.preflight(_spec(value))
+
+    @app.post('/v1/token-budgets', status_code=201)
+    def create_budget(value: dict):
+        return workbench.budgets.create(value['id'], value['limitTokens'], value['provider'], value['model'])
+
+    @app.get('/v1/token-budgets')
+    def token_budgets():
+        return [workbench.budgets.snapshot(item['id']) for item in workbench.db.list_documents('tokenBudgets')]
+
+    @app.get('/v1/token-budgets/{budget_id}')
+    def token_budget(budget_id: str):
+        return workbench.budgets.snapshot(budget_id)
 
     @app.post("/v1/runs", status_code=202)
     def enqueue_run(value: RunInput) -> dict[str, object]:
@@ -309,9 +323,11 @@ def create_app(
             raise ValueError("Unknown preparation kind.")
         workbench.catalog.task(value["dataset"], value["taskId"])
         model = _model(ModelConfigInput.model_validate(value["model"]))
+        if value.get('budgetId'):
+            workbench.budgets.validate(value['budgetId'], [model])
         resources = _resources(ResourcePolicyInput.model_validate(value["resources"]))
         payload = {"dataset": value["dataset"], "taskId": value["taskId"], "model": model.__dict__,
-                   "resources": resources.__dict__, "agentImage": value.get("agentImage", "ctxbench/agent-pi:0.1.0"), "envNames": value.get("envNames", [])}
+                   "resources": resources.__dict__, "agentImage": value.get("agentImage", "ctxbench/agent-pi:0.1.0"), "envNames": value.get("envNames", []), 'budgetId': value.get('budgetId', '')}
         return workbench.enqueue(kind, payload)
 
     @app.get("/v1/operations/{operation_id}")

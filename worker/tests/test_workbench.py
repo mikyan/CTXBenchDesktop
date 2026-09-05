@@ -36,6 +36,16 @@ class FixtureRunner:
 
 
 class WorkbenchTests(unittest.TestCase):
+    def test_shared_budget_pauses_before_unfunded_solver_without_changing_profile(self):
+        self.workbench.budgets.create('small', 1000, 'mock', 'deterministic')
+        experiment = self.workbench.create_experiment(replace(self.spec, budget_id='small'))
+        with self.assertRaisesRegex(Interrupted, 'Shared token budget'):
+            self.workbench.run_experiment(experiment['id'])
+        self.assertEqual(self.engine.database.get_experiment(experiment['id'])['status'], 'paused')
+        self.assertEqual(len(self.runner.calls), 1)
+        self.assertEqual(self.runner.calls[0].model.max_tokens, 1000)
+        self.assertEqual(self.workbench.budgets.snapshot('small')['chargedTokens'], 1000)
+
     def test_restart_reaps_paused_orphans_without_resuming_or_touching_completed_stages(self):
         operation = self.preparation()
         self.workbench.control_operation(operation['id'], 'pause')

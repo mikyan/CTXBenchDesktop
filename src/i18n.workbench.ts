@@ -1,4 +1,12 @@
 export const workbenchChinese: Record<string, string> = {
+  "Shared token budget": "共享 Token 总预算",
+  "No shared budget": "不使用共享预算",
+  "All attached experiments and roles share this immutable allowance. Failed or interrupted attempts retain a conservative charge. This is not the Provider bill.": "关联实验的所有角色共享固定额度；失败或中断调用保守计入预留额度。这不是 Provider 实际账单。",
+  "Reported / charged / reserved / remaining": "已上报 / 已记账 / 执行中预留 / 可用",
+  "Unconfirmed allowance": "用量未确认的保守记账",
+  "Total allowance": "总 Token 额度",
+  "Create shared budget": "创建共享预算",
+  "Budget ID": "预算标识",
   "Independent preparation tasks": "独立准备任务",
   "Pagination": "分页",
   "{start}–{end} of {total}": "第 {start}–{end} 条，共 {total} 条",
