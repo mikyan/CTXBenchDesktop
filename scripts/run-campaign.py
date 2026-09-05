@@ -7,16 +7,45 @@ constraint packages are explicitly recorded; missing history is not a neutral vo
 import argparse
 import hashlib
 import json
+import os
 import random
 import shutil
 import sys
 import time
 import urllib.request
 from collections import defaultdict
+from contextlib import contextmanager
 from pathlib import Path
 
 sys.path.insert(0, str(Path(__file__).resolve().parents[1] / 'worker'))
 from ctxbench_worker.checkpoints import atomic_json
+
+
+@contextmanager
+def campaign_lock(root):
+    """One coordinator owns a plan; OS locks also release after process death."""
+    root.mkdir(parents=True, exist_ok=True)
+    with (root / 'coordinator.lock').open('a+b') as handle:
+        if os.name == 'nt':
+            import msvcrt
+            if handle.tell() == 0:
+                handle.write(b'0')
+                handle.flush()
+            handle.seek(0)
+            lock = lambda: msvcrt.locking(handle.fileno(), msvcrt.LK_NBLCK, 1)
+            unlock = lambda: msvcrt.locking(handle.fileno(), msvcrt.LK_UNLCK, 1)
+        else:
+            import fcntl
+            lock = lambda: fcntl.flock(handle.fileno(), fcntl.LOCK_EX | fcntl.LOCK_NB)
+            unlock = lambda: fcntl.flock(handle.fileno(), fcntl.LOCK_UN)
+        try:
+            lock()
+        except OSError as error:
+            raise RuntimeError('Campaign is already owned by another coordinator; no requests were sent.') from error
+        try:
+            yield
+        finally:
+            unlock()
 
 
 def request(api, path, body=None):
@@ -165,8 +194,9 @@ if __name__ == '__main__':
     arguments = parser.parse_args()
     if not arguments.agent_image.startswith('sha256:') or len(arguments.agent_image) != 71:
         parser.error('An immutable Agent image ID is required.')
-    frozen = freeze_plan(arguments.api, arguments.budget_id, arguments.limit_tokens, arguments.root, arguments.agent_image)
-    print(json.dumps({'plannedTasks': len(frozen['tasks']), 'plannedRuns': len(frozen['tasks']) * 4,
-                      'model': frozen['model'], 'budgetId': frozen['budgetId'], 'execute': arguments.execute}), flush=True)
-    if arguments.execute:
-        execute(arguments.api, frozen, arguments.root, arguments.host_volume, arguments.stop_after)
+    with campaign_lock(arguments.root):
+        frozen = freeze_plan(arguments.api, arguments.budget_id, arguments.limit_tokens, arguments.root, arguments.agent_image)
+        print(json.dumps({'plannedTasks': len(frozen['tasks']), 'plannedRuns': len(frozen['tasks']) * 4,
+                          'model': frozen['model'], 'budgetId': frozen['budgetId'], 'execute': arguments.execute}), flush=True)
+        if arguments.execute:
+            execute(arguments.api, frozen, arguments.root, arguments.host_volume, arguments.stop_after)

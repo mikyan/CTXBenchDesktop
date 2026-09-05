@@ -57,6 +57,8 @@ For cross-experiment spending control, create a **Shared token budget** on the E
 
 To stop the whole campaign from the desktop, pause the active experiment after its current stage, or cancel it. The coordinator then exits without starting the next task. Closing the desktop window alone does not stop the Worker or campaign. Resume the experiment and restart the coordinator explicitly when ready; never run two coordinators for one plan.
 
+An operating-system file lock on the state directory rejects concurrent coordinators before any API request. A crashed process releases this lock automatically; the retained lock file is not itself a stale lock and should not be deleted.
+
 Token budget means cumulative Provider-reported tokens, including cached input. Repository exploration/mining may require substantially more tokens than one answer. Provider-reported cost can be zero for subscription products; it is not a bill calculation.
 
 ## Build and test

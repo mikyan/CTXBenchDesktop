@@ -10,6 +10,19 @@ campaign = runpy.run_path(str(Path(__file__).resolve().parents[2] / 'scripts' / 
 
 
 class CampaignTests(unittest.TestCase):
+    def test_coordinator_lock_excludes_duplicates_and_releases_after_failure(self):
+        lock = campaign['campaign_lock']
+        with tempfile.TemporaryDirectory() as directory:
+            root = Path(directory)
+            with self.assertRaisesRegex(ValueError, 'injected failure'):
+                with lock(root):
+                    with self.assertRaisesRegex(RuntimeError, 'another coordinator'):
+                        with lock(root):
+                            self.fail('A duplicate coordinator acquired the same plan')
+                    raise ValueError('injected failure')
+            with lock(root):
+                self.assertTrue((root / 'coordinator.lock').exists())
+
     def execution_fixture(self):
         plan = {'budgetId': 'budget', 'limitTokens': 100000000, 'provider': 'xiaomi-token-plan-cn',
                 'model': 'mimo-v2.5', 'solverTokens': 300000, 'builderTokens': 800000, 'judgeTokens': 120000,
