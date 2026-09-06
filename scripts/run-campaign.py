@@ -9,6 +9,7 @@ import hashlib
 import json
 import os
 import random
+import re
 import shutil
 import sys
 import time
@@ -55,13 +56,32 @@ def request(api, path, body=None):
         return json.load(response)
 
 
-def freeze_plan(api, budget_id, limit, root, agent_image):
+def freeze_plan(api, budget_id, limit, root, agent_image, *, stage_tokens=None, campaign_id=None, source_plan=None):
+    if stage_tokens is not None and (type(stage_tokens) is not int or stage_tokens < 1):
+        raise ValueError('Stage token allowance must be positive.')
+    if campaign_id is not None and not re.fullmatch(r'[a-zA-Z0-9_-]{1,80}', campaign_id):
+        raise ValueError('Invalid campaign ID.')
     root.mkdir(parents=True, exist_ok=True)
     path = root / 'plan.json'
     if path.exists():
         plan = json.loads(path.read_text())
         if plan['budgetId'] != budget_id or plan['limitTokens'] != limit or plan['agentImage'] != agent_image:
             raise ValueError('Existing campaign authorization cannot be changed.')
+        if campaign_id is not None and plan.get('campaignId', plan['budgetId']) != campaign_id:
+            raise ValueError('Use a new state directory for a new campaign ID.')
+        if stage_tokens is not None and any(plan.get(role, plan['solverTokens']) != stage_tokens for role in ('solverTokens', 'builderTokens', 'minerTokens', 'judgeTokens')):
+            raise ValueError('Use a new campaign for changed stage allowances; old results remain frozen.')
+        return plan
+    if source_plan is not None:
+        source = json.loads(source_plan.read_text())
+        if source['budgetId'] != budget_id or source['agentImage'] != agent_image:
+            raise ValueError('A continuation must retain its shared budget and Agent image.')
+        if not campaign_id or campaign_id == source.get('campaignId', source['budgetId']):
+            raise ValueError('Changed allowances require a distinct campaign ID.')
+        plan = {**source, 'version': 2, 'campaignId': campaign_id, 'limitTokens': limit,
+                'sourcePlanHash': hashlib.sha256(json.dumps(source, sort_keys=True).encode()).hexdigest()}
+        plan.update({role: stage_tokens or 5000000 for role in ('solverTokens', 'builderTokens', 'minerTokens', 'judgeTokens')})
+        atomic_json(root, 'plan.json', plan)
         return plan
     queues = {}
     packages = request(api, '/constraint-packages')
@@ -101,9 +121,9 @@ def freeze_plan(api, budget_id, limit, root, agent_image):
         for benchmark in ('ctxbench', 'swebench'):
             if index < len(queues[benchmark]):
                 tasks.append(queues[benchmark][index])
-    plan = {'version': 1, 'budgetId': budget_id, 'limitTokens': limit, 'provider': 'xiaomi-token-plan-cn',
+    plan = {'version': 2, 'campaignId': campaign_id or budget_id, 'budgetId': budget_id, 'limitTokens': limit, 'provider': 'xiaomi-token-plan-cn',
             'model': 'mimo-v2.5', 'seed': 42, 'repeats': 2, 'agentImage': agent_image,
-            'solverTokens': 300000, 'builderTokens': 800000, 'judgeTokens': 120000,
+            **{role: stage_tokens or 5000000 for role in ('solverTokens', 'builderTokens', 'minerTokens', 'judgeTokens')},
             'order': 'two disclosed compatibility cases, then seeded repository round-robin, alternating datasets',
             'constraintPolicy': 'explicit matching frozen packages only; new mining is deferred pending GitHub API quota',
             'tasks': tasks}
@@ -114,11 +134,11 @@ def freeze_plan(api, budget_id, limit, root, agent_image):
 def body_for(plan, item, ordinal):
     profile = {'provider': plan['provider'], 'model': plan['model'], 'thinking': 'high', 'maxTokens': plan['solverTokens']}
     package = item['constraintPackageId']
-    return {'name': f"{plan['budgetId']} [{ordinal + 1:03}] {item['benchmark']} {item['taskId']}",
+    return {'name': f"{plan.get('campaignId', plan['budgetId'])} [{ordinal + 1:03}] {item['benchmark']} {item['taskId']}",
             'benchmark': item['benchmark'], 'dataset': item['dataset'], 'taskIds': [item['taskId']],
             'arms': ['none', 'skill-generated'], 'repeats': plan['repeats'], 'seed': plan['seed'],
             'model': profile, 'profiles': {'solver': profile, 'builder': {**profile, 'maxTokens': plan['builderTokens']},
-                'constraintMiner': profile, 'constraintJudge': {**profile, 'maxTokens': plan['judgeTokens']}},
+                'constraintMiner': {**profile, 'maxTokens': plan.get('minerTokens', plan['solverTokens'])}, 'constraintJudge': {**profile, 'maxTokens': plan['judgeTokens']}},
             'agentImage': plan['agentImage'], 'budgetId': plan['budgetId'],
             'resources': {'cpus': 4, 'memoryGb': 8, 'timeoutMinutes': 45, 'network': 'api-only'},
             'envNames': ['XIAOMI_TOKEN_PLAN_CN_API_KEY'], 'prepareOnly': False,
@@ -186,7 +206,10 @@ if __name__ == '__main__':
     parser.add_argument('--api', default='http://127.0.0.1:48173/v1')
     parser.add_argument('--root', type=Path, required=True)
     parser.add_argument('--budget-id', required=True)
-    parser.add_argument('--limit-tokens', type=int, default=100000000)
+    parser.add_argument('--limit-tokens', type=int, default=1000000000)
+    parser.add_argument('--stage-tokens', type=int, help='Cumulative allowance for each role; new plans default to 5,000,000')
+    parser.add_argument('--campaign-id', help='Distinct experiment namespace when reusing a shared budget')
+    parser.add_argument('--source-plan', type=Path, help='Retain the exact task order in a new campaign; never mixes old results')
     parser.add_argument('--execute', action='store_true')
     parser.add_argument('--stop-after', type=int, default=0)
     parser.add_argument('--host-volume', type=Path)
@@ -195,7 +218,8 @@ if __name__ == '__main__':
     if not arguments.agent_image.startswith('sha256:') or len(arguments.agent_image) != 71:
         parser.error('An immutable Agent image ID is required.')
     with campaign_lock(arguments.root):
-        frozen = freeze_plan(arguments.api, arguments.budget_id, arguments.limit_tokens, arguments.root, arguments.agent_image)
+        frozen = freeze_plan(arguments.api, arguments.budget_id, arguments.limit_tokens, arguments.root, arguments.agent_image,
+                             stage_tokens=arguments.stage_tokens, campaign_id=arguments.campaign_id, source_plan=arguments.source_plan)
         print(json.dumps({'plannedTasks': len(frozen['tasks']), 'plannedRuns': len(frozen['tasks']) * 4,
                           'model': frozen['model'], 'budgetId': frozen['budgetId'], 'execute': arguments.execute}), flush=True)
         if arguments.execute:

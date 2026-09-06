@@ -26,6 +26,24 @@ class BudgetTests(unittest.TestCase):
         with self.assertRaises(ValueError):
             self.budget.validate('round', [ModelConfig('mock', 'different', 'off', 100)])
 
+    def test_explicit_increase_preserves_spend_reservations_and_history(self):
+        self.reserve('spent', 400)
+        self.budget.settle('spent', None)
+        self.reserve('inflight', 500)
+        updated = self.budget.increase_limit('round', 1000, 10000, 'User approved higher total')
+        self.assertEqual(updated['chargedTokens'], 400)
+        self.assertEqual(updated['reservedTokens'], 500)
+        self.assertEqual(updated['remainingTokens'], 9100)
+        self.assertEqual(updated['originalLimitTokens'], 1000)
+        self.assertEqual(updated['attempts'], 2)
+        self.assertEqual(self.budget.increase_limit('round', 1000, 10000, 'User approved higher total'), updated)
+        self.assertEqual(len(TokenBudget(Database(self.database.path)).snapshot('round')['limitChanges']), 1)
+        for previous, limit, reason in [(1000, 11000, 'stale'), (10000, 9999, 'decrease'), (10000, 20000, ''), (True, 20000, 'bad')]:
+            with self.assertRaises(ValueError):
+                self.budget.increase_limit('round', previous, limit, reason)
+        with self.assertRaises(ValueError):
+            self.budget.create('round', 1000, 'mock', 'deterministic')
+
     def test_shared_reservation_and_idempotent_settlement(self):
         self.reserve('run-1', 800)
         with self.assertRaises(BudgetExhausted):

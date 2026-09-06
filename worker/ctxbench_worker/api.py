@@ -26,7 +26,7 @@ class ModelConfigInput(BaseModel):
     provider: str
     model: str
     thinking: str = "high"
-    maxTokens: int = Field(default=32_768, ge=1)
+    maxTokens: int = Field(default=5_000_000, ge=1)
     temperature: float | None = None
 
 
@@ -217,6 +217,10 @@ def create_app(
     @app.get('/v1/token-budgets/{budget_id}')
     def token_budget(budget_id: str):
         return workbench.budgets.snapshot(budget_id)
+
+    @app.post('/v1/token-budgets/{budget_id}/increase')
+    def increase_token_budget(budget_id: str, value: dict):
+        return workbench.budgets.increase_limit(budget_id, value['expectedLimitTokens'], value['limitTokens'], value['reason'])
 
     @app.post("/v1/runs", status_code=202)
     def enqueue_run(value: RunInput) -> dict[str, object]:

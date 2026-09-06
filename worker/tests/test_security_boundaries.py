@@ -24,6 +24,15 @@ class BoundaryTests(unittest.TestCase):
         response = self.client.post('/v1/datasets', json={}, headers={'Origin': 'https://evil.invalid'})
         self.assertEqual(response.status_code, 403)
 
+    def test_budget_increase_requires_explicit_matching_authorization(self):
+        self.client.post('/v1/token-budgets', json={'id': 'budget', 'provider': 'mock', 'model': 'deterministic', 'limitTokens': 1000})
+        body = {'expectedLimitTokens': 1000, 'limitTokens': 10000, 'reason': 'Explicit test authorization'}
+        self.assertEqual(self.client.post('/v1/token-budgets/budget/increase', json=body, headers={'Origin': 'https://evil.invalid'}).status_code, 403)
+        response = self.client.post('/v1/token-budgets/budget/increase', json=body)
+        self.assertEqual(response.status_code, 200)
+        self.assertEqual(response.json()['limitTokens'], 10000)
+        self.assertEqual(self.client.post('/v1/token-budgets/budget/increase', json={**body, 'limitTokens': 20000}).status_code, 422)
+
     def test_rejects_traversal_in_raw_runs_and_datasets(self):
         body = {'runId': '../../escape', 'workspace': 'repo', 'prompt': 'test',
                 'model': {'provider': 'mock', 'model': 'deterministic'}, 'resources': {}}

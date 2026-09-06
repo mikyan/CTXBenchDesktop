@@ -39,6 +39,31 @@ class TokenBudget:
                 connection.execute('INSERT INTO documents VALUES (?, ?, ?)', ('tokenBudgets', key, json.dumps(record)))
         return self.snapshot(key)
 
+    def increase_limit(self, key: str, expected_limit: int, new_limit: int, reason: str) -> dict:
+        """Explicit audited authorization; never reset attempts or alter a model."""
+        if (type(expected_limit) is not int or type(new_limit) is not int or
+                not 0 < expected_limit < new_limit <= 10**12 or
+                not isinstance(reason, str) or not 1 <= len(reason.strip()) <= 500):
+            raise ValueError('A higher total limit, previous limit and authorization reason are required.')
+        change = {'fromTokens': expected_limit, 'toTokens': new_limit, 'reason': reason.strip()}
+        with self.db.connect() as connection:
+            connection.execute('BEGIN IMMEDIATE')
+            row = connection.execute("SELECT payload_json FROM documents WHERE kind='tokenBudgets' AND id=?", (key,)).fetchone()
+            if row is None:
+                raise KeyError(key)
+            budget = json.loads(row[0])
+            changes = budget.get('limitChanges', [])
+            if budget['limitTokens'] != expected_limit:
+                if not (budget['limitTokens'] == new_limit and changes and
+                        all(changes[-1].get(field) == value for field, value in change.items())):
+                    raise ValueError('Budget changed since it was read; review the latest limit before authorizing.')
+            else:
+                budget.setdefault('originalLimitTokens', expected_limit)
+                budget['limitTokens'] = new_limit
+                budget['limitChanges'] = [*changes, {**change, 'createdAt': utc_now()}]
+                connection.execute("UPDATE documents SET payload_json=? WHERE kind='tokenBudgets' AND id=?", (json.dumps(budget), key))
+        return self.snapshot(key)
+
     def validate(self, key: str, profiles) -> dict:
         budget = self.db.get_document('tokenBudgets', key)
         if any((profile.provider, profile.model) != (budget['provider'], budget['model']) for profile in profiles):

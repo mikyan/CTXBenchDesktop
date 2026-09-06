@@ -18,6 +18,7 @@ from ctxbench_worker.runtime import Runtime
 parser = argparse.ArgumentParser()
 parser.add_argument('experiment', nargs='+')
 parser.add_argument('--worker', default='http://ctxbench-worker:48173/v1')
+parser.add_argument('--expect-error', action='store_true', help='Verify known evaluator exceptions do not become functional failures')
 args = parser.parse_args()
 with urllib.request.urlopen(args.worker + '/snapshot', timeout=30) as response:
     snapshot = json.load(response)
@@ -29,15 +30,25 @@ report = []
 for experiment_id in args.experiment:
     experiment = next(item for item in snapshot['experiments'] if item['id'] == experiment_id)
     run = next(item for item in snapshot['runs'] if item['experimentId'] == experiment_id
-               and item['status'] == 'completed' and item['testsPassed'] and not item.get('mock'))
+               and item['status'] == 'completed' and (args.expect_error or item['testsPassed']) and not item.get('mock'))
     dataset = root / 'datasets' / (experiment['dataset'] + '.json')
     rows = json.loads(dataset.read_text())
     tasks = import_swebench(rows) if experiment['benchmark'] == 'swebench' else import_agentbench(rows)
     task = next(item for item in tasks if item.id == run['taskId'])
     patch = Path(run['outputDir']) / 'graded.patch'
     assert patch.resolve().is_relative_to(root / 'runs'), 'Patch must be an existing run output'
-    grade = runtime.grade(task, dataset, patch, output / experiment_id,
-                          ResourcePolicy(cpus=2, memory_gb=4, timeout_minutes=10, network='offline'), harness)
+    try:
+        grade = runtime.grade(task, dataset, patch, output / experiment_id,
+                              ResourcePolicy(cpus=2, memory_gb=4, timeout_minutes=10, network='offline'), harness)
+    except RuntimeError as error:
+        if not args.expect_error:
+            raise
+        assert 'no functional verdict' in str(error), str(error)
+        assert not (output / experiment_id / 'summary.json').exists(), 'An evaluator error must not publish a verdict'
+        report.append({'experimentId': experiment_id, 'solverRunId': run['solverRunId'],
+                       'harnessImage': harness, 'expectedEvaluatorError': True})
+        continue
+    assert not args.expect_error, 'Expected evaluator failure was not detected'
     assert grade['resolved'] is True, grade
     assert grade.get('graderImageDigests') and all(value.startswith('sha256:') for value in grade['graderImageDigests']), grade
     report.append({'experimentId': experiment_id, 'solverRunId': run['solverRunId'],

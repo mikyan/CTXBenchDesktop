@@ -8,6 +8,7 @@ from pathlib import Path
 from typing import Any
 
 import pyarrow.parquet as parquet
+from grade_validation import require_agentbench_result
 
 
 def load_rows(dataset: Path) -> list[dict[str, Any]]:
@@ -116,7 +117,7 @@ def grade_agentbench(dataset: Path, instance_id: str, patch_path: Path, output: 
     )
     output.mkdir(parents=True, exist_ok=True)
     run_number = int(hashlib.sha256(str(output.resolve()).encode()).hexdigest()[:8], 16)
-    resolved = instance.solve(patch_path.read_text(encoding="utf-8"), output, run_id=run_number)
+    resolved = require_agentbench_result(lambda: instance.solve(patch_path.read_text(encoding="utf-8"), output, run_id=run_number))
     summary = {"benchmark": "agentbench", "instanceId": instance_id, "resolved": resolved}
     (output / "summary.json").write_text(json.dumps(summary, indent=2), encoding="utf-8")
     print(json.dumps(summary, indent=2))

@@ -10,6 +10,28 @@ campaign = runpy.run_path(str(Path(__file__).resolve().parents[2] / 'scripts' / 
 
 
 class CampaignTests(unittest.TestCase):
+    def test_new_stage_allowances_keep_old_plan_and_share_accounting(self):
+        freeze = campaign['freeze_plan']
+        old_plan, _, _, _, _ = self.execution_fixture()
+        with tempfile.TemporaryDirectory() as directory:
+            source = Path(directory) / 'old' / 'plan.json'
+            source.parent.mkdir()
+            original = json.dumps(old_plan)
+            source.write_text(original)
+            root = Path(directory) / 'higher'
+            with patch.dict(freeze.__globals__, request=lambda *args: self.fail('Continuation planning must not call the API')):
+                plan = freeze('unused', 'budget', 1000000000, root, old_plan['agentImage'],
+                              stage_tokens=5000000, campaign_id='higher', source_plan=source)
+            self.assertEqual(source.read_text(), original)
+            self.assertEqual(plan['tasks'], old_plan['tasks'])
+            self.assertEqual(plan['budgetId'], old_plan['budgetId'])
+            self.assertIn('sourcePlanHash', plan)
+            body = campaign['body_for'](plan, plan['tasks'][0], 0)
+            self.assertEqual({profile['maxTokens'] for profile in body['profiles'].values()}, {5000000})
+            self.assertNotEqual(body['name'], campaign['body_for'](old_plan, old_plan['tasks'][0], 0)['name'])
+            with self.assertRaises(ValueError):
+                freeze('unused', 'budget', 1000000000, root, old_plan['agentImage'], stage_tokens=6000000)
+
     def test_coordinator_lock_excludes_duplicates_and_releases_after_failure(self):
         lock = campaign['campaign_lock']
         with tempfile.TemporaryDirectory() as directory:

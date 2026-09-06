@@ -32,7 +32,7 @@ export function ExperimentComposer({ creating, onClose, onCreate, artifacts }: {
     workerRequest<typeof availableConstraints>("/constraint-packages").then(setAvailableConstraints).catch(() => {});
     workerRequest<RuntimeSettings>("/runtime").then((settings) => {
       const mimo = settings.credentials.find((item) => item.name === "XIAOMI_TOKEN_PLAN_CN_API_KEY" && item.configured);
-      if (mimo) { setEnv(mimo.name); if (!modelEdited.current) { const profile = { ...defaultProfile(), provider: "xiaomi-token-plan-cn", model: "mimo-v2.5-pro" }; setProfiles({ solver: profile, builder: { ...profile, maxTokens: 800000 }, constraintMiner: profile, constraintJudge: profile }); } }
+      if (mimo) { setEnv(mimo.name); if (!modelEdited.current) { const profile = { ...defaultProfile(), provider: "xiaomi-token-plan-cn", model: "mimo-v2.5" }; setProfiles({ solver: profile, builder: profile, constraintMiner: profile, constraintJudge: profile }); } }
     }).catch(() => {});
   }, []);
   useEffect(() => { let current = true; setTasks([]); setSelected([]); setPackages({}); if (dataset) workerRequest<TaskSummary[]>(`/datasets/${dataset}/tasks`).then((tasks) => { if (current) setTasks(tasks); }).catch((error) => setError(String(error))); return () => { current = false; }; }, [dataset]);

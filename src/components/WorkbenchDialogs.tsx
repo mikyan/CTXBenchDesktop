@@ -4,7 +4,7 @@ import type { BenchmarkKind, BenchmarkRun, DatasetRecord, FrozenModelConfig, Tas
 import { useI18n } from "../i18n";
 import { saveText, workerRequest } from "../lib/desktop";
 
-export function defaultProfile(): FrozenModelConfig { return { provider: "mock", model: "deterministic", thinking: "high", maxTokens: 300000 }; }
+export function defaultProfile(): FrozenModelConfig { return { provider: "mock", model: "deterministic", thinking: "high", maxTokens: 5000000 }; }
 export function Modal({ title, children, onClose }: { title: string; children: ReactNode; onClose: () => void }) {
   const { t } = useI18n(); const ref = useRef<HTMLDialogElement>(null); const titleId = useId();
   useEffect(() => { const dialog = ref.current!; dialog.showModal(); return () => dialog.close(); }, []);
