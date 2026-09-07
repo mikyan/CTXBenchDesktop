@@ -1,0 +1,12 @@
+services:
+  success:
+    build:
+      context: .
+      target: success
+      network: none
+  failure:
+    profiles: [failure-test]
+    build:
+      context: .
+      target: failure
+      network: none

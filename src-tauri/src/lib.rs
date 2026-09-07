@@ -4,6 +4,7 @@ use std::time::Duration;
 use tauri::Manager;
 mod wsl;
 mod deployment;
+mod process_stream;
 #[cfg(test)]
 use wsl::decode_output as decode_command_output;
 
@@ -273,12 +274,16 @@ async fn get_deployment_info(app: tauri::AppHandle, distribution: String) -> Res
 }
 
 #[tauri::command]
-async fn worker_control(app: tauri::AppHandle, action: String, distribution: String) -> Result<deployment::ActionResult, String> {
+async fn worker_control(app: tauri::AppHandle, webview: tauri::Webview, action: String, distribution: String, on_progress: Option<tauri::ipc::JavaScriptChannelId>) -> Result<deployment::ActionResult, String> {
     let root = deployment_root(&app)?;
     let distribution = distribution.trim().to_string();
     if distribution.is_empty() { return Err("Select an installed WSL distribution first.".into()); }
     let starting = action == "start";
-    let mut result = tauri::async_runtime::spawn_blocking(move || deployment::control(&root, &distribution, &action)).await.map_err(|error| error.to_string())?;
+    let on_progress = on_progress.map(|id| id.channel_on::<_, process_stream::BuildProgress>(webview));
+    let mut result = tauri::async_runtime::spawn_blocking(move || deployment::control(&root, &distribution, &action, |event| {
+        // Navigating away or losing a listener must not cancel Docker's build.
+        if let Some(channel) = &on_progress { let _ = channel.send(event); }
+    })).await.map_err(|error| error.to_string())?;
     if result.ok && starting {
         let mut error = String::new();
         for _ in 0..6 {

@@ -13,6 +13,14 @@ WSL、发行版、Docker Engine 三项通过，只说明基础环境就绪。CTX
 5. 点击 **启动工作节点**。启动明确使用 `--no-build --pull never`，不会隐式联网构建或下载。只有 Windows 端健康检查通过才提示启动成功。
 6. 成功后再配置 Agent 环境变量、评测集和基线资源。离线应用镜像不包含数据集、基线仓库或用例测试镜像，详见 [离线镜像说明](offline-images.md)。
 
+### 在线构建进度
+
+选择 **可联网 / 构建镜像 → 构建镜像** 后，会持续显示当前构建步骤、进度条、已耗时、最近输出时间和脱敏日志。Docker 报告镜像层传输字节数时，还会显示该层的下载进度。步骤总数是构建过程中逐步发现的，可能增加；这不是整体耗时百分比，也不预测剩余时间。只有构建命令成功退出后才显示完成。
+
+超过 30 秒没有新输出会出现排查提示，但不会直接判定卡死或自动重试。部分依赖安装步骤输出较少；持续无变化时可检查网络、镜像源和磁盘空间。失败后保留日志及处理建议，修复原因后可重新点击构建。命令超时或连接中断不保证 Docker 的后台工作已停止，重试前先检查状态。
+
+可关闭自动跟随来阅读较早输出，也可复制当前保留的日志。为限制内存占用，界面只保留最近最多 500 行、100,000 个字符（先达到哪个上限就截断）；原生层会在传入界面前脱敏并限制缓存大小。保持桌面应用开启时，切换页面再回来仍可查看构建；这些日志不落盘，重启应用或再次构建会清空。此行为与持久化 Worker 的实验日志不同。
+
 ### 文件路径与命令
 
 安装版使用 `软件安装目录\deployment\docker\compose.yaml`；开发版使用仓库内的 `docker/compose.yaml`。正确后缀为 `.yaml`，不是 `.yml`。不要只移动 exe，部署目录必须随完整安装包保留。
@@ -37,6 +45,10 @@ WSL、发行版、Docker Engine 三项通过，只说明基础环境就绪。CTX
 旧版 `v0.1.0` 独立离线 Compose 文件可能带有 CI 构建机目录前缀；本次修正打包脚本，使之后生成的文件保留可移植路径。已发布附件未被静默替换。旧包完成镜像导入后，可以使用桌面安装目录内的 `deployment/docker/compose.yaml` 启动，而不是旧的独立离线 Compose 文件。
 
 ## English
+
+Online **Build images** streams redacted stdout/stderr, current operations, elapsed time and time since the last output. The progress bar counts completed versus discovered BuildKit steps (the total can grow), not estimated time. A separate layer-transfer bar appears when Docker reports byte counts. Only a successful command exit marks the build complete. A 30-second silence warning is informational, not automatic cancellation or retry. After a timeout or connection loss, inspect Docker before retrying: background work may still be running.
+
+Logs support auto-follow and copy, retaining at most 500 recent lines / 100,000 characters in memory. Native output is also bounded and redacted before reaching the UI. Navigation away and back retains the build while the app remains open; restarting the app or starting another build clears this session-only log. This is separate from persistent Worker experiment logs.
 
 WSL and Docker readiness do not imply that the CTXBench worker is installed. In **Infrastructure → Install and start the worker**, select one WSL2 distribution, prepare the matching images, check prerequisites, and start the worker. Docker Engine and the Compose plugin must both be available in that distribution. No Provider key is required for setup.
 

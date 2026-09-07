@@ -520,3 +520,24 @@ dialog.workbench-dialog::backdrop { background:#02070cba; }
 .setup-command { min-width:0; }
 .setup-command pre { user-select:text; }
 @media(max-width:1180px) { .setup-steps, .setup-paths { grid-template-columns:1fr; } }
+.image-build-progress { padding:20px; border:1px solid #344657; border-radius:10px; background:#101923; min-width:0; }
+.image-build-heading, .image-build-metrics, .image-build-log-toolbar { display:flex; align-items:center; flex-wrap:wrap; gap:12px 20px; }
+.image-build-heading { justify-content:space-between; }
+.image-build-heading h3 { margin:0; }
+.image-build-progress progress { display:block; width:100%; height:16px; margin:12px 0; accent-color:var(--cyan); border:0; border-radius:8px; overflow:hidden; background:#263646; }
+.image-build-progress progress::-webkit-progress-bar { background:#263646; border-radius:8px; }
+.image-build-progress progress::-webkit-progress-value { background:var(--cyan); border-radius:8px; }
+.image-build-progress progress:indeterminate { background:repeating-linear-gradient(110deg,#263646 0px,#263646 18px,#37849a 18px,#37849a 36px); animation:build-pending 1.5s linear infinite; background-size:80px 100%; }
+.image-build-progress progress:indeterminate::-webkit-progress-bar { background:transparent; }
+.image-build-progress.completed progress::-webkit-progress-value { background:var(--green); }
+.image-build-progress.failed progress { animation:none; accent-color:var(--red); }
+.image-build-progress.failed progress::-webkit-progress-value { background:var(--red); }
+.image-build-metrics, .image-build-hint { color:var(--muted); font-size:14px; line-height:1.6; }
+.image-build-current, .image-build-log { white-space:pre-wrap; overflow-wrap:anywhere; font:14px/1.65 "Cascadia Mono", Consolas, "Liberation Mono", monospace; color:var(--text); background:#080d13; padding:14px; border-radius:6px; user-select:text; }
+.image-build-log { min-height:160px; max-height:340px; overflow:auto; }
+.image-build-log-toolbar { margin-top:20px; }
+.setup-panel .image-build-log-toolbar label { display:inline-flex; flex-direction:row; align-items:center; gap:8px; font-size:14px; }
+.setup-panel .image-build-log-toolbar input { width:18px; height:18px; min-height:0; padding:0; margin:0; accent-color:var(--cyan); }
+.image-build-transfer { overflow-wrap:anywhere; font-size:14px; }
+@keyframes build-pending { to { background-position:80px 0; } }
+@media(prefers-reduced-motion: reduce) { .image-build-progress progress:indeterminate { animation:none; } }

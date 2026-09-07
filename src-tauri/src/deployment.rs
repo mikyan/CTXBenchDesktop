@@ -1,9 +1,11 @@
+use crate::process_stream::{self, BuildProgress};
 use crate::wsl;
 use regex::Regex;
 use serde::Serialize;
 use serde_json::Value;
 use std::path::Path;
-use std::time::Duration;
+use std::sync::{Mutex, OnceLock};
+use std::time::{Duration, Instant};
 
 #[derive(Debug, Serialize)]
 #[serde(rename_all = "camelCase")]
@@ -49,7 +51,7 @@ pub fn compose_args(path: &str, action: &str) -> Result<Vec<String>, String> {
             "ctxbench-worker",
         ],
         "stop" => &["stop", "ctxbench-worker"],
-        "build" => &["--profile", "build-only", "build"],
+        "build" => &["--progress", "plain", "--profile", "build-only", "build"],
         "logs" => &[
             "logs",
             "--no-color",
@@ -113,14 +115,18 @@ pub fn classify_error(detail: &str, fallback: &str) -> String {
 // Docker/build logs can contain provider credentials or authenticated registry URLs.
 // Redact before returning to the WebView or copy/export UI; never serialize config Env.
 pub fn redact(detail: &str, secrets: &[String]) -> String {
-    let mut clean = detail.to_string();
+    static ANSI: OnceLock<Regex> = OnceLock::new();
+    let mut clean = ANSI
+        .get_or_init(|| Regex::new(r"\x1b\[[0-9;]*[a-zA-Z]").unwrap())
+        .replace_all(detail, "")
+        .into_owned();
     let mut secrets = secrets.to_vec();
     secrets.sort_by_key(|value| std::cmp::Reverse(value.len()));
     for secret in secrets.iter().filter(|value| !value.is_empty()) {
         clean = clean.replace(secret, "[REDACTED]");
     }
-    for (pattern, replacement) in [
-        (r"\x1b\[[0-9;]*[a-zA-Z]", ""),
+    static RULES: OnceLock<Vec<(Regex, &'static str)>> = OnceLock::new();
+    for (pattern, replacement) in RULES.get_or_init(|| [
         (r"(?i)(https?://)[^\s/@]+(?::[^\s/@]*)?@", "${1}[REDACTED]@"),
         (
             r"(?i)([?&](?:api[_-]?key|token|secret|password|access_token)=)[^&\s]+",
@@ -135,10 +141,8 @@ pub fn redact(detail: &str, secrets: &[String]) -> String {
             r"\b(?:sk-[A-Za-z0-9_-]{8,}|tp-[A-Za-z0-9_-]{8,}|gh[pousr]_[A-Za-z0-9_]{8,})\b",
             "[REDACTED]",
         ),
-    ] {
-        clean = Regex::new(pattern)
-            .expect("static redaction expression")
-            .replace_all(&clean, replacement)
+    ].into_iter().map(|(pattern, replacement)| (Regex::new(pattern).expect("static redaction expression"), replacement)).collect()) {
+        clean = pattern.replace_all(&clean, *replacement)
             .into_owned();
     }
     let limit = 24_000;
@@ -361,7 +365,12 @@ pub fn inspect(root: &Path, distribution: &str) -> DeploymentInfo {
     info
 }
 
-pub fn control(root: &Path, distribution: &str, action: &str) -> ActionResult {
+pub fn control(
+    root: &Path,
+    distribution: &str,
+    action: &str,
+    mut progress: impl FnMut(BuildProgress),
+) -> ActionResult {
     // Validate the operation before any process can be launched.
     if let Err(detail) = compose_args("", action) {
         return ActionResult {
@@ -370,6 +379,31 @@ pub fn control(root: &Path, distribution: &str, action: &str) -> ActionResult {
             detail,
             command: None,
         };
+    }
+    static MUTATION: Mutex<()> = Mutex::new(());
+    let _guard = if action == "logs" {
+        None
+    } else {
+        match MUTATION.try_lock() {
+            Ok(guard) => Some(guard),
+            Err(_) => {
+                return ActionResult {
+                    ok: false,
+                    code: "action".into(),
+                    detail: "Another infrastructure action is still running.".into(),
+                    command: None,
+                };
+            }
+        }
+    };
+    let started = Instant::now();
+    if action == "build" {
+        progress(BuildProgress {
+            phase: "checking",
+            lines: vec![],
+            elapsed_ms: 0,
+            last_output_ms: None,
+        });
     }
     let path = match checked_path(root, distribution) {
         Ok(path) => path,
@@ -392,7 +426,22 @@ pub fn control(root: &Path, distribution: &str, action: &str) -> ActionResult {
     }
     let args: Vec<&str> = args.iter().map(String::as_str).collect();
     let timeout = Duration::from_secs(if action == "build" { 3600 } else { 120 });
-    match wsl::output_with_timeout(distribution, &args, timeout) {
+    let output = if action == "build" {
+        let mut process = std::process::Command::new("wsl.exe");
+        process
+            .args(["--distribution", distribution, "--exec"])
+            .args(&args);
+        process_stream::run(
+            &mut process,
+            timeout,
+            started,
+            |line| redact(line, &secrets),
+            &mut progress,
+        )
+    } else {
+        wsl::output_with_timeout(distribution, &args, timeout)
+    };
+    match output {
         Ok(output) => ActionResult {
             ok: true,
             code: action.into(),
@@ -427,6 +476,12 @@ mod tests {
         assert!(args.windows(2).any(|pair| pair == ["--pull", "never"]));
         assert!(!args.contains(&"--build".into()));
         assert!(compose_args("/compose.yaml", "prune").is_err());
+        assert!(
+            compose_args("/compose.yaml", "build")
+                .unwrap()
+                .windows(2)
+                .any(|pair| pair == ["--progress", "plain"])
+        );
         assert_eq!(shell_quote("one'two"), "'one'\"'\"'two'");
     }
 
@@ -472,12 +527,16 @@ mod tests {
         assert!(clean.contains("registry.example"));
         assert!(clean.contains("ok=1"));
         assert!(redact(&"a".repeat(30_000), &[]).ends_with("[Output truncated]"));
+        assert_eq!(
+            redact("test-\x1b[31msecret", &["test-secret".into()]),
+            "[REDACTED]"
+        );
     }
 
     #[test]
     fn missing_bundle_has_a_specific_error_without_launching_wsl() {
         let root = std::env::temp_dir().join(format!("ctxbench-missing-{}", uuid::Uuid::new_v4()));
-        let result = control(&root, "Ubuntu-24.04", "start");
+        let result = control(&root, "Ubuntu-24.04", "start", |_| {});
         assert!(!result.ok);
         assert_eq!(result.code, "compose_file");
         assert!(
@@ -491,14 +550,98 @@ mod tests {
     fn inspect_installed_deployment() {
         let root = Path::new(env!("CARGO_MANIFEST_DIR")).parent().unwrap();
         let info = inspect(root, "Ubuntu");
-        assert!(info
-            .checks
-            .iter()
-            .any(|check| check.id == "compose_file" && check.ok));
-        assert!(info
-            .checks
-            .iter()
-            .any(|check| check.id == "compose" && check.ok));
+        assert!(
+            info.checks
+                .iter()
+                .any(|check| check.id == "compose_file" && check.ok)
+        );
+        assert!(
+            info.checks
+                .iter()
+                .any(|check| check.id == "compose" && check.ok)
+        );
         println!("{}", serde_json::to_string(&info).unwrap());
+    }
+
+    #[test]
+    #[cfg(windows)]
+    #[ignore = "requires Ubuntu WSL Docker and local ctxbench/worker:0.1.0; builds only isolated test images"]
+    fn real_docker_build_streams_success_cache_and_failure() {
+        let distro = "Ubuntu";
+        wsl::output(
+            distro,
+            &[
+                "docker",
+                "image",
+                "inspect",
+                "ctxbench/worker:0.1.0",
+                "--format",
+                "{{.Id}}",
+            ],
+        )
+        .expect("Requires an already-installed local worker image; this test never pulls it.");
+        let root = Path::new(env!("CARGO_MANIFEST_DIR")).join("tests/fixtures/build-progress");
+        let path = checked_path(&root, distro).unwrap();
+        let project = format!("ctxbench-progress-test-{}", uuid::Uuid::new_v4().simple());
+        let image = format!("{project}-success");
+        let mut runs = Vec::new();
+        for (service, cache) in [("success", false), ("success", true), ("failure", false)] {
+            let mut args = compose_args(&path, "build").unwrap();
+            args.splice(2..2, ["-p".into(), project.clone()]);
+            if !cache {
+                args.push("--no-cache".into());
+            }
+            args.push(service.into());
+            let mut command = std::process::Command::new("wsl.exe");
+            command
+                .args(["--distribution", distro, "--exec"])
+                .args(args);
+            let started = Instant::now();
+            let mut events = Vec::new();
+            let result = process_stream::run(
+                &mut command,
+                Duration::from_secs(90),
+                started,
+                |line| redact(line, &[]),
+                &mut |event| events.push((Instant::now(), event)),
+            );
+            runs.push((service, cache, result, events, Instant::now()));
+        }
+        // Remove only this run's unique image tag, never production tags or build caches.
+        let cleanup = wsl::output(distro, &["docker", "image", "rm", &image]);
+        for (service, cache, result, events, finished) in runs {
+            assert_eq!(result.is_ok(), service == "success", "{result:?}");
+            let lines: Vec<_> = events
+                .iter()
+                .flat_map(|(_, event)| event.lines.iter())
+                .collect();
+            assert!(lines.iter().any(|line| line.starts_with('#')));
+            if cache {
+                assert!(lines.iter().any(|line| line.contains("CACHED")));
+            } else {
+                let marker = if service == "success" {
+                    "progress-test: first output"
+                } else {
+                    "progress-test: failure started"
+                };
+                let first = events
+                    .iter()
+                    .find(|(_, event)| event.lines.iter().any(|line| line.contains(marker)))
+                    .unwrap();
+                assert!(
+                    finished.duration_since(first.0) > Duration::from_secs(1),
+                    "Output must arrive during the build, not at completion"
+                );
+            }
+            if service == "failure" {
+                assert!(result.unwrap_err().contains("expected failure"));
+            }
+            println!(
+                "{service} (cache={cache}): {} live batches, {} log lines",
+                events.len(),
+                lines.len()
+            );
+        }
+        cleanup.expect("Could not remove the unique integration-test image tag");
     }
 }

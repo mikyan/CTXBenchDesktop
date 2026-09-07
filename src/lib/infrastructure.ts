@@ -1,4 +1,10 @@
 export type WorkerAction = "start" | "stop" | "build" | "logs";
+export interface BuildProgressEvent {
+  phase: "checking" | "building";
+  lines: string[];
+  elapsedMs: number;
+  lastOutputMs: number | null;
+}
 export interface WorkerActionResult { ok: boolean; code: string; detail: string; command?: string | null }
 export interface DeploymentInfo {
   distribution: string;

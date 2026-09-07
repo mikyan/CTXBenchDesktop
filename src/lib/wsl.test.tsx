@@ -9,7 +9,7 @@ import { translate } from "../i18n";
 import { wslChinese } from "../i18n.wsl";
 import { invoke } from "@tauri-apps/api/core";
 
-vi.mock("@tauri-apps/api/core", () => ({ invoke: vi.fn() }));
+vi.mock("@tauri-apps/api/core", () => ({ invoke: vi.fn(), Channel: class { constructor(public onmessage: (event: unknown) => void) {} } }));
 const inventory: WslInventory = {
   distributions: [{ name: "Ubuntu-24.04", state: "Stopped", version: 2, isDefault: true }, { name: "Debian", state: "Running", version: 1, isDefault: false }],
   defaultDistribution: "Ubuntu-24.04",
@@ -47,6 +47,21 @@ describe("WSL distribution selection", () => {
     vi.stubGlobal("window", {});
     await expect(listWslDistributions()).rejects.toThrow("requires the desktop");
     expect(invoke).not.toHaveBeenCalled();
+  });
+  it("passes a per-invocation progress channel without waiting for build completion", async () => {
+    vi.stubGlobal("window", { __TAURI_INTERNALS__: {} });
+    const callback = vi.fn();
+    const event = { phase: "building", lines: ["#1 DONE"], elapsedMs: 1200, lastOutputMs: 1200 };
+    vi.mocked(invoke).mockImplementation(async (_command, args) => {
+      const payload = args as { onProgress: { onmessage: (value: unknown) => void } };
+      payload.onProgress.onmessage(event);
+      expect(callback).toHaveBeenCalledWith(event);
+      return { ok: true, code: "build", detail: "done" };
+    });
+    const result = await controlWorker("build", " Ubuntu-24.04 ", callback);
+    expect(result.ok).toBe(true);
+    expect(invoke).toHaveBeenCalledWith("worker_control", expect.objectContaining({ action: "build", distribution: "Ubuntu-24.04", onProgress: expect.anything() }));
+    vi.mocked(invoke).mockReset();
   });
   it("lets native diagnostics choose a default and forwards explicit names trimmed", async () => {
     vi.stubGlobal("window", { __TAURI_INTERNALS__: {} });

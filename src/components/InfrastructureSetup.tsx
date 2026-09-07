@@ -1,25 +1,38 @@
-import { useEffect, useRef, useState } from "react";
+import { useEffect, useRef, useState, useSyncExternalStore } from "react";
 import { Check, CircleAlert, Copy, Download, FileCode, LoaderCircle, RefreshCw } from "lucide-react";
 import { useI18n } from "../i18n";
 import { controlWorker, getDeploymentInfo } from "../lib/desktop";
 import { diagnosticReport, prerequisiteLabels, setupCommands, setupMessage, type DeploymentInfo, type WorkerAction, type WorkerActionResult } from "../lib/infrastructure";
 import { WslDistributionPicker } from "./WslDistributionPicker";
 import { ExternalLink } from "./ExternalLink";
+import { imageBuildStore } from "../lib/image-build";
+import { ImageBuildProgress } from "./ImageBuildProgress";
 
 export function InfrastructureSetup({ distribution, onDistribution, onDiagnose, onBusy, diagnosing }: {
   distribution: string; onDistribution: (name: string) => void; onDiagnose: (distribution?: string) => void; onBusy: (busy: boolean) => void; diagnosing: boolean;
 }) {
   const { t } = useI18n();
-  const [mode, setMode] = useState<"offline" | "online">("offline");
+  const [mode, setMode] = useState<"offline" | "online">(() => imageBuildStore.getSnapshot() ? "online" : "offline");
   const [shell, setShell] = useState<"wsl" | "powershell">("powershell");
   const [info, setInfo] = useState<DeploymentInfo>();
   const [checking, setChecking] = useState(false);
   const [refresh, setRefresh] = useState(0);
-  const [active, setActive] = useState<WorkerAction>();
-  const [result, setResult] = useState<WorkerActionResult>();
+  const [localAction, setActive] = useState<WorkerAction>();
+  const [localResult, setResult] = useState<WorkerActionResult>();
+  const build = useSyncExternalStore(imageBuildStore.subscribe, imageBuildStore.getSnapshot, imageBuildStore.getSnapshot);
+  const active = build?.status === "running" ? "build" : localAction;
+  const result = localResult ?? (build?.distribution === distribution ? build.result : undefined);
+  const checkedBuild = useRef(0);
   const [copyMessage, setCopyMessage] = useState("");
   const alive = useRef(true);
   useEffect(() => { alive.current = true; return () => { alive.current = false; }; }, []);
+  useEffect(() => { onBusy(Boolean(active)); }, [active, onBusy]);
+  useEffect(() => {
+    if (!build || build.status === "running" || checkedBuild.current === build.id || build.distribution !== distribution) return;
+    checkedBuild.current = build.id;
+    setRefresh((value) => value + 1);
+    onDiagnose(distribution);
+  }, [build, distribution, onDiagnose]);
   useEffect(() => {
     let current = true;
     setInfo(undefined); setResult(undefined); setCopyMessage("");
@@ -36,6 +49,7 @@ export function InfrastructureSetup({ distribution, onDistribution, onDiagnose, 
 
   const action = async (value: WorkerAction) => {
     if (active) return;
+    if (value === "build") { setResult(undefined); await imageBuildStore.start(distribution); return; }
     setActive(value); setResult(undefined); onBusy(true);
     try {
       const response = await controlWorker(value, distribution);
@@ -47,7 +61,7 @@ export function InfrastructureSetup({ distribution, onDistribution, onDiagnose, 
         onDiagnose(distribution);
       }
     } catch (error) { if (alive.current) setResult({ ok: false, code: "action", detail: error instanceof Error ? error.message : String(error) }); }
-    finally { if (alive.current) setActive(undefined); onBusy(false); }
+    finally { if (alive.current) setActive(undefined); }
   };
   const copy = async (text: string) => {
     try { await navigator.clipboard.writeText(text); setCopyMessage("Copied. Review the report before sharing; never include API keys or .env files."); }
@@ -85,6 +99,8 @@ export function InfrastructureSetup({ distribution, onDistribution, onDiagnose, 
         <button className="button secondary" disabled={disabled} onClick={() => void action("build")}>{t("Build images")}</button>
       </div>}
 
+      {build && <ImageBuildProgress key={build.id} build={build} />}
+
       <div className="setup-check-header"><h3>{t("Deployment prerequisites")}</h3><button className="button secondary" disabled={disabled || checking} onClick={() => setRefresh((value) => value + 1)}><RefreshCw size={16} className={checking ? "spin" : ""} />{t("Check prerequisites")}</button></div>
       <p>{t("This check is read-only: it checks the deployment file, Compose, images and data directory without installing or starting containers.")}</p>
       {checking && <p role="status"><LoaderCircle size={18} className="spin" /> {t("Checking deployment prerequisites…")}</p>}
@@ -103,7 +119,7 @@ export function InfrastructureSetup({ distribution, onDistribution, onDiagnose, 
 
       <div className="toolbar"><button className="button primary" disabled={disabled} onClick={() => void action("start")}>{t("Start worker")}</button><button className="button secondary" disabled={disabled} onClick={() => void action("logs")}>{t("Read container logs")}</button><button className="button tertiary" disabled={disabled} onClick={() => void action("stop")}>{t("Stop worker")}</button></div>
       <p>{t("Start worker uses local images only: no build, no pull. Stop worker does not delete stored data. Pause active experiments before stopping or replacing the worker.")}</p>
-      {active && <div className="setup-callout" role="status"><LoaderCircle className="spin" size={18} /><span>{t(active === "build" ? "Building application images… This may take several minutes." : active === "start" ? "Starting containers and waiting for the worker health check…" : "Reading or updating containers…")}</span></div>}
+      {active && active !== "build" && <div className="setup-callout" role="status"><LoaderCircle className="spin" size={18} /><span>{t(active === "start" ? "Starting containers and waiting for the worker health check…" : "Reading or updating containers…")}</span></div>}
       {result && message && <div className={`setup-feedback ${result.ok ? "success" : "error"}`} role={result.ok ? "status" : "alert"}>
         <h3>{t(message.title)}</h3><p>{t(message.help)}</p>
         {result.detail && <details open={!result.ok || result.code === "logs"}><summary>{t("Technical details (redacted)")}</summary><pre>{t(result.detail)}</pre></details>}

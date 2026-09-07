@@ -1,10 +1,10 @@
-import { invoke } from "@tauri-apps/api/core";
+import { Channel, invoke } from "@tauri-apps/api/core";
 import { createDemoSnapshot } from "../data/demo";
 import { planExperimentRuns } from "../domain/planner";
 import { renderSnapshotHtml } from "../domain/report";
 import { aggregateArms, aggregateDashboard } from "../domain/metrics";
 import { savedDistribution, type WslInventory } from "./wsl";
-import type { DeploymentInfo, WorkerAction, WorkerActionResult } from "./infrastructure";
+import type { BuildProgressEvent, DeploymentInfo, WorkerAction, WorkerActionResult } from "./infrastructure";
 import type {
   CreateExperimentRequest,
   DashboardSnapshot,
@@ -45,10 +45,10 @@ export async function getDeploymentInfo(distribution: string): Promise<Deploymen
   return invoke<DeploymentInfo>("get_deployment_info", { distribution: distribution.trim() });
 }
 
-export async function controlWorker(action: WorkerAction, distribution = savedDistribution()): Promise<WorkerActionResult> {
+export async function controlWorker(action: WorkerAction, distribution = savedDistribution(), onProgress?: (event: BuildProgressEvent) => void): Promise<WorkerActionResult> {
   if (!isTauri()) throw new Error("Worker controls require the desktop application.");
   if (!distribution.trim()) throw new Error("Select an installed WSL distribution first.");
-  return invoke<WorkerActionResult>("worker_control", { action, distribution: distribution.trim() });
+  return invoke<WorkerActionResult>("worker_control", { action, distribution: distribution.trim(), ...(onProgress ? { onProgress: new Channel<BuildProgressEvent>(onProgress) } : {}) });
 }
 
 export async function diagnoseEnvironment(distribution = savedDistribution()): Promise<DiagnosticItem[]> {
