@@ -10,6 +10,38 @@ campaign = runpy.run_path(str(Path(__file__).resolve().parents[2] / 'scripts' / 
 
 
 class CampaignTests(unittest.TestCase):
+    def test_interleaved_dataset_failures_are_not_hidden_by_healthy_scores(self):
+        results = []
+        for index in range(3):
+            results.extend([
+                {'benchmark': 'ctxbench', 'dataset': 'ctx', 'experimentId': f'ctx-{index}', 'gradedRuns': 0},
+                {'benchmark': 'swebench', 'dataset': 'swe', 'experimentId': f'swe-{index}', 'gradedRuns': 4},
+            ])
+        reason = campaign['infrastructure_failure_streak'](results)
+        self.assertEqual(reason['scope'], 'ctxbench:ctx')
+        self.assertEqual(reason['experimentIds'], ['ctx-0', 'ctx-1', 'ctx-2'])
+        # A real functional failure still counts as a valid verdict and breaks the streak.
+        results.append({'benchmark': 'ctxbench', 'dataset': 'ctx', 'experimentId': 'valid-fail', 'gradedRuns': 4, 'passedRuns': 0})
+        self.assertIsNone(campaign['infrastructure_failure_streak'](results))
+
+    def test_dataset_breaker_stops_before_creating_another_paid_task_on_restart(self):
+        import hashlib
+        execute = campaign['execute']
+        plan, records, writes, _, request = self.execution_fixture()
+        results = [{'benchmark': benchmark, 'dataset': benchmark, 'experimentId': f'{benchmark}-{index}',
+                    'gradedRuns': 0 if benchmark == 'ctxbench' else 4}
+                   for index in range(3) for benchmark in ('ctxbench', 'swebench')]
+        with tempfile.TemporaryDirectory() as directory, patch.dict(execute.__globals__, request=request):
+            root = Path(directory)
+            (root / 'state.json').write_text(json.dumps({'index': 0, 'results': results,
+                'planHash': hashlib.sha256(json.dumps(plan, sort_keys=True).encode()).hexdigest()}))
+            execute('test', plan, root, None, 0)
+            state = json.loads((root / 'state.json').read_text())
+            self.assertEqual(state['status'], 'infrastructure_failures_paused')
+            self.assertEqual(state['pauseReason']['scope'], 'ctxbench:ctxbench')
+            self.assertFalse(records)
+            self.assertFalse(any(path.startswith('/experiments') for path, _ in writes))
+
     def test_new_stage_allowances_keep_old_plan_and_share_accounting(self):
         freeze = campaign['freeze_plan']
         old_plan, _, _, _, _ = self.execution_fixture()

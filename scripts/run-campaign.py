@@ -145,6 +145,20 @@ def body_for(plan, item, ordinal):
             'evaluateConstraints': bool(package), 'constraintPackages': {item['taskId']: package} if package else {}}
 
 
+def infrastructure_failure_streak(results, threshold=3):
+    """A healthy dataset must not hide another dataset's broken evaluator."""
+    groups = defaultdict(list)
+    for result in results:
+        groups[(result.get('benchmark'), result.get('dataset'))].append(result)
+    windows = [('campaign', results)] + [(f'{benchmark}:{dataset}', rows) for (benchmark, dataset), rows in groups.items()]
+    for scope, rows in windows:
+        tail = rows[-threshold:]
+        if len(tail) == threshold and all(row['gradedRuns'] == 0 for row in tail):
+            return {'scope': scope, 'threshold': threshold,
+                    'experimentIds': [row['experimentId'] for row in tail]}
+    return None
+
+
 def execute(api, plan, root, host_volume, stop_after):
     fingerprint = hashlib.sha256(json.dumps(plan, sort_keys=True).encode()).hexdigest()
     state_path = root / 'state.json'
@@ -159,7 +173,9 @@ def execute(api, plan, root, host_volume, stop_after):
         if stop_after and state['index'] >= stop_after:
             save('smoke_prefix_complete')
             return
-        if len(state['results']) >= 3 and all(result['gradedRuns'] == 0 for result in state['results'][-3:]):
+        failure_streak = infrastructure_failure_streak(state['results'])
+        if failure_streak:
+            state['pauseReason'] = failure_streak
             save('infrastructure_failures_paused')
             return
         item = plan['tasks'][state['index']]

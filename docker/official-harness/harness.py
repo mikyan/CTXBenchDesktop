@@ -8,7 +8,7 @@ from pathlib import Path
 from typing import Any
 
 import pyarrow.parquet as parquet
-from grade_validation import require_agentbench_result
+from grade_validation import configure_test_execution, require_agentbench_result
 
 
 def load_rows(dataset: Path) -> list[dict[str, Any]]:
@@ -92,10 +92,15 @@ def export_task(benchmark: str, dataset: Path, instance_id: str, output: Path) -
     print(json.dumps(solver, indent=2))
 
 
-def grade_agentbench(dataset: Path, instance_id: str, patch_path: Path, output: Path) -> None:
+def grade_agentbench(dataset: Path, instance_id: str, patch_path: Path, output: Path, environment_image: str | None = None) -> None:
     from agentbench.benchmarks.agentbench import AgentbenchInstance
 
     row = load_row(dataset, instance_id)
+    if environment_image:
+        from agentbench_environment import require_prepared_environment
+        require_prepared_environment(environment_image, row)
+    else:
+        raise ValueError('Prepare a frozen AgentBench evaluator environment before grading.')
     repo_results = row.get("repo_test_after_pr_patch") or {}
     if isinstance(repo_results, str):
         repo_results = json.loads(repo_results)
@@ -104,9 +109,9 @@ def grade_agentbench(dataset: Path, instance_id: str, patch_path: Path, output: 
         repo=row["base_repo"],
         task=row["problem_description"],
         patch=row["clean_pr_patch"],
-        docker_image=row["docker_image"],
+        docker_image=environment_image,
         commit=row["base_sha"],
-        setup_commands=row["setup_commands"],
+        setup_commands=[],  # Completed once, before freezing the environment.
         repo_test_commands=row["repo_test_commands"],
         repo_test_runner=row["repo_test_runner"],
         test_file_names=row["test_file_names"],
@@ -117,6 +122,7 @@ def grade_agentbench(dataset: Path, instance_id: str, patch_path: Path, output: 
     )
     output.mkdir(parents=True, exist_ok=True)
     run_number = int(hashlib.sha256(str(output.resolve()).encode()).hexdigest()[:8], 16)
+    configure_test_execution(instance, output)
     resolved = require_agentbench_result(lambda: instance.solve(patch_path.read_text(encoding="utf-8"), output, run_id=run_number))
     summary = {"benchmark": "agentbench", "instanceId": instance_id, "resolved": resolved}
     (output / "summary.json").write_text(json.dumps(summary, indent=2), encoding="utf-8")
@@ -197,6 +203,12 @@ def parse_args() -> argparse.Namespace:
         grade_parser.add_argument("--instance-id", required=True)
         grade_parser.add_argument("--patch", type=Path, required=True)
         grade_parser.add_argument("--output", type=Path, required=True)
+        if name == 'grade-agentbench':
+            grade_parser.add_argument('--environment-image', required=True)
+    prepare_parser = commands.add_parser('prepare-agentbench')
+    prepare_parser.add_argument('--dataset', type=Path, required=True)
+    prepare_parser.add_argument('--instance-id', required=True)
+    prepare_parser.add_argument('--output', type=Path, required=True)
     return parser.parse_args()
 
 
@@ -214,7 +226,28 @@ def main() -> None:
     elif args.command == "export-task":
         export_task(args.benchmark, args.dataset, args.instance_id, args.output)
     elif args.command == "grade-agentbench":
-        grade_agentbench(args.dataset, args.instance_id, args.patch, args.output)
+        grade_agentbench(args.dataset, args.instance_id, args.patch, args.output, args.environment_image)
+    elif args.command == 'prepare-agentbench':
+        from agentbench_environment import prepare_environment
+        row = load_row(args.dataset, args.instance_id)
+        manifest = prepare_environment(row, args.output)
+        # A baseline environment is not ready merely because pip returned zero.
+        # Validate the official gold patch in an offline evaluator-only child
+        # before the Worker may start any builder or solver. Never bake it in.
+        from policy import configure
+        configure()
+        check = args.output / 'self-check'
+        check.mkdir(parents=True, exist_ok=True)
+        gold = check / 'gold.patch'
+        gold.write_text(row['clean_pr_patch'], encoding='utf-8')
+        grade_agentbench(args.dataset, args.instance_id, gold, check, manifest['imageId'])
+        verdict = json.loads((check / 'summary.json').read_text())
+        if verdict['resolved'] is not True:
+            raise RuntimeError('AgentBench environment self-check failed: the official gold patch did not pass offline tests; '
+                               'no agent may start. See evaluator-only self-check test logs.')
+        manifest['validated'] = True
+        (args.output / 'environment.json').write_text(json.dumps(manifest, indent=2), encoding='utf-8')
+        print(json.dumps(manifest, indent=2))
     else:
         grade_swebench(args.dataset, args.instance_id, args.patch, args.output)
 

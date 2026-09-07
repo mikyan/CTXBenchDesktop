@@ -18,6 +18,7 @@ RUN git clone https://github.com/SWE-bench/SWE-bench.git /opt/swebench \
 COPY docker/official-harness/harness.py /opt/ctxbench/harness.py
 COPY docker/official-harness/policy.py /opt/ctxbench/policy.py
 COPY docker/official-harness/grade_validation.py /opt/ctxbench/grade_validation.py
+COPY docker/official-harness/agentbench_environment.py /opt/ctxbench/agentbench_environment.py
 
 WORKDIR /data
 ENTRYPOINT ["python", "/opt/ctxbench/harness.py"]

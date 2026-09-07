@@ -106,3 +106,37 @@
 新批次使用独立标识 `mimo-v25-1b-5m-20260906`，从原清单复制全部 638 个任务和原顺序，以新配置重新建立配对，旧低额度结果不计入新批次统计。生成、求解、挖掘、评审均为 5,000,000；阶段额度变更不会改写旧 plan 或旧实验。新计划与进度位于 WSL `/var/lib/ctxbench/campaigns/mimo-v25-1b-5m-20260906/`。保留原基线、提示词、镜像、网络和资源策略；不能将 500 万理解成模型单次响应长度。
 
 本次回归：Worker Linux 75 项通过，Windows 74 项通过、1 项符号链接权限跳过；前端 13 项与生产构建通过。中英文页面实操确认四角色 500 万、总额 10 亿及提额审计记录。最新 harness 重评既有 CTXBench/SWE 补丁仍通过（`/var/lib/ctxbench/acceptance-regrade-ce342fac02/summary.json`）；PR-Agent 异常回放正确拒绝产出功能判定（`/var/lib/ctxbench/acceptance-regrade-a9cd22b650/summary.json`），未调用 Provider、未覆盖旧证据。PR-Agent 测试环境缺失结果文件的根因尚未修复，本次只纠正异常分类。
+
+## 2026-09-07 中文说明与评分环境修复
+
+新增 [简体中文 README](../README.zh-CN.md)，与英文 README 双向链接，桌面部署资源同步包含中文版。
+
+批次在第 44 条任务的当前阶段结束后暂停，保留已生成补丁、知识库、旧成绩和预算。排查确认：原始 AgentBench 镜像不一定带有测试依赖；旧代码在断网测试容器中逐条运行安装命令，既无法下载依赖，又丢失了虚拟环境的 shell 状态，随后把缺失结果文件表现为 JSON 解码错误。
+
+修复内容：
+
+- 新实验先从准确基线准备评分依赖，同一 shell 执行安装并保留激活环境，按源镜像 digest、仓库、commit、准备命令和显式兼容约束冻结评分镜像。联网准备子容器没有宿主挂载、Docker socket 或注入的 Provider 密钥，且没有候选补丁、标准答案或隐藏测试。
+- 准备完后，在另一个断网评分容器中运行标准答案自检；自检失败，在知识库生成与求解之前停止。该步骤仅验证评测环境，不能计入模型分数。旧实验不重新标记为新环境版本，不中途更换配对的一侧。
+- 正式测试命令保留 shell 状态；合法的非零测试退出仍能给出 `false`，但缺失、空映射、错误类型或非 JSON 输出不产生功能判定。保存完整执行与结果诊断，不再只有无上下文的 JSON 异常。
+- PR-Agent 基线 `7b4c50c717df393a392aec3b7f4146f5fb701503` 固定 `aiohttp==3.9.5`，却对 OpenAI SDK 没有上限，安装到 3.8.0 后导入失败。该基线显式添加 [`openai==1.78.1`](https://pypi.org/project/openai/1.78.1/) 依赖兼容约束，符合原 LiteLLM 的 `>=1.68.2` 下限。约束进入冻结身份；不修改仓库源代码、官方测试或标准补丁，也不影响本工作台实际使用的 MiMo Provider。
+- 批次同时检查全局及各数据集内部连续三条无评分任务，记录触发范围和实验 ID；交替执行的健康 SWE 结果不再掩盖 CTX 故障。真实功能测试失败仍是有效分数，不触发该停止条件。
+- 基线解包先安全提取普通文件，再创建叶节点符号链接，支持 tinygrad 的绝对/悬空链接；拒绝路径穿越、通过链接写入、硬链接、特殊文件、重复路径及 `.git` 注入。没有使用不受限的 tar 提取模式。
+
+实际验证（本次不重新调用模型，不覆盖既有补丁和评分目录）：
+
+| 项目 | 结果 / 证据 |
+| --- | --- |
+| 前端 | 13 项通过，生产构建通过 |
+| Worker | Linux 89 项全部通过；Windows 87 项通过、2 项因符号链接权限跳过；含旧 digest 镜像不启用新评分协议的回归 |
+| Docker mock 全流程 | 8/8，生成一次、人工包、基线构建、负例评分、取消清理及镜像保留均通过；`/var/lib/ctxbench/acceptance-container-2bca9f369b` |
+| 既有 CTX / SWE 正例 | `opshin_opshin-28`、`pallets__flask-5014` 的真实保留补丁重评均通过；`/var/lib/ctxbench/acceptance-regrade-71e1827249/summary.json` |
+| 原 PR-Agent 评分故障 | `qodo-ai_pr-agent-1954` 的真实保留补丁通过；同一冻结环境中空补丁失败、标准补丁通过；最终回归 `/var/lib/ctxbench/acceptance-regrade-7e2f5e303c/summary.json`（首次修复证据 `acceptance-regrade-e08a812b3b` 同样保留） |
+| tinygrad 实际基线 | `tinygrad_tinygrad-5040` 的 `a3ed4176c89529c33536055d26507ed3d80ed01d` 成功提取并封存；`extra/hip_gpu_driver/kfd_ioctl.h` 保留为指向 `/usr/include/linux/kfd_ioctl.h` 的链接；工作区 `/var/lib/ctxbench/repositories/acceptance-tinygrad-56e8004a` |
+
+上述真实正例使用 harness `sha256:bc2c16513e09136de6302b66650fc049e9f65c730f901afea9ae84b7d0e7f746`。PR-Agent 评分环境为 `sha256:5c1f51dec6edf310962ea9052f4b7ab279e4534aa0a21f0dcd63a72e2a5f04b7`，同一 digest 用于正、负对照。它们是独立验收，不代表已经修复或重评全部 79 条历史评分异常。
+
+仍有上游用例边界：`opshin_opshin-454` 的官方测试从 `opshin` 导入未导出的 `DEFAULT_CONFIG`，基线及官方标准补丁均不提供该接口；其依赖还存在 `cbor2` 版本兼容错误。自检已阻止该环境进入付费阶段，没有修改官方测试来制造通过结果。诊断位于 `/var/lib/ctxbench/evaluator-environments/68028a5120074125c66d4830ea2a049e1a8aef5c528c6936995b9429f282867b/self-check`。完整数据集需要逐项环境自检；不应把这轮修复称作全量跑通。
+
+本机 C 盘仍仅约 30 GiB 可用（WSL 位于 C 盘），没有迁移 WSL、清理旧镜像或恢复全量批次。修复后的新实验与旧 campaign 不应混合统计；继续大规模运行前还需处理存储容量和不兼容用例。
+
+部署后 Worker 为 `sha256:5643699c0e12fb3764c60dbef47ff53abdf766e003ceb4f9c70ddf2c04e2a4ed`，健康检查通过，批次仍为 `execution_paused`。自暂停阶段结束以来，共享预算上报 238,278,013、保守记账 261,689,293、在途预留 0，验证和部署没有追加模型调用。Windows NSIS 已重新构建，包含中文 README 和修复后的部署源码；本次首次验收构建的安装包 SHA256 为 `E164C5EC4685C6D69C846D1CB63BB4340687AE4BDF5069E49E6CEE080DE3C638`，后续重新打包以随包提供的 `.sha256` 校验文件为准。未执行全新机器安装验收。

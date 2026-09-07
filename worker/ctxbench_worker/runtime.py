@@ -8,7 +8,7 @@ import subprocess
 import tarfile
 import time
 import uuid
-from pathlib import Path
+from pathlib import Path, PurePosixPath
 
 from .datasets import TaskRecord
 from .models import ResourcePolicy
@@ -30,6 +30,34 @@ def seal(workspace: Path) -> str:
     git(workspace, "add", "--all", "--force", "--", ".")
     git(workspace, "commit", "-qm", "Frozen evaluation input", "--allow-empty")
     return git(workspace, "rev-parse", "HEAD").decode().strip()
+
+
+def extract_baseline(tar: tarfile.TarFile, workspace: Path) -> None:
+    """Preserve Git's literal symlinks without ever extracting through one.
+
+    A repository may contain container-specific absolute/dangling symlinks.
+    Extract files first and create validated leaf links last. Hard links, special
+    files, traversal, duplicate paths and links used as parents are rejected.
+    """
+    entries = {}
+    for member in tar.getmembers():
+        path = PurePosixPath(member.name)
+        if (path.is_absolute() or '..' in path.parts or not path.parts or
+                '.git' in path.parts or '\\' in member.name or ':' in member.name or
+                path.as_posix() in entries or not (member.isfile() or member.isdir() or member.issym())):
+            raise ValueError(f'Unsafe baseline archive member: {member.name}')
+        entries[path.as_posix()] = member
+    links = {name for name, member in entries.items() if member.issym()}
+    for name in entries:
+        if any(parent.as_posix() in links for parent in PurePosixPath(name).parents):
+            raise ValueError(f'Baseline archive traverses a symbolic link: {name}')
+    tar.extractall(workspace, members=[member for member in entries.values() if not member.issym()], filter='data')
+    for name in sorted(links):
+        target = workspace.joinpath(*PurePosixPath(name).parts)
+        if workspace.resolve() not in target.parent.resolve().parents and target.parent.resolve() != workspace.resolve():
+            raise ValueError(f'Baseline link parent escapes workspace: {name}')
+        target.parent.mkdir(parents=True, exist_ok=True)
+        target.symlink_to(entries[name].linkname)
 
 
 class Runtime:
@@ -125,6 +153,22 @@ class Runtime:
         finally:
             client.close()
 
+    def environment_output(self, task: TaskRecord, dataset_id: str, harness: str, scope: str) -> Path:
+        key = hashlib.sha256(f'{dataset_id}:{task.id}:{harness}:{scope}'.encode()).hexdigest()
+        return self.root / 'evaluator-environments' / key
+
+    def prepare_agentbench_image(self, task: TaskRecord, dataset: Path, harness: str, resources: ResourcePolicy,
+                                *, scope: str = 'standalone') -> str:
+        output = self.environment_output(task, dataset.stem, harness, scope)
+        self.command(harness, ['prepare-agentbench', '--dataset', str(dataset), '--instance-id', task.id,
+                             '--output', str(output)],
+            volumes={self.host_path(self.root): {'bind': str(self.root), 'mode': 'rw'}},
+            output=output, resources=resources, socket=True, network='bridge')
+        manifest = json.loads((output / 'environment.json').read_text(encoding='utf-8'))
+        if manifest.get('validated') is not True or manifest.get('baseCommit') != task.base_commit or not manifest.get('imageId', '').startswith('sha256:'):
+            raise ValueError('Prepared environment does not match the requested baseline.')
+        return manifest['imageId']
+
     def baseline(self, task: TaskRecord) -> tuple[Path, str]:
         key = hashlib.sha256(f"{task.repository}@{task.base_commit}".encode()).hexdigest()
         source = self.root / "sources" / key
@@ -147,7 +191,7 @@ class Runtime:
         archive.write_bytes(git(source, "archive", "--format=tar", task.base_commit))
         try:
             with tarfile.open(archive) as tar:
-                tar.extractall(workspace, filter="data")
+                extract_baseline(tar, workspace)
             # No source Git history, remotes, future objects or target PR refs enter an agent mount.
             seal(workspace)
         finally:
@@ -171,11 +215,14 @@ class Runtime:
         return json.loads(raw)
 
     def grade(self, task: TaskRecord, dataset_path: Path, patch: Path, output: Path,
-              resources: ResourcePolicy, harness_image: str) -> dict:
+              resources: ResourcePolicy, harness_image: str, *, environment_image: str | None = None) -> dict:
         started = time.monotonic()
         if task.source in {"swebench", "agentbench"}:
+            # Legacy experiments may also have digest-pinned original images;
+            # only an explicit prepared environment enables the new protocol.
+            environment_args = ['--environment-image', environment_image] if task.source == 'agentbench' and environment_image else []
             self.command(harness_image, [f"grade-{task.source}", "--dataset", str(dataset_path),
-                "--instance-id", task.id, "--patch", str(patch), "--output", str(output)],
+                "--instance-id", task.id, "--patch", str(patch), "--output", str(output), *environment_args],
                 volumes={self.host_path(self.root): {"bind": str(self.root), "mode": "rw"}},
                 output=output, resources=resources, socket=True, network="bridge")
             summary = json.loads((output / "summary.json").read_text(encoding="utf-8"))

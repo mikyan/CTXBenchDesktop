@@ -70,6 +70,8 @@ class Workbench:
                 if stage['status'] != 'completed':
                     self.engine.runner.cancel(stage['runId'])
         if isinstance(self.engine.runner, DockerRunner):
+            for prepared in self.db.list_documents('prepared'):
+                self._cancel_environment_preparations(prepared['id'])
             for run in self.db.list_runs(compact=True):
                 if run['status'] == 'grading' and run.get('outputDir'):
                     self.runtime.cancel_grade(Path(run['outputDir']) / 'grading')
@@ -89,6 +91,8 @@ class Workbench:
                 if hasattr(self.engine.runner, "cancel"):
                     self.engine.runner.cancel(run_id)
             if isinstance(self.engine.runner, DockerRunner):
+                for prepared in self.db.list_documents('prepared'):
+                    self._cancel_environment_preparations(prepared['id'])
                 for run in self.db.list_runs(compact=True):
                     if run['status'] == 'grading' and run.get('outputDir'):
                         self.runtime.cancel_grade(Path(run['outputDir']) / 'grading')
@@ -173,6 +177,7 @@ class Workbench:
             elif action == "cancel":
                 self.db.set_experiment_status(experiment_id, "cancelled")
                 self._interrupt_experiment_operations(experiment_id, 'cancelled')
+                self._cancel_environment_preparations(experiment_id)
                 for run in self.db.list_runs(experiment_id):
                     if run["status"] == "grading" and run.get("outputDir") and isinstance(self.engine.runner, DockerRunner):
                         self.runtime.cancel_grade(Path(run["outputDir"]) / "grading")
@@ -201,6 +206,17 @@ class Workbench:
             else:
                 raise ValueError("Unknown experiment action.")
         return self.db.get_experiment(experiment_id)
+
+    def _cancel_environment_preparations(self, experiment_id: str):
+        if not isinstance(self.engine.runner, DockerRunner):
+            return
+        try:
+            prepared = self.db.get_document('prepared', experiment_id)
+        except KeyError:
+            return
+        for task_id, output in prepared.get('environmentOutputs', {}).items():
+            if task_id not in prepared.get('graderImages', {}):
+                self.runtime.cancel_grade(Path(output))
 
     def _interrupt_experiment_operations(self, experiment_id: str, status: str):
         for operation in self.db.list_documents('operations'):
@@ -493,12 +509,24 @@ class Workbench:
         except KeyError:
             image = self.runtime.resolve_image(spec.agent_image) if isinstance(self.engine.runner, DockerRunner) else spec.agent_image
             harness = self.runtime.resolve_image("ctxbench/official-harness:0.1.0") if isinstance(self.engine.runner, DockerRunner) and spec.benchmark != "custom" else "custom"
-            prepared = {"id": experiment_id, "image": image, "harnessImage": harness, "contexts": {}, "constraints": {}, "graderImages": {}}
+            prepared = {"id": experiment_id, "image": image, "harnessImage": harness, "contexts": {}, "constraints": {}, "graderImages": {},
+                        "environmentVersion": 1}
             self.db.put_document("prepared", experiment_id, prepared)
         task_index = self.catalog.index(spec.dataset)
         for task_id in spec.task_ids:
             self._check(experiment_id)
             task = task_index[task_id]
+            if task.source == 'agentbench' and prepared.get('environmentVersion') == 1 and isinstance(self.engine.runner, DockerRunner):
+                if task_id not in prepared['graderImages']:
+                    dataset = self.catalog.verify(spec.dataset)
+                    prepared.setdefault('environmentOutputs', {})[task_id] = str(self.runtime.environment_output(
+                        task, spec.dataset, prepared['harnessImage'], experiment_id))
+                    self.db.put_document('prepared', experiment_id, prepared)
+                    self._check(experiment_id)
+                    prepared['graderImages'][task_id] = self.runtime.prepare_agentbench_image(
+                        task, Path(dataset['path']), prepared['harnessImage'], spec.resources, scope=experiment_id)
+                    self.db.put_document('prepared', experiment_id, prepared)
+                self._check(experiment_id)
             if task.source == "custom" and isinstance(self.engine.runner, DockerRunner):
                 prepared.setdefault("graderImages", {})
                 if task_id not in prepared["graderImages"]:
@@ -575,7 +603,8 @@ class Workbench:
         self._check(run["experimentId"])
         grade = checkpoint.load()
         if grade is None:
-            grade = self.runtime.grade(task, Path(dataset["path"]), output / "graded.patch", grade_dir, spec.resources, prepared["harnessImage"])
+            environment_options = {'environment_image': task.image} if task.source == 'agentbench' and prepared.get('environmentVersion') == 1 else {}
+            grade = self.runtime.grade(task, Path(dataset["path"]), output / "graded.patch", grade_dir, spec.resources, prepared["harnessImage"], **environment_options)
             checkpoint.save(grade)
         if not isinstance(grade.get("resolved"), bool):
             raise ValueError("Grader must return a boolean resolved result.")

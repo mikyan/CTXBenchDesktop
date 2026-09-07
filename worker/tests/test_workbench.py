@@ -36,6 +36,54 @@ class FixtureRunner:
 
 
 class WorkbenchTests(unittest.TestCase):
+    def test_dependency_setup_fails_before_any_paid_builder_or_solver(self):
+        from worker.ctxbench_worker.runner import DockerRunner
+        self.engine.runner = DockerRunner(self.root / 'repositories', self.root / 'runs', self.root / 'requests')
+        task = replace(self.workbench.catalog.task(self.dataset['id'], 'task/1'), source='agentbench')
+        experiment = self.workbench.create_experiment(replace(self.spec, prepare_only=True))
+        with patch.object(self.workbench, '_check'), patch.object(self.workbench.catalog, 'index', return_value={task.id: task}), \
+             patch.object(self.workbench.runtime, 'resolve_image', return_value='sha256:' + 'a' * 64), \
+             patch.object(self.workbench.runtime, 'prepare_agentbench_image', side_effect=RuntimeError('dependency setup failed')), \
+             patch.object(self.workbench, 'generate') as generate:
+            with self.assertRaisesRegex(RuntimeError, 'dependency setup failed'):
+                self.workbench.run_experiment(experiment['id'])
+        generate.assert_not_called()
+        self.assertFalse(self.runner.calls)
+        self.assertFalse(self.engine.database.list_documents('stages'))
+
+    def test_evaluator_environment_is_frozen_once_and_legacy_preparation_is_not_rewritten(self):
+        from worker.ctxbench_worker.runner import DockerRunner
+        self.engine.runner = DockerRunner(self.root / 'repositories', self.root / 'runs', self.root / 'requests')
+        task = replace(self.workbench.catalog.task(self.dataset['id'], 'task/1'), source='agentbench')
+        experiment = self.workbench.create_experiment(replace(self.spec, prepare_only=True))
+        with patch.object(self.workbench, '_check'), patch.object(self.workbench.catalog, 'index', return_value={task.id: task}), \
+             patch.object(self.workbench.runtime, 'resolve_image', return_value='sha256:' + 'a' * 64), \
+             patch.object(self.workbench.runtime, 'prepare_agentbench_image', return_value='sha256:' + 'b' * 64) as prepare, \
+             patch.object(self.workbench, 'generate', return_value={'id': 'frozen-context'}):
+            self.workbench.run_experiment(experiment['id'])
+            self.workbench.run_experiment(experiment['id'])
+            self.assertEqual(prepare.call_count, 1)
+            frozen = self.engine.database.get_document('prepared', experiment['id'])
+            self.assertEqual(frozen['graderImages'][task.id], 'sha256:' + 'b' * 64)
+            # Older experiments retain their old harness and environment rules.
+            frozen.pop('environmentVersion')
+            frozen['graderImages'] = {}
+            self.engine.database.put_document('prepared', experiment['id'], frozen)
+            self.workbench.run_experiment(experiment['id'])
+            self.assertEqual(prepare.call_count, 1)
+
+    def test_cancel_environment_setup_only_targets_owned_unfinished_paths(self):
+        from worker.ctxbench_worker.runner import DockerRunner
+        self.engine.runner = DockerRunner(self.root / 'repositories', self.root / 'runs', self.root / 'requests')
+        experiment = self.workbench.create_experiment(self.spec)
+        active = self.root / 'evaluator-environments' / 'active'
+        self.engine.database.put_document('prepared', experiment['id'], {'id': experiment['id'],
+            'environmentOutputs': {'active': str(active), 'complete': str(self.root / 'complete')},
+            'graderImages': {'complete': 'sha256:' + 'b' * 64}})
+        with patch.object(self.workbench.runtime, 'cancel_grade') as cancel:
+            self.workbench.control(experiment['id'], 'cancel')
+        cancel.assert_called_once_with(active)
+
     def test_shared_budget_pauses_before_unfunded_solver_without_changing_profile(self):
         self.workbench.budgets.create('small', 1000, 'mock', 'deterministic')
         experiment = self.workbench.create_experiment(replace(self.spec, budget_id='small'))
