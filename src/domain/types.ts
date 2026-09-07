@@ -147,6 +147,7 @@ export interface DiagnosticItem {
   label: string;
   status: "healthy" | "warning" | "missing" | "checking";
   detail: string;
+  detailValues?: Record<string, string | number>;
   fix?: string;
 }
 

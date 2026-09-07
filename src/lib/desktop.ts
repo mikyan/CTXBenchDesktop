@@ -3,6 +3,8 @@ import { createDemoSnapshot } from "../data/demo";
 import { planExperimentRuns } from "../domain/planner";
 import { renderSnapshotHtml } from "../domain/report";
 import { aggregateArms, aggregateDashboard } from "../domain/metrics";
+import { savedDistribution, type WslInventory } from "./wsl";
+import type { DeploymentInfo, WorkerAction, WorkerActionResult } from "./infrastructure";
 import type {
   CreateExperimentRequest,
   DashboardSnapshot,
@@ -33,13 +35,24 @@ export async function workerRequest<T>(path: string, method: "GET" | "POST" = "G
   return payload as T;
 }
 
-export async function controlWorker(action: "start" | "stop" | "build", distribution = "Ubuntu"): Promise<string> {
-  if (!isTauri()) throw new Error("Worker controls require the desktop application.");
-  return invoke<string>("worker_control", { action, distribution });
+export async function listWslDistributions(): Promise<WslInventory> {
+  if (!isTauri()) throw new Error("WSL detection requires the desktop application.");
+  return invoke<WslInventory>("list_wsl_distributions");
 }
 
-export async function diagnoseEnvironment(distribution = localStorage.getItem("ctxbench-distribution") || "Ubuntu"): Promise<DiagnosticItem[]> {
-  if (isTauri()) return invoke<DiagnosticItem[]>("diagnose_environment", { distribution });
+export async function getDeploymentInfo(distribution: string): Promise<DeploymentInfo> {
+  if (!isTauri()) throw new Error("Deployment checks require the desktop application.");
+  return invoke<DeploymentInfo>("get_deployment_info", { distribution: distribution.trim() });
+}
+
+export async function controlWorker(action: WorkerAction, distribution = savedDistribution()): Promise<WorkerActionResult> {
+  if (!isTauri()) throw new Error("Worker controls require the desktop application.");
+  if (!distribution.trim()) throw new Error("Select an installed WSL distribution first.");
+  return invoke<WorkerActionResult>("worker_control", { action, distribution: distribution.trim() });
+}
+
+export async function diagnoseEnvironment(distribution = savedDistribution()): Promise<DiagnosticItem[]> {
+  if (isTauri()) return invoke<DiagnosticItem[]>("diagnose_environment", { distribution: distribution.trim() || null });
   const health = await workerRequest<{ version: string; runner: string }>("/health");
   return [{ id: "worker", label: "CTXBench worker", status: "healthy", detail: `${health.version} · ${health.runner}` }];
 }

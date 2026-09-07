@@ -56,6 +56,22 @@ class LoadProcess:
 
 
 class BundleTests(unittest.TestCase):
+    def test_compose_config_keeps_host_paths_and_credentials_unresolved(self):
+        with patch.object(release, "command", return_value=json.dumps(fixture_config())) as run:
+            config = release.compose_config(Path("/source checkout"))
+        args = run.call_args.args
+        for option in ("--no-interpolate", "--no-path-resolution", "--no-env-resolution"):
+            self.assertIn(option, args)
+        self.assertEqual(config["services"]["ctxbench-worker"]["environment"]["OPENAI_API_KEY"], "${OPENAI_API_KEY:-}")
+
+    def test_offline_mounts_remain_portable_across_build_hosts(self):
+        config = fixture_config()
+        source = "${CTXBENCH_HOST_DATA_DIR:-/var/lib/ctxbench}"
+        config["services"]["ctxbench-worker"]["volumes"] = [{"type": "bind", "source": source, "target": "/var/lib/ctxbench"}]
+        offline = release.offline_compose(config)
+        self.assertEqual(offline["services"]["ctxbench-worker"]["volumes"][0]["source"], source)
+        self.assertNotIn("/home/runner", json.dumps(offline))
+
     def setUp(self):
         self.temporary = tempfile.TemporaryDirectory(prefix="ctxbench-bundle-test-")
         self.addCleanup(self.temporary.cleanup)
@@ -309,6 +325,16 @@ class BundleTests(unittest.TestCase):
 
 @unittest.skipUnless(os.environ.get("CTXBENCH_IMAGE_RELEASE_DOCKER_TEST") == "1", "Set CTXBENCH_IMAGE_RELEASE_DOCKER_TEST=1 in WSL/Linux for real Docker roundtrip.")
 class DockerRoundtrip(unittest.TestCase):
+    def test_real_compose_export_does_not_embed_build_host_paths(self):
+        root = SCRIPT.parents[1]
+        config = release.compose_config(root)
+        offline = release.offline_compose(config)
+        volumes = offline["services"]["ctxbench-worker"]["volumes"]
+        data = next(volume for volume in volumes if volume["target"] == "/var/lib/ctxbench")
+        self.assertEqual(data["source"], "${CTXBENCH_HOST_DATA_DIR:-/var/lib/ctxbench}")
+        self.assertNotIn(str(root), json.dumps(offline))
+        self.assertEqual(offline["services"]["ctxbench-worker"]["environment"]["OPENAI_API_KEY"], "${OPENAI_API_KEY:-}")
+
     def test_real_docker_save_verify_load(self):
         token = uuid.uuid4().hex[:12]
         config = fixture_config()

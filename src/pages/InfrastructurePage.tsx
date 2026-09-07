@@ -1,40 +1,38 @@
-import { Box, Check, Clipboard, Container, Copy, HardDrive, KeyRound, Network, RefreshCw, ServerCog, TerminalSquare } from "lucide-react";
+import { Box, Container, HardDrive, KeyRound, Network, RefreshCw, ServerCog, TerminalSquare } from "lucide-react";
 import { useEffect, useRef, useState } from "react";
 import { DiagnosticIcon, PageTitle, StatusBadge } from "../components/shared";
+import { InfrastructureSetup } from "../components/InfrastructureSetup";
 import type { DiagnosticItem, RuntimeSettings } from "../domain/types";
 import { useI18n } from "../i18n";
-import { controlWorker, workerRequest } from "../lib/desktop";
+import { workerRequest } from "../lib/desktop";
 import { runtimeVariablesPayload, type RuntimeVariable } from "../lib/environment";
+import { savedDistribution, saveDistribution } from "../lib/wsl";
 
 export function InfrastructurePage({ diagnostics, onDiagnose, diagnosing }: { diagnostics: DiagnosticItem[]; onDiagnose: (distribution?: string) => void; diagnosing: boolean }) {
   const { t } = useI18n();
-  const [copied, setCopied] = useState(false);
   const [settings, setSettings] = useState<RuntimeSettings>();
   const [variables, setVariables] = useState<(RuntimeVariable & { id: number })[]>([{ id: 0, name: "XIAOMI_TOKEN_PLAN_CN_API_KEY", value: "" }]);
   const nextVariableId = useRef(1);
-  const [busy, setBusy] = useState(false); const [message, setMessage] = useState("");
+  const [credentialBusy, setCredentialBusy] = useState(false);
+  const [deploymentBusy, setDeploymentBusy] = useState(false);
+  const busy = credentialBusy || deploymentBusy;
   const [credentialMessage, setCredentialMessage] = useState("");
-  const [distribution, setDistribution] = useState(() => localStorage.getItem("ctxbench-distribution") || "Ubuntu");
-  const refresh = () => workerRequest<RuntimeSettings>("/runtime").then(setSettings).catch(() => {});
+  const [credentialError, setCredentialError] = useState(false);
+  const [distribution, setDistribution] = useState(savedDistribution);
+  const changeDistribution = (name: string) => { setDistribution(name); saveDistribution(name); };
+  const refresh = () => workerRequest<RuntimeSettings>("/runtime").then(setSettings).catch(() => setSettings(undefined));
   useEffect(() => { void refresh(); }, []);
-  const action = async (value: "start" | "stop" | "build") => { setBusy(true); setMessage(""); try { setMessage(await controlWorker(value, distribution)); await refresh(); onDiagnose(); } catch (error) { setMessage(String(error)); } finally { setBusy(false); } };
   const save = async () => {
-    setBusy(true); setCredentialMessage("");
+    setCredentialBusy(true); setCredentialMessage(""); setCredentialError(false);
     try {
       await workerRequest("/runtime/credentials", "POST", runtimeVariablesPayload(variables));
       setVariables([{ id: nextVariableId.current++, name: "", value: "" }]);
       setCredentialMessage("Environment variables saved in worker memory until restart.");
       await refresh();
-    } catch (error) { setCredentialMessage(error instanceof Error ? error.message : String(error)); }
-    finally { setBusy(false); }
+    } catch (error) { setCredentialError(true); setCredentialMessage(error instanceof Error ? error.message : String(error)); }
+    finally { setCredentialBusy(false); }
   };
   const updateVariable = (id: number, changes: Partial<RuntimeVariable>) => setVariables((rows) => rows.map((row) => row.id === id ? { ...row, ...changes } : row));
-  const command = "docker compose -f docker/compose.yaml up -d --build ctxbench-worker";
-  const copyCommand = async () => {
-    await navigator.clipboard.writeText(command);
-    setCopied(true);
-    window.setTimeout(() => setCopied(false), 1500);
-  };
 
   return (
     <div className="page">
@@ -42,20 +40,24 @@ export function InfrastructurePage({ diagnostics, onDiagnose, diagnosing }: { di
         eyebrow={t("LOCAL INFRASTRUCTURE")}
         title={t("WSL & container runtime")}
         description={t("Everything runs locally. The desktop app controls an isolated worker inside WSL2.")}
-        actions={<button className="button primary" onClick={() => onDiagnose(distribution)} disabled={diagnosing}><RefreshCw size={16} className={diagnosing ? "spin" : ""} /> {diagnosing ? t("Checking…") : t("Run diagnostics")}</button>}
+        actions={<><button className="button secondary" onClick={() => { const heading = document.getElementById("setup-heading"); heading?.focus({ preventScroll: true }); heading?.scrollIntoView({ block: "start" }); }}>{t("Open setup guide")}</button><button className="button primary" onClick={() => onDiagnose(distribution)} disabled={diagnosing || busy}><RefreshCw size={16} className={diagnosing ? "spin" : ""} /> {diagnosing ? t("Checking…") : t("Run diagnostics")}</button></>}
       />
 
       <section className="infra-layout">
         <div className="panel diagnostics-panel">
           <div className="panel-header"><div><span className="panel-kicker">{t("READINESS")}</span><h2>{t("System checks")}</h2></div><StatusBadge status={diagnostics.length > 0 && diagnostics.every((item) => item.status === "healthy") ? "healthy" : "warning"} label={diagnostics.length > 0 && diagnostics.every((item) => item.status === "healthy") ? t("Ready") : t("Action needed")} /></div>
           <div className="diagnostic-list">
-            {diagnostics.map((item) => (
+            {diagnostics.length === 0 && <p>{t("Run diagnostics to check WSL, Docker and the worker connection.")}</p>}
+            {diagnostics.map((item) => {
+              const values = item.detailValues && Object.fromEntries(Object.entries(item.detailValues).map(([key, value]) => [key, typeof value === "string" ? t(value) : value]));
+              return (
               <div className="diagnostic-row" key={item.id}>
                 <DiagnosticIcon status={item.status} />
-                <div><strong>{t(item.label)}</strong><span>{t(item.detail)}</span>{item.fix && <small>{t(item.fix)}</small>}</div>
+                <div><strong>{t(item.label)}</strong>{item.status === "healthy" ? <details><summary>{t("Show diagnostic details")}</summary><pre>{t(item.detail, values)}</pre></details> : <span>{t(item.detail, values)}</span>}{item.fix && <small>{t(item.fix)}</small>}</div>
                 <StatusBadge status={item.status} />
               </div>
-            ))}
+              );
+            })}
           </div>
         </div>
 
@@ -73,19 +75,7 @@ export function InfrastructurePage({ diagnostics, onDiagnose, diagnosing }: { di
           </div>
         </div>
 
-        <div className="panel setup-panel">
-          <div className="panel-header"><div><span className="panel-kicker">{t("NEXT ACTION")}</span><h2>{t("Start the worker")}</h2></div><Clipboard size={18} /></div>
-          <p>{t("Build the bundled images once, then start the worker. Existing experiments remain stored in WSL.")}</p>
-          <label>{t("Distribution")}<input value={distribution} onChange={(e) => { setDistribution(e.target.value); localStorage.setItem("ctxbench-distribution", e.target.value); }} /></label>
-          <div className="toolbar"><button className="button secondary" disabled={busy} onClick={() => void action("build")}>{t("Build images")}</button><button className="button primary" disabled={busy} onClick={() => void action("start")}>{t("Start worker")}</button><button className="button secondary" disabled={busy} onClick={() => void action("stop")}>{t("Stop worker")}</button></div>
-          {busy && <p>{t("Working…")}</p>}{message && <p role="status">{t(message)}</p>}
-          <div className="code-command"><code>{command}</code><button onClick={copyCommand} title={t("Copy command")}>{copied ? <Check size={15} /> : <Copy size={15} />}</button></div>
-          <div className="setup-notes">
-            <span><Check size={14} /> {t("Binds to localhost only")}</span>
-            <span><Check size={14} /> {t("Resumes queued work after restart")}</span>
-            <span><Check size={14} /> {t("Images export for air-gapped use")}</span>
-          </div>
-        </div>
+        <InfrastructureSetup distribution={distribution} onDistribution={changeDistribution} diagnosing={diagnosing || credentialBusy} onBusy={setDeploymentBusy} onDiagnose={(name) => { onDiagnose(name); void refresh(); }} />
 
         <div className="panel policy-panel">
           <div className="panel-header"><div><span className="panel-kicker">{t("SECURITY POLICY")}</span><h2>{t("Runtime boundaries")}</h2></div><KeyRound size={18} /></div>
@@ -93,10 +83,10 @@ export function InfrastructurePage({ diagnostics, onDiagnose, diagnosing }: { di
           <Policy icon={<HardDrive size={16} />} title={t("Grader network")} value={t("Offline")} detail={t("Clean base + graded patch only")} />
           <Policy icon={<KeyRound size={16} />} title={t("Credentials")} value={t("Runtime-only")} detail={t("Values redacted from all artifacts")} />
           <div className="workbench-form"><h3>{t("Agent environment")}</h3>
-            <p>{settings?.runner} · {settings?.dataDirectory}</p>
+            {settings ? <p>{settings.runner} · {settings.dataDirectory}</p> : <p className="setup-callout">{t("Start the worker successfully before configuring Agent environment variables. No API key is needed to install or start the worker.")}</p>}
             {settings?.credentials.map((item) => <small key={item.name}>{item.name} · {t(item.configured ? "Configured" : "Not configured")}</small>)}
             <p>{t("Add multiple name/value rows and save them together. Values are hidden and are never returned by the worker.")}</p>
-            {variables.map((row, index) => <fieldset key={row.id} disabled={busy}>
+            {variables.map((row, index) => <fieldset key={row.id} disabled={busy || !settings}>
               <legend>{t("Variable {index}", { index: index + 1 })}</legend>
               <div className="runtime-variable-fields">
                 <label>{t("Environment variable name")}<input value={row.name} autoComplete="off" spellCheck={false} placeholder="OPENAI_API_KEY" onChange={(event) => updateVariable(row.id, { name: event.target.value })} /></label>
@@ -105,10 +95,10 @@ export function InfrastructurePage({ diagnostics, onDiagnose, diagnosing }: { di
               </div>
             </fieldset>)}
             <div className="toolbar">
-              <button type="button" className="button secondary" disabled={busy || variables.length >= 100} onClick={() => setVariables([...variables, { id: nextVariableId.current++, name: "", value: "" }])}>{t("Add variable")}</button>
-              <button type="button" className="button primary" disabled={busy || !variables.some((row) => row.value)} onClick={() => void save()}>{t("Save environment variables")}</button>
+              <button type="button" className="button secondary" disabled={busy || !settings || variables.length >= 100} onClick={() => setVariables([...variables, { id: nextVariableId.current++, name: "", value: "" }])}>{t("Add variable")}</button>
+              <button type="button" className="button primary" disabled={busy || !settings || !variables.some((row) => row.value)} onClick={() => void save()}>{t("Save environment variables")}</button>
             </div>
-            {credentialMessage && <p role="status">{t(credentialMessage)}</p>}
+            {credentialMessage && <p className={credentialError ? "form-error" : "credential-success"} role={credentialError ? "alert" : "status"}>{t(credentialMessage)}</p>}
             <p>{t("Values stay in worker memory. Restart clears values entered here; deployment environment variables remain available.")}</p>
           </div>
         </div>

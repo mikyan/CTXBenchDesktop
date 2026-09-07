@@ -1,5 +1,5 @@
-import { useCallback, useEffect, useState } from "react";
-import { CheckCircle2, LoaderCircle, X } from "lucide-react";
+import { useCallback, useEffect, useRef, useState } from "react";
+import { CheckCircle2, CircleAlert, LoaderCircle, X } from "lucide-react";
 import type { Page } from "./app-types";
 import { ExperimentComposer } from "./components/ExperimentComposer";
 import { DatasetWizard } from "./components/DatasetWizard";
@@ -24,7 +24,8 @@ export default function App() {
   const [creating, setCreating] = useState(false);
   const [diagnosing, setDiagnosing] = useState(false);
   const [diagnostics, setDiagnostics] = useState<DiagnosticItem[]>([]);
-  const [toast, setToast] = useState<string>();
+  const diagnosticRevision = useRef(0);
+  const [toast, setToast] = useState<{ message: string; error?: boolean }>();
   const closeToast = useCallback(() => setToast(undefined), []);
   const [dialog, setDialog] = useState<"dataset" | "dataset-create" | "context" | "manual" | "constraints">();
   const [selectedRun, setSelectedRun] = useState<BenchmarkRun>();
@@ -36,11 +37,12 @@ export default function App() {
     let timer: number;
     const poll = async () => {
       try { const value = await loadSnapshot(); if (alive) { setSnapshot((old) => ({ ...value, diagnostics: old?.diagnostics ?? value.diagnostics })); setLoadingError(undefined); } }
-      catch (error) { if (alive) setLoadingError(String(error)); }
+      catch (error) { if (alive) setLoadingError(error instanceof Error ? error.message : String(error)); }
       if (alive) timer = window.setTimeout(poll, 3000);
     };
     void poll();
-    void diagnoseEnvironment().then((diagnostics) => { if (alive) setDiagnostics(diagnostics); }).catch(() => {});
+    const revision = ++diagnosticRevision.current;
+    void diagnoseEnvironment().then((diagnostics) => { if (alive && revision === diagnosticRevision.current) setDiagnostics(diagnostics); }).catch(() => {});
     return () => { alive = false; window.clearTimeout(timer); };
   }, []);
 
@@ -66,7 +68,7 @@ export default function App() {
       setSnapshot((current) => current ? { ...current, experiments: [experiment, ...current.experiments] } : current);
       setModalOpen(false);
       setPage("experiments");
-      setToast(t("Experiment plan created. Context preparation is queued."));
+      setToast({ message: t("Experiment plan created. Context preparation is queued.") });
     } catch (error) {
       throw error;
     } finally {
@@ -75,22 +77,25 @@ export default function App() {
   };
 
   const handleDiagnose = async (distribution?: string) => {
+    const revision = ++diagnosticRevision.current;
     setDiagnosing(true);
     setSnapshot((current) => current ? { ...current, diagnostics: current.diagnostics.map((item) => ({ ...item, status: "checking" })) } : current);
     try {
       const diagnostics = await diagnoseEnvironment(distribution);
+      if (revision !== diagnosticRevision.current) return;
       setDiagnostics(diagnostics);
       setSnapshot((current) => current ? { ...current, diagnostics } : current);
-      setToast(t("Environment diagnostics completed."));
+      const attention = diagnostics.filter((item) => item.status !== "healthy").length;
+      setToast(attention ? { message: t("Diagnostics finished. Checks needing attention: {count}. Follow the guidance on this page.", { count: attention }), error: true } : { message: t("Environment diagnostics completed.") });
     } catch (error) {
-      setToast(String(error));
+      if (revision === diagnosticRevision.current) setToast({ message: String(error), error: true });
     } finally {
-      setDiagnosing(false);
+      if (revision === diagnosticRevision.current) setDiagnosing(false);
     }
   };
 
   if (loadingError && !snapshot) {
-    return <div className="offline-shell"><Topbar runtime="desktop" /><div className="content-scroll"><p className="connection-banner" role="alert">{t("Worker disconnected")} · {t(loadingError)}</p><InfrastructurePage diagnostics={diagnostics} onDiagnose={(distribution) => { void handleDiagnose(distribution); void refresh(); }} diagnosing={diagnosing} /></div></div>;
+    return <div className="offline-shell"><Topbar runtime="desktop" /><div className="content-scroll"><p className="connection-banner" role="alert">{t("Worker disconnected")} · {t(loadingError)}</p><InfrastructurePage diagnostics={diagnostics} onDiagnose={(distribution) => { void handleDiagnose(distribution); void refresh(); }} diagnosing={diagnosing} /></div>{toast && <Toast {...toast} onClose={closeToast} />}</div>;
   }
   if (!snapshot) {
     return <div className="splash"><div className="splash-mark">CX</div><LoaderCircle className="spin" size={20} /><span>{t("Opening local benchmark lab…")}</span></div>;
@@ -105,7 +110,7 @@ export default function App() {
           {loadingError && <p className="connection-banner" role="alert">{t("Worker disconnected — showing last received data")}</p>}
           {snapshot.runtime === "mock" && <p className="connection-banner">{t("Demo data — not benchmark results")}</p>}
           {page === "overview" && <DashboardPage snapshot={snapshot} onNewExperiment={() => setModalOpen(true)} onOpenExperiments={() => setPage("experiments")} onRun={setSelectedRun} />}
-          {page === "experiments" && <ExperimentsPage snapshot={snapshot} onNewExperiment={() => setModalOpen(true)} onImport={() => setDialog("dataset")} onCreateDataset={() => setDialog("dataset-create")} onRun={setSelectedRun} onAction={(id, action) => { void workerRequest(`/experiments/${id}/${action}`, "POST").then(refresh).catch((error) => setToast(String(error))); }} onExport={(format) => { void exportSnapshot(snapshot, format).catch((error) => setToast(String(error))); }} />}
+          {page === "experiments" && <ExperimentsPage snapshot={snapshot} onNewExperiment={() => setModalOpen(true)} onImport={() => setDialog("dataset")} onCreateDataset={() => setDialog("dataset-create")} onRun={setSelectedRun} onAction={(id, action) => { void workerRequest(`/experiments/${id}/${action}`, "POST").then(refresh).catch((error) => setToast({ message: String(error), error: true })); }} onExport={(format) => { void exportSnapshot(snapshot, format).catch((error) => setToast({ message: String(error), error: true })); }} />}
           {page === "knowledge" && <KnowledgePage snapshot={snapshot} onImport={() => setDialog("manual")} onGenerate={() => setDialog("context")} onView={setSelectedPackage} />}
           {page === "constraints" && <ConstraintsPage snapshot={snapshot} onMine={() => setDialog("constraints")} />}
           {page === "infrastructure" && <InfrastructurePage diagnostics={diagnostics} onDiagnose={handleDiagnose} diagnosing={diagnosing} />}
@@ -117,16 +122,17 @@ export default function App() {
       {dialog && dialog !== "dataset" && dialog !== "dataset-create" && <PreparationDialog kind={dialog} onClose={() => setDialog(undefined)} onComplete={() => void refresh()} />}
       {selectedRun && <RunDialog run={snapshot.runs.find((run) => run.id === selectedRun.id) ?? selectedRun} onClose={() => setSelectedRun(undefined)} />}
       {selectedPackage && <PackageDialog id={selectedPackage} onClose={() => setSelectedPackage(undefined)} />}
-      {toast && <Toast message={toast} onClose={closeToast} />}
+      {toast && <Toast {...toast} onClose={closeToast} />}
     </div>
   );
 }
 
-function Toast({ message, onClose }: { message: string; onClose: () => void }) {
+function Toast({ message, error = false, onClose }: { message: string; error?: boolean; onClose: () => void }) {
   const { t } = useI18n();
   useEffect(() => {
-    const timer = window.setTimeout(onClose, 4_000);
+    if (error) return; // Keep failures readable until the user dismisses them.
+    const timer = window.setTimeout(onClose, 6_000);
     return () => window.clearTimeout(timer);
-  }, [onClose]);
-  return <div className="toast"><CheckCircle2 size={17} /><span>{message}</span><button onClick={onClose} aria-label={t("Close")}><X size={14} /></button></div>;
+  }, [onClose, message, error]);
+  return <div className={`toast ${error ? "error" : "success"}`} role={error ? "alert" : "status"}>{error ? <CircleAlert size={20} /> : <CheckCircle2 size={20} />}<span>{t(message)}</span><button onClick={onClose} aria-label={t("Close")}><X size={18} /></button></div>;
 }

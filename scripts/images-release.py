@@ -129,7 +129,8 @@ def compose_config(root: Path) -> dict:
     # Never serialize expanded credential values or a user's local .env file.
     return json.loads(command("docker", "compose", "--env-file", os.devnull,
                               "-f", str(root / "docker/compose.yaml"), "--profile", "build-only",
-                              "config", "--no-interpolate", "--format", "json", capture=True))
+                              "config", "--no-interpolate", "--no-path-resolution", "--no-env-resolution",
+                              "--format", "json", capture=True))
 
 
 def offline_compose(config: dict) -> dict:

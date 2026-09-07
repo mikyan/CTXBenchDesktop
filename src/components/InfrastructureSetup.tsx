@@ -1,0 +1,131 @@
+import { useEffect, useRef, useState } from "react";
+import { Check, CircleAlert, Copy, Download, FileCode, LoaderCircle, RefreshCw } from "lucide-react";
+import { useI18n } from "../i18n";
+import { controlWorker, getDeploymentInfo } from "../lib/desktop";
+import { diagnosticReport, prerequisiteLabels, setupCommands, setupMessage, type DeploymentInfo, type WorkerAction, type WorkerActionResult } from "../lib/infrastructure";
+import { WslDistributionPicker } from "./WslDistributionPicker";
+
+export function InfrastructureSetup({ distribution, onDistribution, onDiagnose, onBusy, diagnosing }: {
+  distribution: string; onDistribution: (name: string) => void; onDiagnose: (distribution?: string) => void; onBusy: (busy: boolean) => void; diagnosing: boolean;
+}) {
+  const { t } = useI18n();
+  const [mode, setMode] = useState<"offline" | "online">("offline");
+  const [shell, setShell] = useState<"wsl" | "powershell">("powershell");
+  const [info, setInfo] = useState<DeploymentInfo>();
+  const [checking, setChecking] = useState(false);
+  const [refresh, setRefresh] = useState(0);
+  const [active, setActive] = useState<WorkerAction>();
+  const [result, setResult] = useState<WorkerActionResult>();
+  const [copyMessage, setCopyMessage] = useState("");
+  const alive = useRef(true);
+  useEffect(() => { alive.current = true; return () => { alive.current = false; }; }, []);
+  useEffect(() => {
+    let current = true;
+    setInfo(undefined); setResult(undefined); setCopyMessage("");
+    if (!distribution.trim()) { setChecking(false); return; }
+    setChecking(true);
+    // Avoid launching WSL for every keystroke of a manually entered name.
+    const timer = window.setTimeout(() => {
+      void getDeploymentInfo(distribution).then((value) => { if (current) setInfo(value); })
+        .catch((error) => { if (current) setResult({ ok: false, code: "action", detail: error instanceof Error ? error.message : String(error) }); })
+        .finally(() => { if (current) setChecking(false); });
+    }, 600);
+    return () => { current = false; window.clearTimeout(timer); };
+  }, [distribution, refresh]);
+
+  const action = async (value: WorkerAction) => {
+    if (active) return;
+    setActive(value); setResult(undefined); onBusy(true);
+    try {
+      const response = await controlWorker(value, distribution);
+      if (!alive.current) return;
+      setResult(response);
+      if (value !== "logs") {
+        const updated = await getDeploymentInfo(distribution).catch(() => undefined);
+        if (alive.current && updated) setInfo(updated);
+        onDiagnose(distribution);
+      }
+    } catch (error) { if (alive.current) setResult({ ok: false, code: "action", detail: error instanceof Error ? error.message : String(error) }); }
+    finally { if (alive.current) setActive(undefined); onBusy(false); }
+  };
+  const copy = async (text: string) => {
+    try { await navigator.clipboard.writeText(text); setCopyMessage("Copied. Review the report before sharing; never include API keys or .env files."); }
+    catch { setCopyMessage("Clipboard access failed. Select and copy the visible text manually."); }
+  };
+  const commands = info ? setupCommands(info, shell) : {};
+  const message = result && setupMessage(result.code);
+  const disabled = Boolean(active) || diagnosing || checking || !distribution.trim();
+  return <section className="panel setup-panel" aria-labelledby="setup-heading">
+    <div className="panel-header"><div><span className="panel-kicker">{t("NEXT ACTION")}</span><h2 id="setup-heading" tabIndex={-1}>{t("Install and start the worker")}</h2></div><Download size={22} aria-hidden="true" /></div>
+    <div className="setup-content">
+      <p className="setup-intro">{t("WSL and Docker are the foundation, not the CTXBench worker. Complete the three steps below; no Provider key is needed for setup.")}</p>
+      <ol className="setup-steps">
+        <li><span>1</span><div><strong>{t("Choose the WSL distribution")}</strong><p>{t("Install Docker Engine and its Compose plugin in this same distribution.")}</p></div></li>
+        <li><span>2</span><div><strong>{t("Prepare application images")}</strong><p>{t("Import offline images or build online. The Windows installer contains deployment files, not Docker images.")}</p></div></li>
+        <li><span>3</span><div><strong>{t("Start and verify")}</strong><p>{t("Start the worker, wait for its health check, then configure credentials and datasets.")}</p></div></li>
+      </ol>
+      <WslDistributionPicker value={distribution} onChange={onDistribution} disabled={Boolean(active) || diagnosing} />
+      <fieldset className="setup-mode"><legend>{t("How will you prepare images?")}</legend>
+        <label><input type="radio" name="setup-mode" checked={mode === "offline"} disabled={Boolean(active)} onChange={() => setMode("offline")} />{t("Internal network / offline images")}</label>
+        <label><input type="radio" name="setup-mode" checked={mode === "online"} disabled={Boolean(active)} onChange={() => setMode("online")} />{t("Internet available / build images")}</label>
+      </fieldset>
+      {mode === "offline" ? <div className="setup-guidance">
+        <h3>{t("Offline installation")}</h3>
+        <ol>
+          <li>{t("On an Internet-connected computer, download all ctxbench-images assets from the same release and copy them into one folder on this computer.")} <a href="https://github.com/mikyan/CTXBenchDesktop/releases" target="_blank" rel="noreferrer">{t("Open release downloads")}</a></li>
+          <li>{t("In the selected WSL distribution, change to that folder and run the verification and import commands below. Do not run them in Windows PowerShell.")}</li>
+        </ol>
+        <CommandBlock label={t("WSL terminal · run inside the offline image folder")} command={"sha256sum --check ctxbench-images-SHA256SUMS\npython3 ctxbench-images.py verify .\npython3 ctxbench-images.py import ."} onCopy={copy} />
+        <p>{t("The import script requires Python 3.10 or later inside WSL. If Python is missing, install it from your organization's approved package source first.")}</p>
+        <p>{t("Importing does not start containers. After import, check prerequisites and click Start worker. Do not click Build images offline.")}</p>
+        <p>{t("The image bundle does not include datasets, baseline repositories or per-task test images. Those need separate preparation for an internal network.")}</p>
+      </div> : <div className="setup-guidance">
+        <h3>{t("Online installation")}</h3><p>{t("Build images downloads base images and dependencies and may take several minutes. Check registry access and free disk space first. The build does not start experiments or call a Provider.")}</p>
+        <button className="button secondary" disabled={disabled} onClick={() => void action("build")}>{t("Build images")}</button>
+      </div>}
+
+      <div className="setup-check-header"><h3>{t("Deployment prerequisites")}</h3><button className="button secondary" disabled={disabled || checking} onClick={() => setRefresh((value) => value + 1)}><RefreshCw size={16} className={checking ? "spin" : ""} />{t("Check prerequisites")}</button></div>
+      <p>{t("This check is read-only: it checks the deployment file, Compose, images and data directory without installing or starting containers.")}</p>
+      {checking && <p role="status"><LoaderCircle size={18} className="spin" /> {t("Checking deployment prerequisites…")}</p>}
+      {!distribution.trim() && <p className="setup-callout">{t("Select an installed WSL distribution first.")}</p>}
+      {info && <>
+        <dl className="setup-paths"><div><dt>{t("Windows deployment file")}</dt><dd>{info.composePath}</dd></div><div><dt>{t("Path inside selected WSL")}</dt><dd>{info.wslComposePath || t("Not available")}</dd></div></dl>
+        <ul className="setup-checks">{info.checks.map((check) => <li key={check.id}>
+          {check.ok ? <Check className="icon-success" size={20} /> : <CircleAlert className="icon-warning" size={20} />}
+          <div><strong>{t(prerequisiteLabels[check.id] ?? check.id)} · {t(check.ok ? "Ready" : "Action needed")}</strong>
+            {!check.ok && <p>{t(setupMessage(check.id).help)}</p>}
+            {check.detail && <pre>{check.detail}</pre>}
+          </div>
+        </li>)}</ul>
+        {info.containers.length > 0 && <details><summary>{t("Current container status")}</summary><pre>{info.containers.join("\n")}</pre></details>}
+      </>}
+
+      <div className="toolbar"><button className="button primary" disabled={disabled} onClick={() => void action("start")}>{t("Start worker")}</button><button className="button secondary" disabled={disabled} onClick={() => void action("logs")}>{t("Read container logs")}</button><button className="button tertiary" disabled={disabled} onClick={() => void action("stop")}>{t("Stop worker")}</button></div>
+      <p>{t("Start worker uses local images only: no build, no pull. Stop worker does not delete stored data. Pause active experiments before stopping or replacing the worker.")}</p>
+      {active && <div className="setup-callout" role="status"><LoaderCircle className="spin" size={18} /><span>{t(active === "build" ? "Building application images… This may take several minutes." : active === "start" ? "Starting containers and waiting for the worker health check…" : "Reading or updating containers…")}</span></div>}
+      {result && message && <div className={`setup-feedback ${result.ok ? "success" : "error"}`} role={result.ok ? "status" : "alert"}>
+        <h3>{t(message.title)}</h3><p>{t(message.help)}</p>
+        {result.detail && <details open={!result.ok || result.code === "logs"}><summary>{t("Technical details (redacted)")}</summary><pre>{t(result.detail)}</pre></details>}
+        <button className="button secondary" onClick={() => void copy(diagnosticReport(info, result))}><Copy size={16} />{t("Copy diagnostic report")}</button>
+      </div>}
+      <details className="setup-manual"><summary><FileCode size={18} /> {t("Manual commands and troubleshooting")}</summary>
+        <p>{t("Commands below use the detected absolute path, so your current directory does not matter. Do not replace compose.yaml with compose.yml.")}</p>
+        <label>{t("Where will you run the command?")}<select value={shell} onChange={(event) => setShell(event.target.value as "wsl" | "powershell")}><option value="powershell">Windows PowerShell</option><option value="wsl">{t("Selected WSL terminal")}</option></select></label>
+        {commands.start ? <>
+          <CommandBlock label={t("Start worker")} command={commands.start} onCopy={copy} />
+          <CommandBlock label={t("Current container status")} command={commands.status} onCopy={copy} />
+          {info?.checks.some((check) => check.id === "data_directory" && !check.ok) && commands.directory && <CommandBlock label={t("Create the missing WSL data directory (requires sudo)")} command={commands.directory} onCopy={copy} />}
+          {mode === "online" && <CommandBlock label={t("Build images")} command={commands.build} onCopy={copy} />}
+        </> : <p>{t("Choose a distribution and pass the deployment-file check to generate exact commands. No relative-path fallback will be shown.")}</p>}
+        <p><a href="https://learn.microsoft.com/zh-cn/windows/wsl/install" target="_blank" rel="noreferrer">{t("WSL installation guide")}</a> · <a href="https://docs.docker.com/engine/install/ubuntu/" target="_blank" rel="noreferrer">{t("Docker Engine and Compose installation guide")}</a></p>
+        <p>{t("For internal machines, follow your organization's approved installation, registry and certificate policies. Never put credentials in commands you share.")}</p>
+      </details>
+      {copyMessage && <p role="status">{t(copyMessage)}</p>}
+    </div>
+  </section>;
+}
+
+export function CommandBlock({ label, command, onCopy }: { label: string; command: string; onCopy: (command: string) => Promise<void> }) {
+  const { t } = useI18n();
+  return <div className="setup-command"><div><strong>{label}</strong><button type="button" className="button secondary" aria-label={t("Copy command: {label}", { label })} onClick={() => void onCopy(command)}><Copy size={16} />{t("Copy command")}</button></div><pre><code>{command}</code></pre></div>;
+}

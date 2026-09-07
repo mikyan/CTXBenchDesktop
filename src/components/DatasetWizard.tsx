@@ -19,15 +19,18 @@ export function DatasetWizard({ onClose, onComplete }: { onClose: () => void; on
   const [created, setCreated] = useState<DatasetRecord>();
   const [discard, setDiscard] = useState(false);
   const heading = useRef<HTMLHeadingElement>(null);
+  const validation = useRef<HTMLDivElement>(null);
   const issues = draftIssues(draft);
   const payload = issues.length ? "" : JSON.stringify({ name: draft.name.trim(), benchmark: "custom", rows: datasetRows(draft) });
   const update = (next: DatasetDraft) => { setDraft(next); setValidated(""); setError(""); };
   const updateTask = (changes: Partial<TaskDraft>) => update({ ...draft, tasks: draft.tasks.map((item, index) => index === selected ? { ...item, ...changes } : item) });
   const go = (next: number) => { setStep(next); setShowIssues(false); setError(""); setTimeout(() => heading.current?.focus(), 0); };
-  const next = () => { if (issues.some((issue) => issue.step <= step)) setShowIssues(true); else go(step + 1); };
+  const revealIssues = () => { setShowIssues(true); window.setTimeout(() => validation.current?.focus(), 0); };
+  const next = () => { if (issues.some((issue) => issue.step <= step)) revealIssues(); else go(step + 1); };
   const close = () => { if (busy) return; if (created || JSON.stringify(draft) === JSON.stringify(newDatasetDraft())) onClose(); else setDiscard(true); };
   const execute = async (action: "validate" | "export" | "create") => {
-    if (busy || !payload) { setShowIssues(true); return; }
+    if (busy) return;
+    if (!payload) { revealIssues(); return; }
     setBusy(true); setError(""); setValidated("");
     try {
       const body = JSON.parse(payload);
@@ -105,7 +108,7 @@ export function DatasetWizard({ onClose, onComplete }: { onClose: () => void; on
             {validated === payload && !!payload && <p className="wizard-valid" role="status">{t("Definition valid — tests have not been executed.")}</p>}
           </>}
         </fieldset>
-        {showIssues && issues.length > 0 && <div className="form-error" role="alert"><p>{t("Fix the highlighted fields before continuing.")}</p><ul>{issues.filter((issue) => issue.step <= step).map((issue, index) => <li key={index}><button className="text-button" onClick={() => { go(issue.step); if (issue.task !== undefined) setSelected(issue.task); setShowIssues(true); }}>{issue.task !== undefined ? `${t("Task")} ${issue.task + 1}: ` : ""}{t(issue.message)}</button></li>)}</ul></div>}
+        {showIssues && issues.length > 0 && <div ref={validation} tabIndex={-1} className="form-error" role="alert"><p>{t("Fix the highlighted fields before continuing.")}</p><ul>{issues.filter((issue) => issue.step <= step).map((issue, index) => <li key={index}><button className="text-button" onClick={() => { go(issue.step); if (issue.task !== undefined) setSelected(issue.task); setShowIssues(true); }}>{issue.task !== undefined ? `${t("Task")} ${issue.task + 1}: ` : ""}{t(issue.message)}</button></li>)}</ul></div>}
         {error && <p className="form-error" role="alert">{t(error)}</p>}
         <footer className="wizard-footer"><button className="button secondary" disabled={busy || discard} onClick={step ? () => go(step - 1) : close}>{t(step ? "Back" : "Cancel")}</button>
           <span aria-live="polite">{busy ? t("Working…") : t("Step {step} of 4", { step: step + 1 })}</span>

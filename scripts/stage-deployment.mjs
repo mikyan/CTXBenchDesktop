@@ -11,6 +11,7 @@ files.push('scripts/run-campaign.py', 'README.zh-CN.md');
 files.push('scripts/container-environment-smoke.py', 'scripts/container-workflow-smoke.py');
 files.push('scripts/images-release.py', 'docs/offline-images.md');
 files.push('docs/custom-datasets.md');
+files.push('docs/desktop-setup.md');
 for (const folder of ["docker/agent-pi", "docker/official-harness", "docker/worker", "docker/egress-proxy", "worker/ctxbench_worker", "skills/ctxbench-generate-context", "schemas"]) {
   for (const entry of readdirSync(path.join(root, folder), { withFileTypes: true })) {
     if (entry.isFile() && !entry.name.startsWith(".") && !entry.name.endsWith(".pyc")) files.push(`${folder}/${entry.name}`);

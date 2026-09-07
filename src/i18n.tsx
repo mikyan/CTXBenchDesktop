@@ -2,6 +2,8 @@ import { useCallback, useContext, useEffect, useMemo, useState } from "react";
 import type { ReactNode } from "react";
 import { workbenchChinese } from "./i18n.workbench";
 import { datasetWizardChinese } from "./i18n.dataset-wizard";
+import { wslChinese } from "./i18n.wsl";
+import { infrastructureChinese } from "./i18n.infrastructure";
 import { I18nContext, type I18nValue } from "./i18n.context";
 
 export type Locale = "en" | "zh-CN";
@@ -13,6 +15,8 @@ const STORAGE_KEY = "ctxbench.locale";
 const zhCN: Record<string, string> = {
   ...workbenchChinese,
   ...datasetWizardChinese,
+  ...wslChinese,
+  ...infrastructureChinese,
   "Experiment plan created. Context preparation is queued.": "实验计划已创建，知识上下文准备任务已进入队列。",
   "Environment diagnostics completed.": "环境诊断已完成。",
   "Could not start CTXBench": "无法启动 CTXBench",

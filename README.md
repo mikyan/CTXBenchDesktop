@@ -43,7 +43,9 @@ The source Worker defaults to a deterministic test adapter. Full benchmark execu
 
 ## Desktop workflow
 
-1. In **Infrastructure**, select the WSL distribution, build the bundled images, then start the worker. Configure API keys there (memory-only until restart), or through deployment environment variables.
+See [desktop setup and troubleshooting](docs/desktop-setup.md) for guided offline/online installation, prerequisite checks, redacted logs and absolute-path manual commands. Worker startup uses local images only and verifies its health endpoint before reporting success.
+
+1. In **Infrastructure**, choose from the installed WSL distributions (detected with `wsl --list --verbose`, including WSL versions), or type an exact name such as `Ubuntu-24.04`. Your selection is remembered; without one, the app prefers a WSL 2 distribution, using the system default when suitable and excluding Docker Desktop's internal distributions from automatic selection. Refresh the list after installing/importing a distribution. Build the bundled images, then start the worker. Configure API keys there (memory-only until restart), or through deployment environment variables.
 2. In **Experiments → Import dataset**, import JSON/JSONL, or a parquet file already placed in the worker's `/var/lib/ctxbench/datasets` directory. Official sources: [CTXBench (formerly AGENTBench)](https://huggingface.co/datasets/eth-sri/agentbench) and [SWE-bench Verified](https://huggingface.co/datasets/princeton-nlp/SWE-bench_Verified). Dataset rows are content-hashed and frozen.
 3. Select actual imported tasks, Provider/model, role-specific token budgets, resources, repeats, and a context arm. Check **prepare all context first** to stop at `ready`; resume when ready to solve.
 4. For cross-model comparisons without regenerating context, select **Frozen package** and reuse a generated or manually imported package with exactly matching repository and baseline commit. JSON packages and documentation folders are supported. A manually supplied baseline declaration is an assertion by its author, not proof of how the document was generated.

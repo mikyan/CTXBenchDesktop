@@ -54,6 +54,10 @@ npm run tauri dev
 
 ## 桌面操作流程
 
+首次安装、内网镜像导入及“工作节点无法启动”等问题，请看[桌面安装与故障排查](docs/desktop-setup.md)。基础设施页面提供分步引导、启动条件检查、脱敏日志和带实际绝对路径的手动命令；默认启动只使用本地镜像，不会自动构建或拉取。
+
+**发行版自动检测**：基础设施页面通过 `wsl --list --verbose` 列出本机已安装的发行版及 WSL 版本，可下拉选择，也可手动输入 `Ubuntu-24.04` 等准确名称。软件会记住你的选择；首次使用优先选 WSL 2，条件相同时优先系统默认发行版，不会自动选中 Docker Desktop 的内部发行版。安装或导入新发行版后可点击“刷新发行版”。版本判断不再依赖内核名称；启动失败会保留具体错误。此功能仅在桌面应用中可用。
+
 1. 在**基础设施**中选择 WSL 发行版，构建镜像并启动 Worker。Agent 环境变量支持**添加变量**，填写多组名称和值后**保存全部环境变量**（仅保留到 Worker 重启），或通过部署环境变量配置；不要把密钥写入仓库、镜像或知识库。在实验、知识库生成和约束挖掘窗口中，可勾选多个已配置变量，或输入以换行、空格、逗号分隔的变量名；此处只填名称，不填值。只有选中的变量会传入 Agent，地址等配置是否生效取决于 Agent 是否识别对应变量名。
 2. 在**实验 → 导入数据集**中导入 JSON / JSONL；parquet 文件须先放入 Worker 的 `/var/lib/ctxbench/datasets`。官方来源：[CTXBench（原 AGENTBench）](https://huggingface.co/datasets/eth-sri/agentbench)、[SWE-bench Verified](https://huggingface.co/datasets/princeton-nlp/SWE-bench_Verified)。导入内容会计算哈希并冻结。
 3. 选择实际任务、Provider / 模型、各角色额度、资源、重复次数及上下文分支。选择**先准备全部上下文**可停在 `ready` 状态，之后显式恢复求解。

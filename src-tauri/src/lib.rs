@@ -1,8 +1,11 @@
 use serde::{Deserialize, Serialize};
 use serde_json::Value;
-use std::process::Command;
 use std::time::Duration;
 use tauri::Manager;
+mod wsl;
+mod deployment;
+#[cfg(test)]
+use wsl::decode_output as decode_command_output;
 
 const WORKER_BASE_URL: &str = "http://127.0.0.1:48173/v1";
 
@@ -13,6 +16,8 @@ struct DiagnosticItem {
     label: &'static str,
     status: &'static str,
     detail: String,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    detail_values: Option<Value>,
     #[serde(skip_serializing_if = "Option::is_none")]
     fix: Option<&'static str>,
 }
@@ -33,50 +38,15 @@ struct CreateExperimentRequest {
     seed: u64,
 }
 
-fn decode_command_output(bytes: &[u8]) -> String {
-    if bytes
-        .iter()
-        .skip(1)
-        .step_by(2)
-        .filter(|byte| **byte == 0)
-        .count()
-        > bytes.len() / 8
-    {
-        let units: Vec<u16> = bytes
-            .chunks_exact(2)
-            .map(|pair| u16::from_le_bytes([pair[0], pair[1]]))
-            .collect();
-        String::from_utf16_lossy(&units)
-            .trim_matches('\0')
-            .trim()
-            .to_string()
-    } else {
-        String::from_utf8_lossy(bytes).trim().to_string()
-    }
-}
-
-fn wsl_output(distribution: &str, args: &[&str]) -> Result<String, String> {
-    use std::os::windows::process::CommandExt;
-    use std::process::Stdio;
-    let mut child = Command::new("wsl.exe").args(["-d", distribution, "--"]).args(args)
-        .creation_flags(0x08000000).stdout(Stdio::piped()).stderr(Stdio::piped())
-        .spawn().map_err(|error| error.to_string())?;
-    let deadline = std::time::Instant::now() + Duration::from_secs(15);
-    while child.try_wait().map_err(|error| error.to_string())?.is_none() {
-        if std::time::Instant::now() > deadline { let _ = child.kill(); let _ = child.wait(); return Err("WSL diagnostic timed out.".into()); }
-        std::thread::sleep(Duration::from_millis(50));
-    }
-    let output = child.wait_with_output().map_err(|error| error.to_string())?;
-    if output.status.success() {
-        Ok(decode_command_output(&output.stdout))
-    } else {
-        Err(decode_command_output(&output.stderr))
-    }
+#[tauri::command]
+async fn list_wsl_distributions() -> Result<wsl::Inventory, String> {
+    tauri::async_runtime::spawn_blocking(wsl::inventory).await.map_err(|error| error.to_string())?
 }
 
 async fn worker_healthy() -> Result<String, String> {
     let client = reqwest::Client::builder()
-        .timeout(Duration::from_secs(2))
+        .no_proxy()
+        .timeout(Duration::from_secs(5))
         .build()
         .map_err(|error| error.to_string())?;
     let response = client
@@ -85,85 +55,156 @@ async fn worker_healthy() -> Result<String, String> {
         .await
         .map_err(|error| error.to_string())?;
     let payload: Value = response.error_for_status().map_err(|error| error.to_string())?.json().await.map_err(|error| error.to_string())?;
-    Ok(payload
-        .get("version")
-        .and_then(Value::as_str)
-        .unwrap_or("unknown")
-        .to_string())
+    if payload.get("status").and_then(Value::as_str) != Some("healthy") || payload.get("runner").and_then(Value::as_str).is_none() {
+        return Err("Port 48173 did not return a CTXBench health response.".into());
+    }
+    payload.get("version").and_then(Value::as_str).map(str::to_owned)
+        .ok_or_else(|| "The worker health response has no version.".into())
 }
 
-#[tauri::command]
-async fn diagnose_environment(_app: tauri::AppHandle, distribution: Option<String>) -> Vec<DiagnosticItem> {
-    let distro = distribution.unwrap_or_else(|| "Ubuntu".into());
-    let selected = distro.clone();
-    let (wsl, distribution, docker) = tauri::async_runtime::spawn_blocking(move || (
-        wsl_output(&selected, &["uname", "-r"]),
-        wsl_output(&selected, &["cat", "/etc/os-release"]),
-        wsl_output(&selected, &["docker", "version", "--format", "{{.Server.Version}}"]),
-    )).await.unwrap_or_else(|_| (Err("WSL check failed.".into()), Err("Distribution check failed.".into()), Err("Docker check failed.".into())));
-    let worker = worker_healthy().await;
-    let runtime = if worker.is_ok() { worker_request("GET".into(), "/runtime".into(), None).await } else { Err("Worker storage is unavailable.".into()) };
-    let storage = runtime.and_then(|value| value.get("dataDirectory").and_then(Value::as_str).map(str::to_owned).ok_or_else(|| "Worker storage is unavailable.".to_string()));
-    let wsl_ok = wsl.as_ref().map(|kernel| kernel.to_lowercase().contains("wsl2")).unwrap_or(false);
-    let distribution_ok = distribution.is_ok();
-    let docker_ok = docker.is_ok();
-    let worker_ok = worker.is_ok();
-    let storage_ok = storage.is_ok();
-
-    vec![
-        DiagnosticItem {
+fn diagnose_wsl(
+    distribution: Option<&str>,
+    inventory: Result<wsl::Inventory, String>,
+    output: impl Fn(&str, &[&str]) -> Result<String, String>,
+) -> Vec<DiagnosticItem> {
+    let items = inventory
+        .as_ref()
+        .map(|value| value.distributions.as_slice())
+        .unwrap_or(&[]);
+    let selected = wsl::selected_distribution(items, distribution);
+    let installed = selected
+        .as_ref()
+        .and_then(|name| items.iter().find(|item| item.name == *name));
+    let wsl_check = match (&inventory, installed, &selected) {
+        (Err(error), _, _) => DiagnosticItem {
             id: "wsl",
             label: "WSL 2",
-            status: if wsl_ok { "healthy" } else { "missing" },
-            detail: wsl
-                .map(|kernel| format!("{distro} · kernel {kernel}"))
-                .unwrap_or_else(|_| "WSL2 Ubuntu is unavailable.".into()),
-            fix: if wsl_ok {
-                None
-            } else {
-                Some(
-                    "Install WSL2 and an Ubuntu distribution, then restart if Windows requests it.",
-                )
-            },
+            status: "warning",
+            detail: "Could not read WSL versions: {error}".into(),
+            detail_values: Some(serde_json::json!({"error": error})),
+            fix: Some(
+                "Refresh the distribution list or enter a name manually. Check wsl --list --verbose in PowerShell.",
+            ),
         },
-        DiagnosticItem {
-            id: "distribution",
-            label: "Distribution",
-            status: if distribution_ok {
+        (_, Some(item), _) => DiagnosticItem {
+            id: "wsl",
+            label: "WSL 2",
+            status: if item.version == 2 {
                 "healthy"
             } else {
                 "missing"
             },
-            detail: distribution
-                .unwrap_or_else(|_| "The Ubuntu distribution could not be opened.".into()),
+            detail: "{distribution} · WSL {version}".into(),
+            detail_values: Some(
+                serde_json::json!({"distribution": item.name, "version": item.version}),
+            ),
+            fix: if item.version == 2 {
+                None
+            } else {
+                Some("Select a WSL 2 distribution. The selected distribution uses WSL 1.")
+            },
+        },
+        (_, None, Some(name)) => DiagnosticItem {
+            id: "wsl",
+            label: "WSL 2",
+            status: "missing",
+            detail: "Distribution {distribution} is not in the installed WSL list.".into(),
+            detail_values: Some(serde_json::json!({"distribution": name})),
+            fix: Some(
+                "Choose an installed distribution or check the exact name in PowerShell with wsl --list --verbose.",
+            ),
+        },
+        (_, None, None) => DiagnosticItem {
+            id: "wsl",
+            label: "WSL 2",
+            status: "missing",
+            detail: "No usable WSL distribution selected.".into(),
+            detail_values: None,
+            fix: Some(
+                "Choose an installed distribution or install a WSL 2 distribution, then refresh the list.",
+            ),
+        },
+    };
+    let (os, docker) = match selected.as_deref() {
+        Some(name) if installed.is_some() || inventory.is_err() => {
+            let os = output(name, &["cat", "/etc/os-release"]);
+            let docker = if os.is_ok() {
+                output(
+                    name,
+                    &["docker", "version", "--format", "{{.Server.Version}}"],
+                )
+            } else {
+                Err(
+                    "The selected distribution could not be started; Docker was not checked."
+                        .into(),
+                )
+            };
+            (os, docker)
+        }
+        _ => (
+            Err("Select an installed WSL distribution first.".into()),
+            Err("Select an installed WSL distribution first.".into()),
+        ),
+    };
+    vec![
+        wsl_check,
+        DiagnosticItem {
+            id: "distribution",
+            label: "Distribution",
+            status: if os.is_ok() { "healthy" } else { "missing" },
+            detail: "{distribution} · {result}".into(),
+            detail_values: Some(
+                serde_json::json!({"distribution": selected.as_deref().unwrap_or("WSL"), "result": os.unwrap_or_else(|error| error)}),
+            ),
             fix: None,
         },
         DiagnosticItem {
             id: "docker",
             label: "Docker Engine",
-            status: if docker_ok { "healthy" } else { "missing" },
-            detail: docker
-                .map(|version| format!("Docker Engine {version} inside WSL"))
-                .unwrap_or_else(|_| {
-                    "Docker is not installed or its daemon is stopped in Ubuntu.".into()
-                }),
-            fix: if docker_ok {
+            status: if docker.is_ok() { "healthy" } else { "missing" },
+            detail: if docker.is_ok() {
+                "Docker Engine {result} inside {distribution}"
+            } else {
+                "Docker check failed in {distribution}: {result}"
+            }
+            .into(),
+            fix: if docker.is_ok() {
                 None
             } else {
                 Some("Install Docker Engine inside WSL and start the daemon.")
             },
+            detail_values: Some(
+                serde_json::json!({"distribution": selected.as_deref().unwrap_or("WSL"), "result": docker.unwrap_or_else(|error| error)}),
+            ),
         },
+    ]
+}
+
+#[tauri::command]
+async fn diagnose_environment(_app: tauri::AppHandle, distribution: Option<String>) -> Vec<DiagnosticItem> {
+    let mut diagnostics = tauri::async_runtime::spawn_blocking(move || {
+        diagnose_wsl(distribution.as_deref(), wsl::inventory(), wsl::output)
+    }).await.unwrap_or_else(|error| vec![DiagnosticItem {
+        id: "wsl", label: "WSL 2", status: "warning", detail: "Could not read WSL versions: {error}".into(),
+        detail_values: Some(serde_json::json!({"error": error.to_string()})), fix: None,
+    }]);
+    let worker = worker_healthy().await;
+    let runtime = if worker.is_ok() { worker_request("GET".into(), "/runtime".into(), None).await } else { Err("Worker storage is unavailable.".into()) };
+    let storage = runtime.and_then(|value| value.get("dataDirectory").and_then(Value::as_str).map(str::to_owned).ok_or_else(|| "Worker storage is unavailable.".to_string()));
+    let worker_ok = worker.is_ok();
+    let storage_ok = storage.is_ok();
+
+    diagnostics.extend([
         DiagnosticItem {
             id: "worker",
             label: "CTXBench worker",
             status: if worker_ok { "healthy" } else { "missing" },
-            detail: worker
-                .map(|version| format!("Worker {version} · 127.0.0.1:48173"))
-                .unwrap_or_else(|_| "No worker is listening on 127.0.0.1:48173.".into()),
+            detail: if worker_ok { "Worker {result} · 127.0.0.1:48173" } else { "Worker health check failed: {result}" }.into(),
+            detail_values: Some(serde_json::json!({"result": worker.unwrap_or_else(|error| deployment::redact(&error, &[]))})),
             fix: if worker_ok {
                 None
             } else {
-                Some("Build and start ctxbench-worker with the supplied Docker Compose file.")
+                Some("Docker being ready does not mean the worker is installed. Check deployment files and images below, start the worker, then retry diagnostics.")
             },
         },
         DiagnosticItem {
@@ -173,9 +214,11 @@ async fn diagnose_environment(_app: tauri::AppHandle, distribution: Option<Strin
             detail: storage
                 .map(|path| format!("WSL: {path}"))
                 .unwrap_or_else(|_| "Application data directory is unavailable.".into()),
+            detail_values: None,
             fix: None,
         },
-    ]
+    ]);
+    diagnostics
 }
 
 #[tauri::command]
@@ -196,7 +239,7 @@ async fn worker_request(method: String, path: String, body: Option<Value>) -> Re
         "POST" => reqwest::Method::POST,
         _ => return Err("Unsupported worker method.".into()),
     };
-    let client = reqwest::Client::builder().timeout(Duration::from_secs(300)).build().map_err(|error| error.to_string())?;
+    let client = reqwest::Client::builder().no_proxy().timeout(Duration::from_secs(300)).build().map_err(|error| error.to_string())?;
     let mut request = client.request(method, format!("{WORKER_BASE_URL}{path}"));
     if let Some(body) = body { request = request.json(&body); }
     let response = request.send().await.map_err(|_| "The WSL worker is unavailable. Start it from Infrastructure and retry.".to_string())?;
@@ -215,32 +258,47 @@ async fn save_export(filename: String, content: String) -> Result<Option<String>
     }).await.map_err(|error| error.to_string())?
 }
 
-#[tauri::command]
-async fn worker_control(app: tauri::AppHandle, action: String, distribution: String) -> Result<String, String> {
-    let deployment = if cfg!(debug_assertions) {
+fn deployment_root(app: &tauri::AppHandle) -> Result<std::path::PathBuf, String> {
+    Ok(if cfg!(debug_assertions) {
         std::path::PathBuf::from(env!("CARGO_MANIFEST_DIR")).parent().unwrap().to_path_buf()
-    } else { app.path().resource_dir().map_err(|error| error.to_string())?.join("deployment") };
-    tauri::async_runtime::spawn_blocking(move || {
-        use std::os::windows::process::CommandExt;
-        let translated = Command::new("wsl.exe").args(["-d", &distribution, "--", "wslpath", "-a", &deployment.display().to_string()]).creation_flags(0x08000000).output().map_err(|error| error.to_string())?;
-        if !translated.status.success() { return Err(decode_command_output(&translated.stderr)); }
-        let root = decode_command_output(&translated.stdout);
-        let mut command = Command::new("wsl.exe");
-        command.args(["-d", &distribution, "--", "docker", "compose", "-f", &format!("{root}/docker/compose.yaml")]);
-        match action.as_str() {
-            "start" => { command.args(["up", "-d", "ctxbench-worker"]); },
-            "stop" => { command.args(["stop", "ctxbench-worker"]); },
-            "build" => { command.args(["--profile", "build-only", "build"]); },
-            _ => return Err("Unsupported infrastructure action.".into()),
+    } else { app.path().resource_dir().map_err(|error| error.to_string())?.join("deployment") })
+}
+
+#[tauri::command]
+async fn get_deployment_info(app: tauri::AppHandle, distribution: String) -> Result<deployment::DeploymentInfo, String> {
+    let root = deployment_root(&app)?;
+    let distribution = distribution.trim().to_string();
+    if distribution.is_empty() { return Err("Select an installed WSL distribution first.".into()); }
+    tauri::async_runtime::spawn_blocking(move || deployment::inspect(&root, &distribution)).await.map_err(|error| error.to_string())
+}
+
+#[tauri::command]
+async fn worker_control(app: tauri::AppHandle, action: String, distribution: String) -> Result<deployment::ActionResult, String> {
+    let root = deployment_root(&app)?;
+    let distribution = distribution.trim().to_string();
+    if distribution.is_empty() { return Err("Select an installed WSL distribution first.".into()); }
+    let starting = action == "start";
+    let mut result = tauri::async_runtime::spawn_blocking(move || deployment::control(&root, &distribution, &action)).await.map_err(|error| error.to_string())?;
+    if result.ok && starting {
+        let mut error = String::new();
+        for _ in 0..6 {
+            match worker_healthy().await {
+                Ok(_) => return Ok(result),
+                Err(failure) => error = failure,
+            }
+            tokio::time::sleep(Duration::from_secs(1)).await;
         }
-        let output = command.creation_flags(0x08000000).output().map_err(|error| error.to_string())?;
-        if output.status.success() { Ok("Worker action completed.".into()) } else { Err("Worker action failed. Check Docker and the packaged deployment prerequisites.".into()) }
-    }).await.map_err(|error| error.to_string())?
+        result.ok = false;
+        result.code = "worker_health".into();
+        result.detail = deployment::redact(&error, &[]);
+    }
+    Ok(result)
 }
 
 #[tauri::command]
 async fn create_experiment(request: CreateExperimentRequest) -> Result<Value, String> {
     let client = reqwest::Client::builder()
+        .no_proxy()
         .timeout(Duration::from_secs(10))
         .build()
         .map_err(|error| error.to_string())?;
@@ -271,6 +329,8 @@ pub fn run() {
         .invoke_handler(tauri::generate_handler![
             bootstrap,
             diagnose_environment,
+            list_wsl_distributions,
+            get_deployment_info,
             create_experiment
             ,worker_request, save_export, worker_control
         ])
@@ -280,7 +340,50 @@ pub fn run() {
 
 #[cfg(test)]
 mod tests {
-    use super::decode_command_output;
+    use super::{decode_command_output, diagnose_wsl, wsl};
+
+    fn inventory() -> Result<wsl::Inventory, String> {
+        let distributions = wsl::parse_distributions("NAME STATE VERSION\n* Ubuntu-24.04 Stopped 2\n  Legacy Running 1").unwrap();
+        Ok(wsl::Inventory { distributions, default_distribution: Some("Ubuntu-24.04".into()) })
+    }
+
+    #[test]
+    fn diagnoses_actual_version_without_querying_kernel_name() {
+        let checks = diagnose_wsl(None, inventory(), |name, args| {
+            assert_eq!(name, "Ubuntu-24.04");
+            match args[0] {
+                "cat" => Ok("Company Linux".into()),
+                "docker" => Ok("28.0.0".into()),
+                _ => panic!("Unexpected diagnostic command"),
+            }
+        });
+        assert!(checks.iter().all(|check| check.status == "healthy"));
+        assert_eq!(checks[0].detail_values.as_ref().unwrap()["version"], 2);
+        let legacy = diagnose_wsl(Some("Legacy"), inventory(), |_, _| Ok("ok".into()));
+        assert_eq!(legacy[0].status, "missing");
+        assert!(legacy[0].fix.unwrap().contains("WSL 1"));
+    }
+
+    #[test]
+    fn distinguishes_missing_distribution_startup_failure_and_unknown_version() {
+        let missing = diagnose_wsl(Some("Ubuntu"), inventory(), |_, _| panic!("Must not launch a missing distribution"));
+        assert_eq!(missing[0].status, "missing");
+        assert!(missing[0].detail.contains("not in the installed"));
+        let stopped = diagnose_wsl(None, inventory(), |_, args| {
+            assert_eq!(args[0], "cat"); // Do not repeat a failed cold start for Docker.
+            Err("Company policy blocked startup".into())
+        });
+        assert_eq!(stopped[0].status, "healthy"); // Installed WSL 2, but cannot start it.
+        assert_eq!(stopped[1].status, "missing");
+        assert_eq!(stopped[1].detail_values.as_ref().unwrap()["result"], "Company policy blocked startup");
+        let unknown = diagnose_wsl(Some("Custom"), Err("Enumeration timed out".into()), |name, _| {
+            assert_eq!(name, "Custom");
+            Ok("available".into())
+        });
+        assert_eq!(unknown[0].status, "warning");
+        assert_eq!(unknown[1].status, "healthy");
+        assert_eq!(unknown[2].status, "healthy");
+    }
 
     #[test]
     fn decodes_utf16_wsl_output() {
