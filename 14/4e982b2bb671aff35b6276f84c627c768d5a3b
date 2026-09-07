@@ -1,0 +1,91 @@
+src/components/InfrastructureSetup.tsx
+  s_160ecc294b79e0::t_8a52270c682a13 106-110
+  s_160ecc294b79e0::t_c7b618a74835fd 10-11,17,25-28,30,35-40,98,104,130
+  s_160ecc294b79e0::t_71d6808aeb9050 105
+src/lib/infrastructure.test.tsx
+  s_160ecc294b79e0::t_502c41b9e4c31b 55-57
+src-tauri/src/deployment.rs
+  s_160ecc294b79e0::t_8c5394c764bdb2 480-481
+  s_160ecc294b79e0::t_2aa8991dda77bc 10-11,461,477-479,501,505-506,514,521-522,529-530,550-552,565-567,575-577,586-587,604-607,612-613,619-622,636,649,753
+  s_160ecc294b79e0::t_977550efd221d3 462-476,482-500,502-504,507-513,515-520,523-528,531-549,553-564,568-574,578-585,588-603,614-618,623-635,637-648,758-759,764-766,774-779
+  s_160ecc294b79e0::t_e9a752842103e2 755-757,760-763,767-773,780-781
+  s_160ecc294b79e0::t_1efb2c968a98a3 650,754
+src/styles.css
+  s_160ecc294b79e0::t_502c41b9e4c31b 544-550
+package.json
+  s_160ecc294b79e0::t_01c1bf22f9966b 4
+docs/offline-images.md
+  s_160ecc294b79e0::t_49e8fe6ab86734 7-16,18,20,24,42,53-56,70-78,87,91-102,105
+  s_160ecc294b79e0::t_01c1bf22f9966b 17,19
+  s_160ecc294b79e0::t_772ea75b4a031f 31-34
+src/lib/offline-import.ts
+  s_160ecc294b79e0::t_c7b618a74835fd 1-52
+scripts/tests/test_images_release.py
+  s_160ecc294b79e0::t_8c5394c764bdb2 168
+  s_160ecc294b79e0::t_772ea75b4a031f 185-199
+  s_160ecc294b79e0::t_6615cd826c92db 15-17,62-128,135-167,210,514
+  s_160ecc294b79e0::t_e9a752842103e2 129-134,169-184,200-209
+src/lib/offline-import.test.tsx
+  s_160ecc294b79e0::t_6615cd826c92db 1-60,62-65
+  s_160ecc294b79e0::t_8a52270c682a13 61
+src/components/OfflineImageImport.tsx
+  s_160ecc294b79e0::t_86ae63b5a8cccf 7,18,25
+  s_160ecc294b79e0::t_8a52270c682a13 53,56,61
+  s_160ecc294b79e0::t_c7b618a74835fd 1-6,8-17,19-24,26-52,54-55,57-60,62-64
+src-tauri/src/lib.rs
+  s_160ecc294b79e0::t_2aa8991dda77bc 276-284,286-293,360
+  s_160ecc294b79e0::t_8c5394c764bdb2 285
+src/i18n.infrastructure.ts
+  s_160ecc294b79e0::t_86ae63b5a8cccf 33-34
+  s_160ecc294b79e0::t_502c41b9e4c31b 4-9,31-32,35-61
+scripts/images-release.py
+  s_160ecc294b79e0::t_c922e073e6609d 16,18-21,32-146,340-343,347-352,357,362,365,371-372,392-393,396-399,404-410,416-423,427-430,441-443,446-449,451,461,464,466-467,471,523-525,532-536,544-546,548,550
+  s_160ecc294b79e0::t_86ae63b5a8cccf 307-314,319,395
+  s_160ecc294b79e0::t_772ea75b4a031f 366-367,472-474,486-497,500-501,510
+  s_160ecc294b79e0::t_9e03563317275b 394
+README.zh-CN.md
+  s_160ecc294b79e0::t_01c1bf22f9966b 120
+src/lib/desktop.ts
+  s_160ecc294b79e0::t_2aa8991dda77bc 54-64
+src/lib/infrastructure.ts
+  s_160ecc294b79e0::t_2aa8991dda77bc 20-25
+README.md
+  s_160ecc294b79e0::t_01c1bf22f9966b 102
+.github/workflows/images-release.yml
+  s_160ecc294b79e0::t_c922e073e6609d 62
+  s_160ecc294b79e0::t_e9a752842103e2 53
+src-tauri/tauri.conf.json
+  s_160ecc294b79e0::t_01c1bf22f9966b 4
+docs/desktop-setup.md
+  s_160ecc294b79e0::t_86ae63b5a8cccf 11,16-19,59-61
+src-tauri/Cargo.toml
+  s_160ecc294b79e0::t_01c1bf22f9966b 3
+package-lock.json
+  s_93c984b7787ad2::t_1188a05937fcf2 3,9
+src-tauri/Cargo.lock
+  s_93c984b7787ad2::t_7630f6d6842d42 725
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "development:1.7.3",
+  "base_commit_sha": "144e982b2bb671aff35b6276f84c627c768d5a3b",
+  "prompts": {},
+  "sessions": {
+    "s_160ecc294b79e0": {
+      "agent_id": {
+        "tool": "codex",
+        "id": "01a06b47-944f-76f3-8380-74bb83cda689",
+        "model": "gpt-6-astra"
+      },
+      "human_author": "AI_BA <ai_ball@outlook.com>"
+    },
+    "s_93c984b7787ad2": {
+      "agent_id": {
+        "tool": "codex",
+        "id": "01a06b4f-963e-70a0-83ed-c8febc51fb4a",
+        "model": "unknown"
+      },
+      "human_author": "AI_BA <ai_ball@outlook.com>"
+    }
+  }
+}
