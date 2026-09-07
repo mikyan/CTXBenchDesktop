@@ -4,7 +4,7 @@ import { planExperimentRuns } from "../domain/planner";
 import { renderSnapshotHtml } from "../domain/report";
 import { aggregateArms, aggregateDashboard } from "../domain/metrics";
 import { savedDistribution, type WslInventory } from "./wsl";
-import type { BuildProgressEvent, DeploymentInfo, WorkerAction, WorkerActionResult } from "./infrastructure";
+import type { BuildProgressEvent, DeploymentInfo, ExportImageSelection, LocalImageInventory, WorkerAction, WorkerActionResult } from "./infrastructure";
 import type {
   CreateExperimentRequest,
   DashboardSnapshot,
@@ -60,6 +60,19 @@ export async function importOfflineImages(distribution: string, packagePath: str
   if (!isTauri()) throw new Error("Offline image import requires the desktop application.");
   if (!distribution.trim()) throw new Error("Select an installed WSL distribution first.");
   return invoke<WorkerActionResult>("import_offline_images", { distribution: distribution.trim(), packagePath, onProgress: new Channel<BuildProgressEvent>(onProgress) });
+}
+
+export async function listLocalImages(distribution: string): Promise<LocalImageInventory> {
+  if (!isTauri()) throw new Error("Image export requires the desktop application.");
+  return invoke<LocalImageInventory>("list_local_images", { distribution: distribution.trim() });
+}
+export async function selectImageExportPath(): Promise<string | null> {
+  if (!isTauri()) throw new Error("Image export requires the desktop application.");
+  return invoke<string | null>("select_image_export_path");
+}
+export async function exportOfflineImages(distribution: string, packagePath: string, images: ExportImageSelection[], onProgress: (event: BuildProgressEvent) => void): Promise<WorkerActionResult> {
+  if (!isTauri()) throw new Error("Image export requires the desktop application.");
+  return invoke<WorkerActionResult>("export_offline_images", { distribution: distribution.trim(), packagePath, images, onProgress: new Channel<BuildProgressEvent>(onProgress) });
 }
 
 export async function diagnoseEnvironment(distribution = savedDistribution()): Promise<DiagnosticItem[]> {

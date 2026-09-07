@@ -10,6 +10,7 @@ const environmentSchema = z.object({
 const taskSchema = z.object({
   id: text, prompt: text, override: environmentSchema.nullable(),
   commandMode: z.enum(["shell", "argv"]), command: text, hiddenPatch: text, goldPatch: text,
+  metadata: z.record(z.string(), z.unknown()).optional(),
 }).strict();
 export const draftSchema = z.object({
   format: z.literal("ctxbench-dataset-draft"), version: z.literal(1), name: text,
@@ -22,8 +23,27 @@ export interface CustomTaskManifest {
   id: string; repository: string; baseCommit: string; prompt: string;
   image?: string; build?: { dockerfile: string; context: string; args: Record<string, string> };
   test: { command: string[]; hiddenPatch?: string }; goldPatch?: string;
+  metadata?: Record<string, unknown>;
 }
 export interface DraftIssue { step: number; message: string; task?: number }
+export function draftFromManifest(name: string, rows: CustomTaskManifest[]): DatasetDraft {
+  if (!Array.isArray(rows) || !rows.length) throw Error("The dataset has no editable custom tasks.");
+  if (rows.some((row) => row.image && row.build)) throw Error("This manifest uses both image and build. Choose one environment in JSON before copying it into the wizard.");
+  const environment = (row: CustomTaskManifest): EnvironmentDraft => ({ repository: row.repository, baseCommit: row.baseCommit,
+    mode: row.image ? "image" : "build", image: row.image ?? "", dockerfile: row.build?.dockerfile ?? "Dockerfile",
+    context: row.build?.context ?? ".", buildArgs: JSON.stringify(row.build?.args ?? {}, null, 2) });
+  return draftSchema.parse({ format: "ctxbench-dataset-draft", version: 1, name, defaults: environment(rows[0]),
+    tasks: rows.map((row) => ({ id: row.id, prompt: row.prompt, override: environment(row), commandMode: "argv",
+      command: JSON.stringify(row.test.command), hiddenPatch: row.test.hiddenPatch ?? "", goldPatch: row.goldPatch ?? "", ...(row.metadata ? { metadata: row.metadata } : {}) })) });
+}
+export function draftDifference(before: DatasetDraft, after: DatasetDraft) {
+  const previous = new Map(before.tasks.map((task) => [task.id, task]));
+  const current = new Map(after.tasks.map((task) => [task.id, task]));
+  return { added: after.tasks.filter((task) => !previous.has(task.id)).length,
+    removed: before.tasks.filter((task) => !current.has(task.id)).length,
+    changed: after.tasks.filter((task) => previous.has(task.id) && JSON.stringify(previous.get(task.id)) !== JSON.stringify(task)).length,
+    defaultsChanged: before.name !== after.name || JSON.stringify(before.defaults) !== JSON.stringify(after.defaults) };
+}
 export const authoringSteps = ["Dataset details", "Shared defaults", "Tasks and tests", "Review and create"];
 export const testTemplates = {
   pytest: "python -m pytest -q tests",
@@ -108,6 +128,7 @@ export function datasetRows(draft: DatasetDraft): CustomTaskManifest[] {
       } }),
       test: { command: commandArguments(task), ...(task.hiddenPatch.trim() ? { hiddenPatch: task.hiddenPatch } : {}) },
       ...(task.goldPatch.trim() ? { goldPatch: task.goldPatch } : {}),
+      ...(task.metadata ? { metadata: task.metadata } : {}),
     };
   });
 }

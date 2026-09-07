@@ -6,6 +6,8 @@ import { authoringSteps, datasetRows, draftIssues, duplicateTask, newDatasetDraf
   type DatasetDraft, type TaskDraft } from "../lib/dataset-authoring";
 import { Modal } from "./WorkbenchDialogs";
 import { EnvironmentFields, TaskFields } from "./DatasetWizardFields";
+import { DatasetSelfTest } from "./DatasetSelfTest";
+import { DatasetDrafts } from "./DatasetDrafts";
 
 export function DatasetWizard({ onClose, onComplete }: { onClose: () => void; onComplete: (dataset: DatasetRecord) => void }) {
   const { t } = useI18n();
@@ -60,9 +62,10 @@ export function DatasetWizard({ onClose, onComplete }: { onClose: () => void; on
       {created ? <section className="wizard-success" role="status">
         <h3>{t("Dataset created")}</h3><p>{created.name} · {t(created.count === 1 ? "1 task" : "{count} tasks", { count: created.count })}</p>
         <p>{t("Open New experiment and select this dataset. Model, context arms, workflows and repeats are configured there.")}</p>
-        <p>{t("The definition is frozen by hash. No agent or test command has run, and no model tokens were used.")}</p>
+        <p>{t("The definition is frozen by hash. Registration itself does not execute tests or call an Agent; any self-test is a separate operation.")}</p>
         <button className="button primary" onClick={onClose}>{t("Done")}</button>
       </section> : <>
+        <DatasetDrafts draft={draft} disabled={busy || discard} onBusy={setBusy} onLoad={(value) => { update(value); setSelected(0); go(0); }} />
         <ol className="wizard-steps" aria-label={t("Dataset creation steps")}>
           {authoringSteps.map((label, index) => <li key={label} aria-current={index === step ? "step" : undefined}>
             <button disabled={busy || discard || index > step} onClick={() => go(index)}><span>{index + 1}</span>{t(label)}</button>
@@ -103,9 +106,10 @@ export function DatasetWizard({ onClose, onComplete }: { onClose: () => void; on
             })}</tbody></table></div>
             <p className="wizard-notice">{t("Validation checks only the definition: required fields, unique IDs, pinned commits and environment format. It does not clone repositories, pull images, apply patches or run tests. Verify baseline FAIL / correct-fix PASS before trusting scores.")}</p>
             <p>{t("Do not include credentials in prompts, patches, image URLs or build arguments. This dataset is frozen on creation and can be reused by multiple experiments.")}</p>
+            <DatasetSelfTest payload={payload} disabled={busy || discard} />
             <details><summary>{t("Preview export JSON · contains evaluator-only material")}</summary><pre>{payload ? JSON.stringify(JSON.parse(payload).rows, null, 2) : t("Fix the highlighted fields before continuing.")}</pre></details>
             <div className="wizard-actions"><button className="button secondary" onClick={() => void execute("validate")}>{t("Validate definition")}</button><button className="button secondary" onClick={() => void execute("export")}>{t("Export task JSON")}</button></div>
-            {validated === payload && !!payload && <p className="wizard-valid" role="status">{t("Definition valid — tests have not been executed.")}</p>}
+            {validated === payload && !!payload && <p className="wizard-valid" role="status">{t("Definition valid. Execution results, if requested, are shown separately in self-test.")}</p>}
           </>}
         </fieldset>
         {showIssues && issues.length > 0 && <div ref={validation} tabIndex={-1} className="form-error" role="alert"><p>{t("Fix the highlighted fields before continuing.")}</p><ul>{issues.filter((issue) => issue.step <= step).map((issue, index) => <li key={index}><button className="text-button" onClick={() => { go(issue.step); if (issue.task !== undefined) setSelected(issue.task); setShowIssues(true); }}>{issue.task !== undefined ? `${t("Task")} ${issue.task + 1}: ` : ""}{t(issue.message)}</button></li>)}</ul></div>}

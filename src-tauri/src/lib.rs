@@ -5,6 +5,7 @@ use tauri::Manager;
 mod wsl;
 mod deployment;
 mod process_stream;
+mod image_export;
 #[cfg(test)]
 use wsl::decode_output as decode_command_output;
 
@@ -292,6 +293,32 @@ async fn import_offline_images(app: tauri::AppHandle, distribution: String, pack
 }
 
 #[tauri::command]
+async fn list_local_images(app: tauri::AppHandle, distribution: String) -> Result<image_export::ImageInventory, String> {
+    let root = deployment_root(&app)?;
+    let distribution = distribution.trim().to_string();
+    if distribution.is_empty() { return Err("Select an installed WSL distribution first.".into()); }
+    tauri::async_runtime::spawn_blocking(move || image_export::list_images(&root, &distribution)).await.map_err(|_| "Could not list local Docker images.".to_string())
+}
+
+#[tauri::command]
+async fn select_image_export_path(app: tauri::AppHandle) -> Result<Option<String>, String> {
+    let name = format!("ctxbench-images-v{}-custom-{}.zip", app.package_info().version, &uuid::Uuid::new_v4().simple().to_string()[..8]);
+    tauri::async_runtime::spawn_blocking(move || rfd::FileDialog::new().add_filter("CTXBench image ZIP", &["zip"])
+        .set_file_name(name).save_file().map(|path| path.display().to_string()))
+        .await.map_err(|_| "Could not open the file picker. Retry in the desktop application.".to_string())
+}
+
+#[tauri::command]
+async fn export_offline_images(app: tauri::AppHandle, distribution: String, package_path: String, images: Vec<image_export::ImageSelection>, on_progress: tauri::ipc::Channel<process_stream::BuildProgress>) -> Result<deployment::ActionResult, String> {
+    let root = deployment_root(&app)?;
+    let distribution = distribution.trim().to_string();
+    if distribution.is_empty() { return Err("Select an installed WSL distribution first.".into()); }
+    let version = app.package_info().version.to_string();
+    tauri::async_runtime::spawn_blocking(move || image_export::export_images(&root, &distribution, std::path::Path::new(&package_path), &version, &images, |event| { let _ = on_progress.send(event); }))
+        .await.map_err(|_| "Image export connection lost. Check the output before retrying.".to_string())
+}
+
+#[tauri::command]
 async fn worker_control(app: tauri::AppHandle, webview: tauri::Webview, action: String, distribution: String, on_progress: Option<tauri::ipc::JavaScriptChannelId>) -> Result<deployment::ActionResult, String> {
     let root = deployment_root(&app)?;
     let distribution = distribution.trim().to_string();
@@ -357,7 +384,8 @@ pub fn run() {
             list_wsl_distributions,
             get_deployment_info,
             create_experiment
-            ,worker_request, save_export, worker_control, select_offline_bundle, import_offline_images
+            ,worker_request, save_export, worker_control, select_offline_bundle, import_offline_images,
+            list_local_images, select_image_export_path, export_offline_images
         ])
         .run(tauri::generate_context!())
         .expect("error while running CTXBench Desktop");

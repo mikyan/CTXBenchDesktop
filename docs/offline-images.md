@@ -18,6 +18,41 @@ Fresh installation: download the desktop installer and **one matching images ZIP
 
 This picker is available starting with v0.1.3; **v0.1.2 and earlier do not have it**. Existing release assets are not replaced. WSL, Docker, Compose and Python must already be installed; the images ZIP does not bootstrap these prerequisites.
 
+## Repackage customized images / 内网定制镜像重新打包
+
+**从 v0.1.4 起提供导出入口。** 升级后，在 **基础设施 → 打包自定义 Docker 镜像** 操作。包格式与 v0.1.3 导入器兼容，但包内桌面版本必须与目标安装版匹配。
+
+1. 在选定 WSL 的 Docker 中完成镜像定制。推荐基于原镜像编写 Dockerfile，将依赖安装保存为新标签，例如 `registry.internal:5000/team/pi:company-v1`。如果只进入容器安装了软件，必须先自行保存为镜像；导出不会自动提交容器。
+2. 展开打包入口。四个角色默认使用本机标准镜像，可从本地镜像提示中选择，或输入已有标签/摘要。只修改 Pi 时，其余三个角色保持默认。内网仓库地址也可以，但镜像须已经存在于本机；打包不会拉取镜像。
+3. 点击 **选择 ZIP 保存位置**，使用一个尚不存在的新文件名。确认镜像已保存，且镜像层中没有密钥、登录文件或不应共享的私有数据，再点击 **导出镜像 ZIP**。
+4. 等待检查、导出压缩、写入 ZIP 和校验完成。Docker save 阶段显示已处理 MiB 和耗时，不伪造总百分比；已知总量的阶段显示百分比。保持应用开启，切换页面后可继续查看本次进度。
+5. 复制这**一个 ZIP**到同版本目标电脑，在 **基础设施 → 离线安装 → 选择离线镜像 ZIP 包** 导入。导入前暂停实验并停止 Worker，成功后再显式启动。导出本身不需要停止 Worker。
+
+打包固定包含 Worker、出站代理、Pi Agent、官方评分器四个角色。包记录所选镜像的固定 ID；导入时注册为本版本约定的运行标签，无需目标电脑使用你的内网源标签。镜像需保持 Linux amd64 架构及各角色原有启动/接口契约。不能在同一组配对评测中途更换镜像。
+
+此操作不联网、不构建、不自动保存容器、不上传 GitHub，也不要求安装目录是 Git 仓库。只创建并清理自身独立的临时标签，不修改源镜像、运行中容器或数据卷。自定义包标记为 `existing-local-images`，不声称来自官方源码提交；发布脚本会拒绝将它当作官方构建发布。
+
+目标盘需为中间文件和最终 ZIP 预留约**两倍压缩包大小**的空间。本地导出支持超过 2 GiB 的 ZIP，包内自动分片，不受 GitHub 单附件限制；文件系统自身仍需支持该大小。正常结束会清理自身中间文件，失败可能留下 `.zip.incomplete`，不可导入；确认相关操作已停止后处理，换新文件名重试。不会自动覆盖已有文件、清理 Docker 缓存或用户数据。
+
+**凭据边界：** 常见非空敏感环境变量及带账号密码的 HTTP(S) 地址会被拦截，部署配置中的同类明文值也会被拦截。检查不能完整审计镜像文件或历史层；后续层删除密钥不代表早期层已删除。不要将 API Key、登录状态或 `.env` 烘焙进镜像；应在目标电脑配置运行时环境变量。此功能不是容器/整机备份：不包含容器可写层、挂载卷、实验数据、知识库、基线仓库或额外用例镜像。
+
+**Available starting with v0.1.4.** In **Infrastructure → Package customized Docker images**, select four existing local role images (custom tags/digests supported), choose a new ZIP destination, confirm image safety, and export. First save container-only modifications as an image yourself, preferably with a reproducible Dockerfile. No build, pull, commit, service restart or upload is performed. Image IDs are pinned under temporary export-only tags; source/runtime tags are preserved. A Git checkout is not required. Import the single verified ZIP on a matching-version desktop after stopping experiments and Worker. Import restores the app's canonical role names, not your source tag names; keep the Linux amd64 architecture and role startup contracts compatible.
+
+Local exports support ZIP64 packages above 2 GiB; allow roughly twice the compressed size. Docker save shows bytes processed without a guessed percentage; later stages show known fractions. Keep the app open; navigation retains this session's progress. Failed writes may retain a `.zip.incomplete`; inspect the operation before retrying with a new filename. Custom bundles are explicitly non-official and cannot be published through the official release command. Common nonempty credential environment settings are blocked, but files/history require manual auditing. Never embed secrets; configure them at runtime. Volumes, writable container layers, datasets, repositories and task-specific images are not included.
+
+管理员也可在选定 WSL 内使用当前可信脚本（`--root` 指向源码根目录或安装版的 `deployment` 目录；替换版本、路径及本地镜像标签）：
+
+```bash
+python3 scripts/images-release.py export-local --root . --version v0.1.4 \
+  --output '/mnt/d/offline/company-images.zip' --progress-json \
+  --image ctxbench-worker=ctxbench/worker:0.1.0 \
+  --image ctxbench-egress-proxy=ctxbench/egress-proxy:0.1.0 \
+  --image agent-pi-image=registry.internal:5000/team/pi:company-v1 \
+  --image official-harness-image=ctxbench/official-harness:0.1.0
+```
+
+The command needs Python 3.10+, Docker and Compose in the selected WSL; replace the version, paths and custom local tag. An installed desktop uses its own trusted bundled script and deployment directory.
+
 ## GitHub Actions
 
 - **Manual snapshot:** Actions → **Offline Docker images** → Run workflow; leave `release_tag` blank. Builds the selected ref and uploads `ctxbench-offline-images-linux-amd64` as an Actions artifact retained for 14 days. This does not create or modify a Release.
@@ -63,7 +98,7 @@ For local testing only, `--allow-dirty` permits an uncommitted checkout and `--s
 
 [GitHub requires each Release asset to be smaller than 2 GiB](https://docs.github.com/en/repositories/releasing-projects-on-github/about-releases). The default compressed part size is 1900 MiB; use `--part-size-mib` to reduce it. Export/import stream data without holding the archive in RAM or creating a second combined tar file. Image layers and build cache still consume Docker/WSL disk space, independently of the output directory.
 
-默认每片最多 1900 MiB，避免超过 GitHub 单附件上限。清单只保留明确允许的镜像元数据，不导出环境变量、历史、宿主路径或实验数据。镜像分片可以放在 D 盘，但构建层和缓存仍占用 WSL 所在磁盘空间。
+默认每片最多 1900 MiB，避免超过 GitHub 单附件上限。清单只保留明确允许的镜像元数据，不列出环境变量、历史、宿主路径或实验数据；镜像归档本身仍包含镜像配置与层，不能把“不写入清单”当作凭据清除。镜像分片可以放在 D 盘，但构建层和缓存仍占用 WSL 所在磁盘空间。
 
 ## Offline import / 内网导入
 

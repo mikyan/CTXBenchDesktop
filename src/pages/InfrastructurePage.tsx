@@ -2,6 +2,7 @@ import { Box, Container, HardDrive, KeyRound, Network, RefreshCw, ServerCog, Ter
 import { useEffect, useRef, useState } from "react";
 import { DiagnosticIcon, PageTitle, StatusBadge } from "../components/shared";
 import { InfrastructureSetup } from "../components/InfrastructureSetup";
+import { IntranetWorkbench } from "../components/IntranetWorkbench";
 import type { DiagnosticItem, RuntimeSettings } from "../domain/types";
 import { useI18n } from "../i18n";
 import { workerRequest } from "../lib/desktop";
@@ -76,6 +77,7 @@ export function InfrastructurePage({ diagnostics, onDiagnose, diagnosing }: { di
         </div>
 
         <InfrastructureSetup distribution={distribution} onDistribution={changeDistribution} diagnosing={diagnosing || credentialBusy} onBusy={setDeploymentBusy} onDiagnose={(name) => { onDiagnose(name); void refresh(); }} />
+        <IntranetWorkbench distribution={distribution} />
 
         <div className="panel policy-panel">
           <div className="panel-header"><div><span className="panel-kicker">{t("SECURITY POLICY")}</span><h2>{t("Runtime boundaries")}</h2></div><KeyRound size={18} /></div>

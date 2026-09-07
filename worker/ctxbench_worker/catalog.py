@@ -52,6 +52,10 @@ class Catalog:
     def register(self, name: str, benchmark: str, rows: list[dict]) -> dict:
         tasks = self.validate(name, benchmark, rows)
         key = fingerprint({"benchmark": benchmark, "rows": rows})
+        try:
+            return self.public(self.verify(key))
+        except KeyError:
+            pass
         path = self.root / "datasets" / f"{key}.json"
         path.write_text(json.dumps(rows), encoding="utf-8")
         record = {"id": key, "name": name, "benchmark": benchmark, "count": len(tasks),

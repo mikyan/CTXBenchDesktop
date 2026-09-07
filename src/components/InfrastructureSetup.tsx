@@ -9,6 +9,8 @@ import { imageBuildStore } from "../lib/image-build";
 import { ImageBuildProgress } from "./ImageBuildProgress";
 import { offlineImportStore } from "../lib/offline-import";
 import { OfflineImageImport, OfflineImportProgress } from "./OfflineImageImport";
+import { offlineExportStore } from "../lib/offline-export";
+import { OfflineImageExport, OfflineExportProgress } from "./OfflineImageExport";
 
 export function InfrastructureSetup({ distribution, onDistribution, onDiagnose, onBusy, diagnosing }: {
   distribution: string; onDistribution: (name: string) => void; onDiagnose: (distribution?: string) => void; onBusy: (busy: boolean) => void; diagnosing: boolean;
@@ -23,8 +25,10 @@ export function InfrastructureSetup({ distribution, onDistribution, onDiagnose, 
   const [localResult, setResult] = useState<WorkerActionResult>();
   const build = useSyncExternalStore(imageBuildStore.subscribe, imageBuildStore.getSnapshot, imageBuildStore.getSnapshot);
   const imported = useSyncExternalStore(offlineImportStore.subscribe, offlineImportStore.getSnapshot, offlineImportStore.getSnapshot);
-  const active = build?.status === "running" ? "build" : imported?.status === "running" ? "import" : localAction;
-  const recent = imported && (!build || imported.startedAt >= build.startedAt) ? imported : build;
+  const exported = useSyncExternalStore(offlineExportStore.subscribe, offlineExportStore.getSnapshot, offlineExportStore.getSnapshot);
+  const active = build?.status === "running" ? "build" : imported?.status === "running" ? "import" : exported?.status === "running" ? "export" : localAction;
+  const recentBuildOrImport = imported && (!build || imported.startedAt >= build.startedAt) ? imported : build;
+  const recent = exported && (!recentBuildOrImport || exported.startedAt >= recentBuildOrImport.startedAt) ? exported : recentBuildOrImport;
   const result = localResult ?? (recent?.distribution === distribution ? recent.result : undefined);
   const checkedBuild = useRef(0);
   const checkedImport = useRef(0);
@@ -100,8 +104,11 @@ export function InfrastructureSetup({ distribution, onDistribution, onDiagnose, 
         <button className="button secondary" disabled={disabled} onClick={() => void action("build")}>{t("Build images")}</button>
       </div>}
 
+      <OfflineImageExport key={distribution} distribution={distribution} disabled={disabled} state={exported} onBegin={() => setResult(undefined)} />
+
       {build && <ImageBuildProgress key={build.id} build={build} />}
       {imported && <OfflineImportProgress key={imported.id} state={imported} />}
+      {exported && <OfflineExportProgress key={exported.id} state={exported} />}
 
       {result && message && <div className={`setup-feedback ${result.ok ? "success" : "error"}`} role={result.ok ? "status" : "alert"}>
         <h3>{t(message.title)}</h3><p>{t(message.help)}</p>
@@ -127,7 +134,7 @@ export function InfrastructureSetup({ distribution, onDistribution, onDiagnose, 
 
       <div className="toolbar"><button className="button primary" disabled={disabled} onClick={() => void action("start")}>{t("Start worker")}</button><button className="button secondary" disabled={disabled} onClick={() => void action("logs")}>{t("Read container logs")}</button><button className="button tertiary" disabled={disabled} onClick={() => void action("stop")}>{t("Stop worker")}</button></div>
       <p>{t("Start worker uses local images only: no build, no pull. Stop worker does not delete stored data. Pause active experiments before stopping or replacing the worker.")}</p>
-      {active && active !== "build" && active !== "import" && <div className="setup-callout" role="status"><LoaderCircle className="spin" size={18} /><span>{t(active === "start" ? "Starting containers and waiting for the worker health check…" : "Reading or updating containers…")}</span></div>}
+      {active && active !== "build" && active !== "import" && active !== "export" && <div className="setup-callout" role="status"><LoaderCircle className="spin" size={18} /><span>{t(active === "start" ? "Starting containers and waiting for the worker health check…" : "Reading or updating containers…")}</span></div>}
       <details className="setup-manual"><summary><FileCode size={18} /> {t("Manual commands and troubleshooting")}</summary>
         <p>{t("Commands below use the detected absolute path, so your current directory does not matter. Do not replace compose.yaml with compose.yml.")}</p>
         <label>{t("Where will you run the command?")}<select value={shell} onChange={(event) => setShell(event.target.value as "wsl" | "powershell")}><option value="powershell">Windows PowerShell</option><option value="wsl">{t("Selected WSL terminal")}</option></select></label>

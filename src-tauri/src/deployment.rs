@@ -7,7 +7,7 @@ use std::path::Path;
 use std::sync::{Mutex, OnceLock};
 use std::time::{Duration, Instant};
 
-static MUTATION: Mutex<()> = Mutex::new(());
+pub(crate) static MUTATION: Mutex<()> = Mutex::new(());
 
 #[derive(Debug, Serialize)]
 #[serde(rename_all = "camelCase")]
@@ -154,7 +154,7 @@ pub fn redact(detail: &str, secrets: &[String]) -> String {
     clean
 }
 
-fn secret_values(root: &Path) -> Vec<String> {
+pub(crate) fn secret_values(root: &Path) -> Vec<String> {
     let sensitive = |key: &str| {
         let key = key.to_ascii_uppercase();
         [

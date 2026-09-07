@@ -68,3 +68,8 @@ Tests committed at baseline are agent-visible. For private tests, author them in
 Definition validation is read-only and shares registration checks. It does **not** clone repositories, pull images, apply patches, run tests, validate the reference fix or spend model tokens. Independently verify baseline FAIL / correct-fix PASS for behavioral reasons before trusting scores. Repository connectivity and patch applicability still need runtime verification.
 
 Creation freezes the definition by content hash; existing experiment datasets are unchanged. Select it in **New experiment** to configure models, context arms, workflows and repeats. Export produces the existing custom-import JSON array and includes evaluator-only materials; handle it accordingly. Unsaved forms remain in memory and closing asks for confirmation. Use the final-step export to preserve completed definitions. Export and creation need an updated worker connection.
+## Draft versions and container self-tests / 草稿版本与容器自检
+
+The creation wizard now supports Worker-stored draft versions, JSON draft restoration, and copying a frozen custom dataset into an editable draft. Its review step can run actual baseline/reference tests without an Agent. Existing datasets can also be self-tested from Infrastructure. Definitions and execution results remain separate; inspect baseline failures manually before trusting scores. See the [intranet workbench guide](intranet-workbench.md) for limits and the complete workflow.
+
+创建向导现支持 Worker 内的草稿版本、草稿 JSON 恢复、复制已有评测集继续编辑，以及无 Agent 的真实基线／参考修复测试。基础设施也可重新自检已有评测集。定义校验不等于执行通过，请人工确认基线失败原因。详见[内网适配工作台](intranet-workbench.md)。

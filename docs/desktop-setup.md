@@ -17,6 +17,12 @@ WSL、发行版、Docker Engine 三项通过，只说明基础环境就绪。CTX
 
 已有旧分片包时，将全部配套文件放在同一个目录，使用同一个选择文件按钮改选 `ctxbench-images-manifest.json`。超过单文件限制的包继续采用分片方式。已发布的 v0.1.2 及更早桌面版本没有此选择文件入口，须升级到包含此功能的安装版；旧版手动命令见离线镜像说明。
 
+### 打包内网定制镜像
+
+从 v0.1.4 起，在 **基础设施 → 打包自定义 Docker 镜像** 提供导出入口。先把安装软件后的改动保存成镜像，再为四个应用角色选择已有的本地标签或摘要，选择新的 ZIP 保存位置，确认无嵌入凭据后导出。未修改的角色保持默认即可；只在容器内安装软件而未保存到镜像的改动不会被带走。
+
+导出不构建、不联网、不停止 Worker、不改源标签，不自动上传；显示各阶段进度和校验结果。生成一个 ZIP，可在同版本桌面通过离线安装入口导入，支持本地大于 2 GiB 的包。目标盘需预留约两倍压缩包大小的空间。镜像里的文件、历史层仍需人工检查，不包含卷、数据集或用例镜像。详细步骤、限制和管理员命令见 [离线镜像说明](offline-images.md)。
+
 ### 在线构建进度
 
 选择 **可联网 / 构建镜像 → 构建镜像** 后，会持续显示当前构建步骤、进度条、已耗时、最近输出时间和脱敏日志。Docker 报告镜像层传输字节数时，还会显示该层的下载进度。步骤总数是构建过程中逐步发现的，可能增加；这不是整体耗时百分比，也不预测剩余时间。只有构建命令成功退出后才显示完成。
@@ -49,6 +55,8 @@ WSL、发行版、Docker Engine 三项通过，只说明基础环境就绪。CTX
 旧版 `v0.1.0` 独立离线 Compose 文件可能带有 CI 构建机目录前缀；本次修正打包脚本，使之后生成的文件保留可移植路径。已发布附件未被静默替换。旧包完成镜像导入后，可以使用桌面安装目录内的 `deployment/docker/compose.yaml` 启动，而不是旧的独立离线 Compose 文件。
 
 ## English
+
+Starting with v0.1.4, **Infrastructure → Package customized Docker images** lets you select existing local tags/digests for all four application roles, choose a new ZIP path, confirm image safety, and export with stage progress. Save container-only modifications as images first. This neither builds/pulls images nor stops services or modifies source tags. Import the resulting single ZIP on a matching-version desktop. Local exports may exceed 2 GiB; allow roughly twice the compressed size. Inspect image files/layers for secrets yourself; this is not a volume, dataset or task-image backup. See [offline image instructions](offline-images.md).
 
 Online **Build images** streams redacted stdout/stderr, current operations, elapsed time and time since the last output. The progress bar counts completed versus discovered BuildKit steps (the total can grow), not estimated time. A separate layer-transfer bar appears when Docker reports byte counts. Only a successful command exit marks the build complete. A 30-second silence warning is informational, not automatic cancellation or retry. After a timeout or connection loss, inspect Docker before retrying: background work may still be running.
 

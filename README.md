@@ -1,11 +1,14 @@
 # CTXBench Desktop
 
+Looking for the two standard datasets? See [official snapshots and offline import](docs/standard-datasets.md): CTXBench (formerly AGENTBench), 138 tasks, and SWE-bench Verified, 500 tasks. Current source also links them from **Experiments → Import dataset**, with pinned revisions/checksums. Dataset contents are not currently mirrored in our Release assets and do not include baseline repositories or Docker images.
+
 [English](README.md) | [简体中文](README.zh-CN.md)
 
 CTXBench Desktop is a local-first Windows desktop benchmark workbench for paired coding-agent experiments. It compares identical runs with and without frozen repository context, evaluates functional correctness, and adds a SWE-Shield-compatible design-constraint layer.
 
 ## Implemented workbench
 
+- [Intranet adaptation workbench](docs/intranet-workbench.md) (v0.1.4): frozen company profiles, Git mirror mapping, isolated image recipes, saved/editable dataset drafts, actual no-Agent baseline/reference self-tests, and verified portable **custom-dataset** resource ZIPs. Official SWE/CTX dynamic environment bundles are not yet supported. Update the Worker together with the desktop.
 - SWE-bench, CTXBench (formerly AGENTBench), and custom-manifest experiment types.
 - [Guided custom dataset creation](docs/custom-datasets.md): **Experiments → Create dataset**, with reusable defaults, multiple tasks, test templates, evaluator-only patches, definition validation and JSON export.
 - Paired and randomized `none` versus `skill-generated`, `manual`, or `developer-historical` context arms.
@@ -99,7 +102,9 @@ docker compose -f docker/compose.yaml up -d ctxbench-worker
 
 The build-only profile also produces `ctxbench/official-harness:0.1.0`. That image pins upstream SWE-bench and CTXBench (formerly AGENTBench) harness revisions. Solver containers never receive the Docker socket. The trusted evaluator supervisor may fetch/build official images; its child **test containers are offline** with CPU/memory limits. Upstream test selection and scoring are retained.
 
-Prebuild a separate offline image bundle with `python3 scripts/images-release.py pack --version v0.1.3 --output artifacts/images-v0.1.3`. Starting with v0.1.3, **Offline Docker images** releases default to **one self-contained images ZIP** (separate from the Windows installer). In **Infrastructure → Offline installation**, select the matching ZIP and let the app verify/import it with stage progress; no extraction or shell commands are needed. WSL still needs Python 3.10+ and Docker. Legacy/oversized split bundles remain supported by selecting their manifest. Released desktops v0.1.2 and earlier need an upgrade for this picker. Bundles contain only the four application images, not task images or datasets. See [offline image releases](docs/offline-images.md) for publishing and air-gapped setup.
+Starting with v0.1.4, **Infrastructure → Package customized Docker images** lets you select existing local tags for four application roles and export one ZIP with progress and verification, without rebuilding or pulling. Save container-only modifications as images first and keep credentials out of their layers. See [offline image instructions](docs/offline-images.md).
+
+Prebuild a separate offline image bundle with `python3 scripts/images-release.py pack --version v0.1.4 --output artifacts/images-v0.1.4`. Starting with v0.1.3, **Offline Docker images** releases default to **one self-contained images ZIP** (separate from the Windows installer). In **Infrastructure → Offline installation**, select the matching ZIP and let the app verify/import it with stage progress; no extraction or shell commands are needed. WSL still needs Python 3.10+ and Docker. Legacy/oversized split bundles remain supported by selecting their manifest. Released desktops v0.1.2 and earlier need an upgrade for this picker. Bundles contain only the four application images, not task images or datasets. See [offline image releases](docs/offline-images.md) for publishing and air-gapped setup.
 
 New CTXBench experiments prepare a baseline-specific evaluator environment **before any builder or solver call**. The original instance image may contain only the repository, not its dependencies. Baseline setup runs in one networked shell, preserving virtual-environment activation, in a child with no host mounts, Docker socket or injected Provider credentials. The resulting image and setup receipt are frozen by digest. A separate offline gold-patch self-check must pass before the environment is admitted; gold patches and test runners never enter the reusable setup image or agents. Test commands also share a shell, and missing/empty/malformed result maps are evaluator errors, not failed model scores. Full runner diagnostics are retained in evaluator-only `repo-tests.json` and `instance-tests.json`.
 

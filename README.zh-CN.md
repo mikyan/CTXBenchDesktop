@@ -19,6 +19,7 @@ CTXBench Desktop 是本地优先的 Windows 桌面代码 Agent 评测工作台�
 
 ## 当前工作台能力
 
+- [内网适配工作台](docs/intranet-workbench.md)（v0.1.4）：公司环境方案与 Git 镜像映射、独立镜像构建配方、草稿保存与已有用例复制编辑、无模型消耗的真实容器自检，以及**自定义评测集**完整资源 ZIP。暂不包含 SWE／CTX 官方动态环境的完整迁移；桌面端和 Worker 需一起更新。
 - 预装 Pi 的 Agent 容器、Provider / 模型选择、按角色设置 Token 额度，以及显式白名单环境变量注入。
 - 持久化 WSL Docker Worker：数据集导入 → 准备知识库及环境 → 求解 → 功能评分 → 约束评审。
 - 实验及独立知识库生成、约束挖掘任务的暂停、恢复、取消和阶段重试。
@@ -53,6 +54,8 @@ npm run tauri dev
 源码 Worker 默认使用确定性测试适配器。完整评测必须使用 WSL / Compose 部署，即使 Provider 选择用于基础设施测试的 `mock` 也必须容器化。桌面基础设施控制仅在 Tauri 应用中可用，浏览器预览不具备这些原生能力。
 
 ## 桌面操作流程
+
+**两个标准评测集去哪下载？** 见[标准评测集下载与内网导入](docs/standard-datasets.md)：CTXBench（原 AGENTBench）138 任务、SWE-bench Verified 500 任务，提供固定版本下载链接、SHA-256 和导入步骤。新版源码在“实验 → 导入数据集”中也提供这些入口；目前 Release 未镜像分发数据本体，数据文件不包含基线代码或 Docker 镜像。
 
 首次安装、内网镜像导入及“工作节点无法启动”等问题，请看[桌面安装与故障排查](docs/desktop-setup.md)。基础设施页面提供分步引导、启动条件检查、脱敏日志和带实际绝对路径的手动命令；默认启动只使用本地镜像，不会自动构建或拉取。
 
@@ -118,6 +121,8 @@ python3 scripts/images-release.py pack --version v0.1.0 --output artifacts/image
 ```
 
 GitHub Actions 的 **Offline Docker images** 支持手动构建下载；从 v0.1.3 起，Release 默认只需下载一个 `ctxbench-images-v版本号-linux-amd64.zip` 镜像附件。首次安装另需 Windows 安装程序；已有桌面软件只需镜像 ZIP。在 **基础设施 → 离线安装** 选择文件后，软件自动校验并导入，显示阶段进度，无需解压或输入命令；WSL 仍须已有 Python 3.10+ 和 Docker。超过单文件限制时保留分片方式，旧包可选择清单文件导入。已发布 v0.1.2 及更早桌面版需升级才有此入口。包内仅有四个应用镜像，不包含用例镜像或数据。版本匹配、兼容导入和发布说明见[离线镜像发布说明](docs/offline-images.md)。
+
+从 v0.1.4 起支持 **基础设施 → 打包自定义 Docker 镜像**：将内网安装依赖后保存的本地镜像打成一个 ZIP，可选择四个角色的自定义标签，显示导出/校验进度，不重新构建或拉取镜像。容器内改动须先保存为镜像；不要把密钥或登录文件写进镜像。操作步骤见[离线镜像说明](docs/offline-images.md)。
 
 Agent 容器没有 Docker socket，只接收白名单环境变量。可信评分监督进程可下载或构建环境；正式测试子容器断网并限制 CPU / 内存。官方测试选择及评分规则保留。
 

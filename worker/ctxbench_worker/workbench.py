@@ -60,6 +60,7 @@ class Workbench:
         self._lock = threading.RLock()
         self._scope = threading.local()
         self.budgets = TokenBudget(self.db)
+        self.operation_handlers = {}
 
     def start(self):
         if self._thread and self._thread.is_alive():
@@ -80,7 +81,9 @@ class Workbench:
                     self.runtime.cancel_grade(Path(run['outputDir']) / 'grading')
         for operation in self.db.list_documents("operations"):
             if operation["status"] == "running":
-                operation["status"] = "queued"
+                operation["status"] = "failed" if operation["kind"].startswith("intranet:") else "queued"
+                if operation["kind"].startswith("intranet:"):
+                    operation["failure"] = "Operator operation was interrupted; inspect local resources before explicitly retrying."
                 self.db.put_document("operations", operation["id"], operation)
         if not self._thread or not self._thread.is_alive():
             self._thread = threading.Thread(target=self._loop, name="ctxbench-workbench", daemon=True)
@@ -274,7 +277,11 @@ class Workbench:
             self._scope.operation_id = operation["id"]
             try:
                 if operation["kind"] == "experiment":
-                    result = self.run_experiment(operation["payload"]["experimentId"], operation["payload"].get("start", False))
+                    spec = self.db.get_spec(operation["payload"]["experimentId"])
+                    with self.runtime.using_environment(spec.company_environment):
+                        result = self.run_experiment(operation["payload"]["experimentId"], operation["payload"].get("start", False))
+                elif operation["kind"] in self.operation_handlers:
+                    result = self.operation_handlers[operation["kind"]](operation)
                 else:
                     self._check(None)
                     payload = operation["payload"]
@@ -284,9 +291,9 @@ class Workbench:
                     result = self.generate(task, spec, image) if operation["kind"] == "context" else self.mine(task, spec, image)
                 operation.update(status="completed", result=result)
             except Interrupted as error:
-                operation.update(status="queued" if self._stop.is_set() else "paused", failure=str(error))
+                operation.update(status=("failed" if operation["kind"].startswith("intranet:") and self._stop.is_set() else "queued" if self._stop.is_set() else "paused"), failure=str(error))
             except Exception as error:
-                operation.update(status="queued" if self._stop.is_set() else "failed", failure=self.redact(f"{type(error).__name__}: {error}"))
+                operation.update(status="queued" if self._stop.is_set() and not operation["kind"].startswith("intranet:") else "failed", failure=self.redact(f"{type(error).__name__}: {error}"))
                 if operation["kind"] == "experiment":
                     experiment_id = operation["payload"]["experimentId"]
                     if not self._stop.is_set() and self.db.get_experiment(experiment_id)["status"] not in {"paused", "cancelled"}:
@@ -549,7 +556,7 @@ class Workbench:
             prepared = self.db.get_document("prepared", experiment_id)
         except KeyError:
             image = self.runtime.resolve_image(spec.agent_image) if isinstance(self.engine.runner, DockerRunner) else spec.agent_image
-            harness = self.runtime.resolve_image("ctxbench/official-harness:0.1.0") if isinstance(self.engine.runner, DockerRunner) and spec.benchmark != "custom" else "custom"
+            harness = self.runtime.resolve_image(self.runtime.environment.get("harnessImage", "ctxbench/official-harness:0.1.0")) if isinstance(self.engine.runner, DockerRunner) and spec.benchmark != "custom" else "custom"
             prepared = {"id": experiment_id, "image": image, "harnessImage": harness, "contexts": {}, "constraints": {}, "graderImages": {},
                         "environmentVersion": 1}
             self.db.put_document("prepared", experiment_id, prepared)

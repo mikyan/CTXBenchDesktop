@@ -10,6 +10,7 @@ import { defaultWorkflow, workflowError } from "../lib/workflow";
 import { benchmarkLabel, CTXBENCH_LABEL, datasetLabel } from "../lib/benchmark-labels";
 import { AgentArgsField } from "./AgentArgsField";
 import { agentArgsError } from "../lib/agent-args";
+import { StandardDatasetDownloads } from "./StandardDatasetDownloads";
 
 export function defaultProfile(): FrozenModelConfig { return { provider: "mock", model: "deterministic", thinking: "high", maxTokens: 5000000 }; }
 export function Modal({ title, children, onClose }: { title: string; children: ReactNode; onClose: () => void }) {
@@ -25,19 +26,34 @@ export function DatasetDialog({ onClose, onComplete }: { onClose: () => void; on
   const { t } = useI18n();
   const [name, setName] = useState(""); const [benchmark, setBenchmark] = useState<BenchmarkKind>("ctxbench");
   const [path, setPath] = useState("agentbench.parquet"); const [content, setContent] = useState("");
+  const uploadVersion = useRef(0); const [reading, setReading] = useState(false);
   const [busy, setBusy] = useState(false); const [error, setError] = useState("");
+  const selectSource = (value: BenchmarkKind) => {
+    if (busy || value === benchmark) return;
+    uploadVersion.current++; setReading(false);
+    setBenchmark(value); setPath(value === "ctxbench" ? "agentbench.parquet" : value === "swebench" ? "swebench-verified.parquet" : "");
+    setContent(""); setError("");
+  };
   const submit = async () => { setBusy(true); setError(""); try {
     const rows = content.trim() ? (content.trim().startsWith("[") ? JSON.parse(content) : content.split(/\r?\n/).filter((line) => line.trim()).map((line) => JSON.parse(line))) : undefined;
     await workerRequest("/datasets", "POST", { name: name || (benchmark === "ctxbench" ? CTXBENCH_LABEL : path), benchmark, path, rows }); onComplete(); onClose();
   } catch (error) { setError(String(error)); } finally { setBusy(false); } };
   return <Modal title={t("Import dataset")} onClose={onClose}>
+    <StandardDatasetDownloads benchmark={benchmark} onSelect={selectSource} disabled={busy} />
     <label>{t("Name")}<input value={name} placeholder={benchmark === "ctxbench" ? benchmarkLabel(benchmark, t) : path} onChange={(e) => setName(e.target.value)} /></label>
-    <label>{t("Benchmark source")}<select value={benchmark} onChange={(e) => { const value = e.target.value as BenchmarkKind; setBenchmark(value); setPath(value === "ctxbench" ? "agentbench.parquet" : value === "swebench" ? "swebench-verified.parquet" : ""); }}>{(["ctxbench", "swebench", "custom"] as const).map((kind) => <option key={kind} value={kind}>{benchmarkLabel(kind, t)}</option>)}</select></label>
+    <label>{t("Benchmark source")}<select value={benchmark} disabled={busy} onChange={(e) => selectSource(e.target.value as BenchmarkKind)}>{(["ctxbench", "swebench", "custom"] as const).map((kind) => <option key={kind} value={kind}>{benchmarkLabel(kind, t)}</option>)}</select></label>
     <label>{t("File in worker datasets directory")}<input value={path} onChange={(e) => setPath(e.target.value)} /></label>
-    <label>{t("Or upload JSON / JSONL")}<input type="file" accept=".json,.jsonl" onChange={(e) => { const file = e.target.files?.[0]; if (file) void file.text().then(setContent); }} /></label>
+    <label>{t("Or upload JSON / JSONL")}<input key={benchmark} type="file" accept=".json,.jsonl" disabled={busy} onChange={(e) => {
+      const file = e.target.files?.[0]; if (!file) return;
+      const version = ++uploadVersion.current; setReading(true); setContent(""); setError("");
+      void file.text().then((text) => { if (version === uploadVersion.current) setContent(text); })
+        .catch(() => { if (version === uploadVersion.current) setError(t("Could not read the selected dataset file.")); })
+        .finally(() => { if (version === uploadVersion.current) setReading(false); });
+    }} /></label>
+    {reading && <p role="status">{t("Reading dataset file…")}</p>}
     {content && <p>{content.length.toLocaleString()} {t("bytes loaded")}</p>}
     <p>{t("Source rows are frozen by hash. Gold patches and hidden tests stay evaluator-only.")}</p>
-    {error && <p className="form-error" role="alert">{error}</p>}<button className="button primary" disabled={busy} onClick={() => void submit()}>{busy ? t("Importing…") : t("Import dataset")}</button>
+    {error && <p className="form-error" role="alert">{error}</p>}<button className="button primary" disabled={busy || reading} onClick={() => void submit()}>{busy ? t("Importing…") : t("Import dataset")}</button>
   </Modal>;
 }
 export function PreparationDialog({ kind, onClose, onComplete }: { kind: "context" | "constraints" | "manual"; onClose: () => void; onComplete: () => void }) {

@@ -49,6 +49,7 @@ class ExperimentSpec:
     builder_workflow: dict[str, Any] = field(default_factory=dict)
     solver_workflow: dict[str, Any] = field(default_factory=dict)
     agent_args: tuple[str, ...] = ()
+    company_environment: dict[str, Any] = field(default_factory=dict)
 
 
 @dataclass(frozen=True)

@@ -2,17 +2,22 @@
 from __future__ import annotations
 
 import hashlib
+import threading
+from contextlib import contextmanager
+from datetime import datetime, timedelta, timezone
 import json
 import os
 import subprocess
 import tarfile
 import time
 import uuid
+import re
 from pathlib import Path, PurePosixPath
 
 from .datasets import TaskRecord
 from .models import ResourcePolicy
 from .artifacts import safe_relative_path
+from .safe_files import safe_file
 
 
 def git(workspace: Path, *arguments: str, data: bytes | None = None) -> bytes:
@@ -63,6 +68,20 @@ def extract_baseline(tar: tarfile.TarFile, workspace: Path) -> None:
 class Runtime:
     def __init__(self, root: Path, runner):
         self.root, self.runner = root, runner
+        self._environment = threading.local()
+
+    @property
+    def environment(self):
+        return getattr(self._environment, "value", {})
+
+    @contextmanager
+    def using_environment(self, value):
+        previous = self.environment
+        self._environment.value = value.get("document", value) if value else {}
+        try:
+            yield
+        finally:
+            self._environment.value = previous
 
     def host_path(self, path: Path) -> str:
         return self.runner._mount_source(path)
@@ -121,6 +140,19 @@ class Runtime:
             try:
                 image = client.images.get(name)
             except docker.errors.ImageNotFound:
+                # docker load cannot create registry RepoDigests. A verified
+                # portable import can bind that immutable reference to a local ID.
+                aliases = self.root / "intranet" / "image-references"
+                alias_name = hashlib.sha256(name.encode()).hexdigest() + ".json"
+                if "@sha256:" in name and (aliases / alias_name).exists():
+                    receipt = json.loads(safe_file(aliases, alias_name).read_text(encoding="utf-8"))
+                    if receipt.get("reference") != name or not re.fullmatch(r"sha256:[0-9a-f]{64}", receipt.get("id", "")):
+                        raise ValueError("Portable image reference receipt is invalid.")
+                    image = client.images.get(receipt["id"])
+                    image.tag("ctxbench/frozen", image.id.replace(":", "-"))
+                    return image.id
+                if self.environment.get("offline"):
+                    raise ValueError(f"Offline preparation: local image is missing: {name}. Import it first.")
                 image = client.images.pull(name)
             # Containerd-backed Docker can discard the last reference when a mutable tag
             # is rebuilt. Keep an explicit immutable tag for every experiment image.
@@ -135,6 +167,8 @@ class Runtime:
             return self.resolve_image(task.image)
         if not task.build:
             raise ValueError("Custom task requires an image or baseline build recipe.")
+        if self.environment.get("offline"):
+            raise ValueError("Offline preparation requires a prebuilt local test image; adapt the image first.")
         dockerfile = safe_relative_path(str(task.build.get("dockerfile", "Dockerfile")))
         workspace = self.checkout(task, "image-build")
         context_value = str(task.build.get("context", "."))
@@ -179,8 +213,21 @@ class Runtime:
         try:
             git(source, "cat-file", "-e", f"{task.base_commit}^{{commit}}")
         except RuntimeError:
-            git(source, "fetch", "--depth=1", "origin", task.base_commit)
-        cutoff = git(source, "show", "-s", "--format=%cI", task.base_commit).decode().strip()
+            if self.environment.get("offline"):
+                raise ValueError(f"Offline preparation: baseline {task.base_commit} is missing. Import a resource bundle first.")
+            mirror = next((item["mirror"] for item in self.environment.get("gitMirrors", []) if item["repository"] == task.repository), "origin")
+            git(source, "fetch", "--depth=1", mirror, task.base_commit)
+        # Portable baselines intentionally omit parent objects. `git show` can
+        # traverse parents even with -s; read the commit's own timestamp instead.
+        raw_commit = git(source, "cat-file", "-p", task.base_commit)
+        committer = next((line for line in raw_commit.split(b"\n\n", 1)[0].splitlines() if line.startswith(b"committer ")), None)
+        if committer is None:
+            raise ValueError("Baseline commit has no committer timestamp.")
+        timestamp, offset = committer.rsplit(b" ", 2)[-2:]
+        if not re.fullmatch(rb"[+-][0-9]{4}", offset):
+            raise ValueError("Invalid baseline commit timezone.")
+        minutes = (int(offset[1:3]) * 60 + int(offset[3:])) * (-1 if offset.startswith(b"-") else 1)
+        cutoff = datetime.fromtimestamp(int(timestamp), timezone(timedelta(minutes=minutes))).isoformat()
         return source, cutoff
 
     def checkout(self, task: TaskRecord, label: str) -> Path:

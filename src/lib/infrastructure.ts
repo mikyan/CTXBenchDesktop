@@ -6,6 +6,8 @@ export interface BuildProgressEvent {
   lastOutputMs: number | null;
 }
 export interface WorkerActionResult { ok: boolean; code: string; detail: string; command?: string | null }
+export interface ExportImageSelection { role: string; reference: string }
+export interface LocalImageInventory { images: string[]; error: WorkerActionResult | null }
 export interface DeploymentInfo {
   distribution: string;
   composePath: string;
@@ -17,6 +19,12 @@ export interface DeploymentInfo {
 }
 
 export const setupMessages: Record<string, { title: string; help: string }> = {
+  images_export: { title: "Custom image ZIP exported", help: "Copy this ZIP to another computer running the same desktop version and select it in Offline installation. Existing images and running containers were not changed. This is a customized local bundle, not an official source-built release." },
+  export_exists: { title: "The export filename is already in use", help: "Choose a new ZIP filename. Existing files and .incomplete files are never overwritten; inspect any partial output before removing it manually." },
+  export_path: { title: "The export destination is unavailable", help: "Choose a new ZIP file in an existing writable folder accessible from the selected WSL. Reserve space for temporary compressed parts and the final ZIP on that drive." },
+  export_credentials: { title: "The image or deployment configuration contains credential settings", help: "Rebuild without embedded credentials and remove plaintext credentials from deployment configuration. Runtime API keys must be supplied separately. Export cannot remove secrets from existing image layers or automatically audit all files in them." },
+  export_platform: { title: "The image platform is incompatible", help: "Select locally installed Linux amd64 images for all four roles and use a Linux amd64 Docker Engine in WSL." },
+  export_selection: { title: "Choose one image for each application role", help: "Provide all four image references without duplicates in the role mapping. Use a local tag or digest, not a container name, URL or shell command." },
   images_import: { title: "Offline images imported", help: "Next, click Start worker. No images were downloaded or built, and no containers were started. Existing image tags were preserved as backups." },
   bundle_invalid: { title: "The offline package is invalid or incomplete", help: "Choose the original offline images ZIP from the matching release, not the Windows installer or source-code ZIP. For legacy bundles, keep all parts together and select ctxbench-images-manifest.json. Redownload damaged or missing files." },
   bundle_version: { title: "The offline package version does not match", help: "Use a desktop installer and offline images package from the same release. Do not mix versions; download the matching package and retry." },

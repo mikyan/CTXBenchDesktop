@@ -21,6 +21,8 @@ from .safe_files import safe_file
 from .preflight import storage_status
 from .workflows import normalize_workflow
 from .agent_args import normalize_agent_args
+from .intranet import IntranetWorkbench, register_intranet_routes
+from dataclasses import replace
 
 
 class ModelConfigInput(BaseModel):
@@ -72,6 +74,7 @@ class ExperimentInput(BaseModel):
     solverWorkflow: dict = Field(default_factory=dict)
     # Validate explicitly without Pydantic echoing potentially sensitive argv in errors.
     agentArgs: object = Field(default_factory=list)
+    companyProfileId: str = ""
 
 
 class RunInput(BaseModel):
@@ -192,15 +195,18 @@ def create_app(
     jobs = JobWorker(selected_engine.database, selected_engine.runner)
     selected_history_client = history_client or GitHubClient(os.environ.get("GITHUB_TOKEN") or None)
     workbench = Workbench(selected_engine, selected_history_client)
+    intranet = IntranetWorkbench(workbench)
     data_root = workbench.root
     runtime_names = set(getattr(selected_engine.runner, "env_allowlist", DEFAULT_SECRET_ALLOWLIST))
 
     @asynccontextmanager
     async def lifespan(_: FastAPI):
+        intranet.cancel_interrupted_graders()
         jobs.start()
         workbench.start()
         yield
         workbench.stop()
+        intranet.cancel_interrupted_graders()
         jobs.stop()
 
     app = FastAPI(
@@ -210,6 +216,15 @@ def create_app(
         redoc_url=None,
         lifespan=lifespan,
     )
+    register_intranet_routes(app, intranet)
+
+    def environment_spec(value):
+        spec = _spec(value)
+        if value.companyProfileId:
+            spec = replace(spec, company_environment=intranet.profiles.get(value.companyProfileId))
+            if spec.company_environment["document"]["offline"] and spec.benchmark != "custom":
+                raise ValueError("Strict offline preparation currently supports custom prebuilt-image datasets only; official harnesses may build dynamic environments.")
+        return spec
 
     @app.middleware("http")
     async def local_origin(request: Request, call_next):
@@ -239,13 +254,17 @@ def create_app(
     @app.post("/v1/experiments", status_code=201)
     def create_experiment(value: ExperimentInput) -> dict[str, object]:
         try:
-            return workbench.create_experiment(_spec(value))
+            spec = environment_spec(value)
+            with workbench.runtime.using_environment(spec.company_environment):
+                return workbench.create_experiment(spec)
         except ValueError as error:
             raise HTTPException(status_code=422, detail=str(error)) from error
 
     @app.post('/v1/preflight')
     def preflight(value: ExperimentInput):
-        return workbench.preflight(_spec(value))
+        spec = environment_spec(value)
+        with workbench.runtime.using_environment(spec.company_environment):
+            return workbench.preflight(spec)
 
     @app.post('/v1/token-budgets', status_code=201)
     def create_budget(value: dict):

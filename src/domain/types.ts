@@ -178,6 +178,7 @@ export interface DashboardSnapshot {
 }
 
 export interface CreateExperimentRequest {
+  companyProfileId?: string;
   agentArgs?: string[];
   builderWorkflow?: AgentWorkflow;
   solverWorkflow?: AgentWorkflow;

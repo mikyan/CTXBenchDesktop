@@ -10,12 +10,14 @@ import { defaultWorkflow, workflowError } from "../lib/workflow";
 import { datasetLabel } from "../lib/benchmark-labels";
 import { AgentArgsField } from "./AgentArgsField";
 import { agentArgsError } from "../lib/agent-args";
+import { CompanyProfilePicker } from "./CompanyProfilePicker";
 
 export function ExperimentComposer({ creating, onClose, onCreate, artifacts }: {
   creating: boolean; onClose: () => void; onCreate: (request: CreateExperimentRequest) => Promise<void>; artifacts: KnowledgeArtifact[];
 }) {
   const { t } = useI18n();
   const [datasets, setDatasets] = useState<DatasetRecord[]>([]); const [dataset, setDataset] = useState("");
+  const [companyProfileId, setCompanyProfileId] = useState("");
   const [tasks, setTasks] = useState<TaskSummary[]>([]); const [selected, setSelected] = useState<string[]>([]);
   const [query, setQuery] = useState(""); const [name, setName] = useState("");
   const [arm, setArm] = useState<Exclude<ContextArm, "none">>("skill-generated");
@@ -53,7 +55,7 @@ export function ExperimentComposer({ creating, onClose, onCreate, artifacts }: {
   const selectedPackages = (values: Record<string, string>) => Object.fromEntries(selected.filter((id) => values[id]).map((id) => [id, values[id]]));
   const request: CreateExperimentRequest = { name, benchmark: datasets.find((item) => item.id === dataset)?.benchmark ?? "custom", dataset, taskIds: selected, arms: ["none", arm], repeats, seed, profiles, model: profiles.solver,
     agentImage: image, resources: { cpus: cpu, memoryGb: memory, timeoutMinutes: timeout, network }, envNames: parseEnvironmentNames(env), prepareOnly, evaluateConstraints: constraints, contextArtifacts: selectedPackages(packages), constraintPackages: selectedPackages(constraintPackages), judgeProfiles: judges, budgetId,
-    builderWorkflow: arm === "skill-generated" ? builderWorkflow : defaultWorkflow(), solverWorkflow, agentArgs };
+    builderWorkflow: arm === "skill-generated" ? builderWorkflow : defaultWorkflow(), solverWorkflow, agentArgs, companyProfileId };
   const requestJson = JSON.stringify(request);
   const checked = preflight?.request === requestJson ? preflight.report : undefined;
   const check = async () => {
@@ -73,6 +75,15 @@ export function ExperimentComposer({ creating, onClose, onCreate, artifacts }: {
     try { await onCreate(request); } catch (error) { setError(String(error)); }
   };
   return <Modal title={t("New experiment")} onClose={onClose}>
+    <CompanyProfilePicker value={companyProfileId} onChange={(record) => {
+      setCompanyProfileId(record?.id ?? "");
+      if (!record) return;
+      modelEdited.current = true; environmentEdited.current = true;
+      const profile = record.document;
+      const bind = (current: FrozenModelConfig) => ({ ...current, provider: profile.provider, model: profile.model });
+      setProfiles((current) => ({ builder: bind(current.builder), solver: bind(current.solver), constraintMiner: bind(current.constraintMiner), constraintJudge: bind(current.constraintJudge) }));
+      setJudges((current) => current.map(bind)); setImage(profile.agentImage); setAgentArgs(profile.agentArgs); setEnv(profile.envNames.join("\n")); setBudgetId("");
+    }} />
     <label>{t("Experiment name")}<input value={name} onChange={(e) => setName(e.target.value)} /></label>
     <label>{t("Shared token budget")}<select value={budgetId} onChange={(e) => {
       setBudgetId(e.target.value); const budget = budgets.find((item) => item.id === e.target.value);

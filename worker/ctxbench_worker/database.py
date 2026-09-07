@@ -337,6 +337,7 @@ class Database:
             },
             "agentImage": spec["agent_image"],
             "agentArgs": spec.get("agent_args", []),
+            "companyEnvironment": spec.get("company_environment", {}),
             "resources": {
                 "cpus": spec["resources"]["cpus"],
                 "memoryGb": spec["resources"]["memory_gb"],

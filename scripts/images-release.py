@@ -23,6 +23,7 @@ from types import SimpleNamespace
 MIB = 1024 * 1024
 ASSET_LIMIT = 2 * 1024 * MIB
 ROLES = ("ctxbench-worker", "ctxbench-egress-proxy", "agent-pi-image", "official-harness-image")
+RUNTIME_IMAGES = dict(zip(ROLES, ("ctxbench/worker:0.1.0", "ctxbench/egress-proxy:0.1.0", "ctxbench/agent-pi:0.1.0", "ctxbench/official-harness:0.1.0")))
 HELPER = "ctxbench-images.py"
 COMPOSE = "ctxbench-images-compose.json"
 GUIDE = "ctxbench-images-README.txt"
@@ -34,13 +35,14 @@ PROGRESS_PREFIX = "CTXBENCH_IMPORT_PROGRESS "
 
 
 class Progress:
-    def __init__(self, enabled=False):
+    def __init__(self, enabled=False, prefix=PROGRESS_PREFIX):
         self.enabled, self.last, self.phase = enabled, 0.0, ""
+        self.prefix = prefix
 
     def emit(self, phase, completed=0, total=0, force=False):
         now = time.monotonic()
         if self.enabled and (force or phase != self.phase or now - self.last >= .25 or completed == total):
-            print(PROGRESS_PREFIX + json.dumps({"phase": phase, "completed": completed, "total": total}), flush=True)
+            print(self.prefix + json.dumps({"phase": phase, "completed": completed, "total": total}), flush=True)
             self.last, self.phase = now, phase
 
 
@@ -121,27 +123,35 @@ def bundle_files(manifest):
     return [MANIFEST, CHECKSUMS, *(i["name"] for i in manifest["supportFiles"]), *(i["name"] for i in manifest["parts"])]
 
 
-def create_single_file(folder: Path, output: Path | None = None):
-    manifest = verify(folder)
+def create_single_file(folder: Path, output: Path | None = None, *, github_limit=True, progress=None):
+    progress = progress or Progress()
+    manifest = verify(folder, progress)
     output = output or folder / single_file_name(manifest["version"])
     names = bundle_files(manifest)
     # ZIP_STORED avoids recompressing gzip data. Leave room for ZIP64 headers.
-    if sum(local_file(folder, name).stat().st_size for name in names) + MIB >= ASSET_LIMIT:
+    total = sum(local_file(folder, name).stat().st_size for name in names)
+    if github_limit and total + MIB >= ASSET_LIMIT:
         raise ValueError("Single ZIP exceeds GitHub's 2 GiB limit; use the verified legacy split bundle.")
     if output.exists():
         raise FileExistsError(output)
     temporary = output.with_name(output.name + ".incomplete")
+    completed = 0
+    progress.emit("package", 0, total, force=True)
     with temporary.open("xb") as sink, zipfile.ZipFile(sink, "w", compression=zipfile.ZIP_STORED, allowZip64=True) as archive:
         for name in names:
             info = zipfile.ZipInfo(name, (1980, 1, 1, 0, 0, 0))
             info.external_attr = (stat.S_IFREG | 0o644) << 16
             info.file_size = local_file(folder, name).stat().st_size
             with local_file(folder, name).open("rb") as source, archive.open(info, "w", force_zip64=True) as target:
-                shutil.copyfileobj(source, target, length=MIB)
+                for chunk in iter(lambda: source.read(MIB), b""):
+                    target.write(chunk)
+                    completed += len(chunk)
+                    progress.emit("package", completed, total)
+    # Verify the completed temporary ZIP before giving it the final filename.
+    verify(temporary, progress)
     if output.exists():
         raise FileExistsError(output)
     temporary.rename(output)
-    verify(output)
     print(f"Single-file offline package: {output}")
     return output
 
@@ -220,12 +230,19 @@ class SplitWriter:
             self.stream = None
 
 
-def export_stream(references: list[str], folder: Path, prefix: str, limit: int) -> list[dict]:
+def export_stream(references: list[str], folder: Path, prefix: str, limit: int, progress=None) -> list[dict]:
+    progress = progress or Progress()
     sink = SplitWriter(folder, prefix, limit)
     process = subprocess.Popen(["docker", "image", "save", *references], stdout=subprocess.PIPE)
     try:
+        completed = 0
+        progress.emit("save", force=True)
         with gzip.GzipFile(filename="", mode="wb", fileobj=sink, compresslevel=6, mtime=0) as compressed:
-            shutil.copyfileobj(process.stdout, compressed, length=MIB)
+            for chunk in iter(lambda: process.stdout.read(MIB), b""):
+                compressed.write(chunk)
+                completed += len(chunk)
+                progress.emit("save", completed, 0)
+        progress.emit("save", completed, 0, force=True)
         process.stdout.close()
         if process.wait() != 0:
             raise ValueError("Docker image save failed; partial output must not be published.")
@@ -300,6 +317,17 @@ def pack(args) -> Path:
                        "id": inspected["Id"], "sizeBytes": inspected["Size"]})
     parts = export_stream(list(export_refs.values()), folder,
                           f"ctxbench-images-{version}-linux-amd64.tar.gz", args.part_size_mib * MIB)
+    write_bundle_metadata(folder, version, source, config, images, parts,
+                          "existing-local-images" if args.skip_build else "source-build")
+    print(f"Packed {len(images)} images, {len(parts)} part(s): {folder}")
+    if sum(item["bytes"] for item in parts) + 2 * MIB < ASSET_LIMIT:
+        create_single_file(folder)
+    else:
+        print("Single ZIP exceeds GitHub's limit; publishing will retain legacy split files.")
+    return folder
+
+
+def write_bundle_metadata(folder, version, source, config, images, parts, build_mode):
     shutil.copyfile(Path(__file__), folder / HELPER)
     write_json(folder / COMPOSE, offline_compose(config))
     (folder / GUIDE).write_text(
@@ -327,8 +355,12 @@ def pack(args) -> Path:
         "Checksums detect corruption, not publisher authenticity. Download from a trusted Release.\n"
         "校验用于发现损坏，不代替来源认证。API 域名/公司 CA/环境变量仍需按内网配置。\n",
         encoding="utf-8")
+    if build_mode == "existing-local-images":
+        with (folder / GUIDE).open("a", encoding="utf-8") as guide:
+            guide.write("\nCUSTOM LOCAL IMAGES: not an official source-built release. Verify software compatibility and image contents before sharing.\n"
+                        "本地自定义镜像：不是官方源码构建产物。分享前请确认软件兼容性并检查镜像层中的凭据、代码和数据。\n")
     manifest = {"schemaVersion": 1, "version": version, "platform": "linux/amd64", "source": source,
-                "buildMode": "existing-local-images" if args.skip_build else "source-build",
+                "buildMode": build_mode,
                 "archiveFormat": "docker-save+gzip", "images": images, "parts": parts,
                 "supportFiles": [{"name": name, "bytes": (folder / name).stat().st_size,
                                   "sha256": digest(folder / name)} for name in (HELPER, COMPOSE, GUIDE)]}
@@ -336,12 +368,88 @@ def pack(args) -> Path:
     names = [MANIFEST, HELPER, COMPOSE, GUIDE, *(part["name"] for part in parts)]
     (folder / CHECKSUMS).write_text("".join(f"{digest(folder / name)}  {name}\n" for name in names), encoding="utf-8")
     (folder / INCOMPLETE).unlink()
-    print(f"Packed {len(images)} images, {len(parts)} part(s): {folder}")
-    if sum(item["bytes"] for item in parts) + 2 * MIB < ASSET_LIMIT:
-        create_single_file(folder)
-    else:
-        print("Single ZIP exceeds GitHub's limit; publishing will retain legacy split files.")
-    return folder
+
+
+def image_selections(values):
+    selections = {}
+    for value in values:
+        role, separator, reference = value.partition("=")
+        if not separator or role not in ROLES or role in selections or not re.fullmatch(r"[A-Za-z0-9][A-Za-z0-9._/:@-]{0,255}", reference):
+            raise ValueError("Invalid export image selection; provide exactly one local image reference for each role.")
+        selections[role] = reference
+    if set(selections) != set(ROLES):
+        raise ValueError("Invalid export image selection; all four application roles are required.")
+    return selections
+
+
+def check_image_credentials(inspected, *, allow_placeholders=False):
+    for variable in (inspected.get("Config") or {}).get("Env", []) or []:
+        key, _, value = variable.partition("=")
+        if allow_placeholders and re.fullmatch(r"\$\{[A-Za-z_][A-Za-z0-9_]*(?::[-?])?\}", value):
+            continue
+        sensitive_key = re.search(r"(?:^|_)(?:API_?KEY|TOKEN|SECRET|PASSWORD|PASSWD|PRIVATE_KEY|AUTHORIZATION|CREDENTIALS?)$", key, re.I)
+        credential_url = re.search(r"https?://[^/@\s]+:[^/@\s]+@", value)
+        if value.strip() and (sensitive_key or credential_url):
+            # Never print the key/value or include Config/Env/history in the manifest.
+            raise ValueError("Image credentials detected. Rebuild without embedded credentials before exporting.")
+
+
+def export_local(args):
+    """Export customized images from an installed desktop; no Git checkout or network required."""
+    version = version_name(args.version)
+    selected = image_selections(args.image)
+    output = args.output.absolute()
+    temporary_zip = output.with_name(output.name + ".incomplete")
+    if output.suffix.lower() != ".zip" or not output.parent.is_dir():
+        raise ValueError("Invalid export path; choose a ZIP file in an existing directory.")
+    if output.exists() or output.is_symlink() or temporary_zip.exists() or temporary_zip.is_symlink():
+        raise ValueError("Export destination already exists. Choose a new filename; existing files are never overwritten.")
+    progress = Progress(args.progress_json, "CTXBENCH_EXPORT_PROGRESS ")
+    daemon = json.loads(command("docker", "info", "--format", "{{json .}}", capture=True))
+    if daemon.get("OSType") != "linux" or daemon.get("Architecture") not in ("x86_64", "amd64"):
+        raise ValueError("Image platform mismatch: a Linux amd64 Docker daemon is required.")
+    config = compose_config(args.root.resolve())
+    for service in offline_compose(config)["services"].values():
+        environment = service.get("environment", {})
+        variables = [f"{key}={value or ''}" for key, value in environment.items()] if isinstance(environment, dict) else environment
+        check_image_credentials({"Config": {"Env": variables}}, allow_placeholders=True)
+    for role in ROLES:
+        config["services"][role]["image"] = RUNTIME_IMAGES[role]
+    images = []
+    suffix = "local-export-" + uuid.uuid4().hex
+    progress.emit("inspect", 0, 4, force=True)
+    for index, role in enumerate(ROLES, 1):
+        inspected = json.loads(command("docker", "image", "inspect", selected[role], capture=True))[0]
+        if (inspected.get("Os"), inspected.get("Architecture")) != ("linux", "amd64"):
+            raise ValueError(f"Image platform mismatch for {role}: Linux amd64 is required.")
+        if not re.fullmatch(r"sha256:[a-f0-9]{64}", inspected.get("Id", "")):
+            raise ValueError("Invalid local image identity.")
+        check_image_credentials(inspected)
+        images.append({"service": role, "archiveReference": f"ctxbench/{role}:{suffix}",
+                       "runtimeReference": RUNTIME_IMAGES[role], "id": inspected["Id"], "sizeBytes": inspected["Size"]})
+        progress.emit("inspect", index, 4, force=True)
+    tagged = []
+    try:
+        # Pin the inspected IDs, not mutable input tags. Production aliases are never changed.
+        for item in images:
+            command("docker", "image", "tag", item["id"], item["archiveReference"])
+            tagged.append(item["archiveReference"])
+        # TemporaryDirectory owns only this unique staging directory, not its parent.
+        with tempfile.TemporaryDirectory(prefix=".ctxbench-export-", dir=output.parent) as staging:
+            folder = Path(staging)
+            (folder / INCOMPLETE).touch()
+            parts = export_stream(tagged, folder, f"ctxbench-images-{version}-linux-amd64.tar.gz", 1900 * MIB, progress)
+            write_bundle_metadata(folder, version, {"commit": None, "dirty": None}, config, images, parts, "existing-local-images")
+            create_single_file(folder, output, github_limit=False, progress=progress)
+    finally:
+        for reference in tagged:
+            try:
+                command("docker", "image", "rm", reference, capture=True)
+            except (OSError, subprocess.CalledProcessError):
+                print(f"Temporary export tag retained: {reference}", flush=True)
+    progress.emit("complete", 4, 4, force=True)
+    print(f"Custom image ZIP exported: {output}", flush=True)
+    return output
 
 
 def verify(source: Path, progress=None, expected_version=None) -> dict:
@@ -520,6 +628,12 @@ def main() -> int:
     packing.add_argument("--part-size-mib", type=int, default=1900)
     packing.add_argument("--skip-build", action="store_true", help="Export existing Compose image tags; not publishable.")
     packing.add_argument("--allow-dirty", action="store_true", help="Allow a local test bundle; not publishable.")
+    exporting = commands.add_parser("export-local", help="Export four customized local images to one ZIP without building or Git.")
+    exporting.add_argument("--version", required=True, help="Matching desktop version, not an official release claim.")
+    exporting.add_argument("--root", type=Path, default=Path(__file__).resolve().parent.parent)
+    exporting.add_argument("--output", type=Path, required=True, help="A new ZIP path; never overwritten.")
+    exporting.add_argument("--image", action="append", required=True, help="ROLE=LOCAL_IMAGE; specify each of the four roles once.")
+    exporting.add_argument("--progress-json", action="store_true")
     wrapping = commands.add_parser("bundle", help="Wrap a verified legacy folder in one self-contained ZIP.")
     wrapping.add_argument("folder", type=Path)
     wrapping.add_argument("--output", type=Path)
@@ -538,6 +652,8 @@ def main() -> int:
     try:
         if args.action == "pack":
             pack(args)
+        elif args.action == "export-local":
+            export_local(args)
         elif args.action == "verify":
             verify(args.folder)
         elif args.action == "import":

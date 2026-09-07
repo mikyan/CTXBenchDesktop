@@ -1,0 +1,32 @@
+[
+  {
+    "id": "ctxbench",
+    "name": "CTXBench (formerly AGENTBench)",
+    "repository": "eth-sri/agentbench",
+    "homepage": "https://huggingface.co/datasets/eth-sri/agentbench",
+    "downloadUrl": "https://huggingface.co/datasets/eth-sri/agentbench/resolve/82c4b95db706965e82736ef5fe8404be3c0f79ba/data/train-00000-of-00001.parquet?download=true",
+    "revision": "82c4b95db706965e82736ef5fe8404be3c0f79ba",
+    "split": "train",
+    "tasks": 138,
+    "size": "7.69 MB",
+    "filename": "train-00000-of-00001.parquet",
+    "workerFilename": "agentbench.parquet",
+    "sha256": "a5df3bc98d8a9eed9c5c07a9aed63821c86f212c319e9d4b8623b4dfd6fd0832",
+    "checkedAt": "2026-09-07"
+  },
+  {
+    "id": "swebench",
+    "name": "SWE-bench Verified",
+    "repository": "princeton-nlp/SWE-bench_Verified",
+    "homepage": "https://huggingface.co/datasets/princeton-nlp/SWE-bench_Verified",
+    "downloadUrl": "https://huggingface.co/datasets/princeton-nlp/SWE-bench_Verified/resolve/c104f840cc67f8b6eec6f759ebc8b2693d585d4a/data/test-00000-of-00001.parquet?download=true",
+    "revision": "c104f840cc67f8b6eec6f759ebc8b2693d585d4a",
+    "split": "test",
+    "tasks": 500,
+    "size": "2.10 MB",
+    "filename": "test-00000-of-00001.parquet",
+    "workerFilename": "swebench-verified.parquet",
+    "sha256": "a45b1fe4e2f0c8390b2b2938ac83e92ed5979000856808f3679c07812e9e6dcd",
+    "checkedAt": "2026-09-07"
+  }
+]
