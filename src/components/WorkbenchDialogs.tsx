@@ -8,6 +8,8 @@ import { environmentNamesError, parseEnvironmentNames } from "../lib/environment
 import { WorkflowEditor } from "./WorkflowEditor";
 import { defaultWorkflow, workflowError } from "../lib/workflow";
 import { benchmarkLabel, CTXBENCH_LABEL, datasetLabel } from "../lib/benchmark-labels";
+import { AgentArgsField } from "./AgentArgsField";
+import { agentArgsError } from "../lib/agent-args";
 
 export function defaultProfile(): FrozenModelConfig { return { provider: "mock", model: "deterministic", thinking: "high", maxTokens: 5000000 }; }
 export function Modal({ title, children, onClose }: { title: string; children: ReactNode; onClose: () => void }) {
@@ -44,6 +46,7 @@ export function PreparationDialog({ kind, onClose, onComplete }: { kind: "contex
   const [tasks, setTasks] = useState<TaskSummary[]>([]); const [taskId, setTaskId] = useState("");
   const [profile, setProfile] = useState(defaultProfile()); const [env, setEnv] = useState("");
   const [workflow, setWorkflow] = useState(defaultWorkflow);
+  const [agentArgs, setAgentArgs] = useState<string[]>([]);
   const [generationPrompt, setGenerationPrompt] = useState<string>();
   const [network, setNetwork] = useState("api-only");
   useEffect(() => { void workerRequest<RuntimeSettings>("/runtime").then((settings) => setGenerationPrompt(settings.defaultPrompts?.builder)).catch(() => {}); }, []);
@@ -53,10 +56,10 @@ export function PreparationDialog({ kind, onClose, onComplete }: { kind: "contex
   useEffect(() => { let active = true; setTasks([]); setTaskId(""); if (dataset) workerRequest<TaskSummary[]>(`/datasets/${dataset}/tasks`).then((value) => { if (active) setTasks(value); }).catch((error) => { if (active) setError(String(error)); }); return () => { active = false; }; }, [dataset]);
   const submit = async () => { setBusy(true); setError(""); try {
     const task = tasks.find((task) => task.id === taskId)!;
-    const envError = kind === "manual" ? undefined : environmentNamesError(env) ?? (kind === "context" ? workflowError(workflow) : undefined);
+    const envError = kind === "manual" ? undefined : agentArgsError(agentArgs) ?? environmentNamesError(env) ?? (kind === "context" ? workflowError(workflow) : undefined);
     if (envError) throw new Error(t(envError));
     if (kind === "manual") await workerRequest("/context/import", "POST", { dataset, taskId, baseCommit: packageCommit, repository: task.repository, files, contextPaths: Object.keys(files) });
-    else await workerRequest(`/prepare/${kind}`, "POST", { dataset, taskId, model: profile, envNames: parseEnvironmentNames(env), agentImage: image, resources: { cpus: 4, memoryGb: 8, timeoutMinutes: 60, network }, ...(kind === "context" ? { workflow } : {}) });
+    else await workerRequest(`/prepare/${kind}`, "POST", { dataset, taskId, model: profile, envNames: parseEnvironmentNames(env), agentImage: image, agentArgs, resources: { cpus: 4, memoryGb: 8, timeoutMinutes: 60, network }, ...(kind === "context" ? { workflow } : {}) });
     onComplete(); onClose();
   } catch (error) { setError(String(error)); } finally { setBusy(false); } };
   return <Modal title={t(kind === "manual" ? "Import package" : kind === "context" ? "Generate context" : "Mine constraints")} onClose={onClose}>
@@ -68,6 +71,7 @@ export function PreparationDialog({ kind, onClose, onComplete }: { kind: "contex
       void Promise.all(selected.map(async (file) => [file.webkitRelativePath.split("/").slice(1).join("/") || file.name, await file.text()] as const)).then((entries) => setFiles(Object.fromEntries(entries))).catch((error) => setError(String(error)));
     }} /></label>}
     {kind === "manual" ? <><label>{t("Package baseline commit")}<input value={packageCommit} onChange={(e) => setPackageCommit(e.target.value)} /></label><label>{t("Package JSON: relative paths mapped to text")}<input type="file" accept=".json" onChange={(e) => { const file = e.target.files?.[0]; if (file) void file.text().then((text) => { const parsed = JSON.parse(text); setFiles(parsed.files ?? parsed); if (parsed.baseCommit) setPackageCommit(parsed.baseCommit); }).catch((error) => setError(String(error))); }} /></label><pre>{JSON.stringify(Object.keys(files), null, 2)}</pre><p>{t("Use AGENTS.md or documentation folders. The package must match the selected baseline commit.")}</p></> : <><ProfileEditor title={t(kind === "context" ? "Knowledge builder" : "Constraint miner")} value={profile} onChange={setProfile} /><EnvironmentNamesField value={env} onChange={setEnv} /><label>{t("Agent image")}<input value={image} onChange={(e) => setImage(e.target.value)} /></label></>}
+    {kind !== "manual" && <AgentArgsField value={agentArgs} onChange={setAgentArgs} />}
     {kind === "context" && <><WorkflowEditor title={t("Knowledge generation workflow")} value={workflow} onChange={setWorkflow} defaultPrompt={generationPrompt} />
       <label>{t("Network")}<select value={network} onChange={(event) => setNetwork(event.target.value)}>{["api-only", "offline", "unrestricted"].map((item) => <option key={item}>{item}</option>)}</select></label></>}
     {error && <p className="form-error" role="alert">{error}</p>}<button className="button primary" disabled={busy || !taskId} onClick={() => void submit()}>{busy ? t("Working…") : t("Submit")}</button>

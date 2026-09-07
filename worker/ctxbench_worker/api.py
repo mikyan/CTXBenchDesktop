@@ -20,6 +20,7 @@ from .runner import ENV_NAME, DEFAULT_SECRET_ALLOWLIST, DockerRunner
 from .safe_files import safe_file
 from .preflight import storage_status
 from .workflows import normalize_workflow
+from .agent_args import normalize_agent_args
 
 
 class ModelConfigInput(BaseModel):
@@ -69,6 +70,8 @@ class ExperimentInput(BaseModel):
     budgetId: str = ''
     builderWorkflow: dict = Field(default_factory=dict)
     solverWorkflow: dict = Field(default_factory=dict)
+    # Validate explicitly without Pydantic echoing potentially sensitive argv in errors.
+    agentArgs: object = Field(default_factory=list)
 
 
 class RunInput(BaseModel):
@@ -84,6 +87,7 @@ class RunInput(BaseModel):
     contextPaths: list[str] = Field(default_factory=list)
     metadata: dict[str, object] = Field(default_factory=dict)
     workflow: dict = Field(default_factory=dict)
+    agentArgs: object = Field(default_factory=list)
 
 
 class HistoryMineInput(BaseModel):
@@ -145,6 +149,7 @@ def _spec(value: ExperimentInput) -> ExperimentSpec:
         budget_id=value.budgetId,
         builder_workflow=normalize_workflow(value.builderWorkflow),
         solver_workflow=normalize_workflow(value.solverWorkflow),
+        agent_args=normalize_agent_args(value.agentArgs),
     )
 
 
@@ -295,8 +300,10 @@ def create_app(
                 skill_path=skill_path,
                 metadata=value.metadata,
                 workflow=normalize_workflow(value.workflow),
+                agent_args=normalize_agent_args(value.agentArgs),
             )
             workbench.validate_workflow(spec.workflow, value.mode)
+            workbench.validate_agent_args(spec.agent_args, spec.image)
             return jobs.enqueue(spec)
         except ValueError as error:
             raise HTTPException(status_code=422, detail=str(error)) from error
@@ -394,6 +401,7 @@ def create_app(
         workflow = normalize_workflow(value.get('workflow'))
         workbench.validate_workflow(workflow, 'generate-context' if kind == 'context' else 'mine-constraints')
         payload['workflow'] = workflow
+        payload['agentArgs'] = list(workbench.validate_agent_args(value.get('agentArgs'), payload['agentImage']))
         return workbench.enqueue(kind, payload)
 
     @app.get("/v1/operations/{operation_id}")

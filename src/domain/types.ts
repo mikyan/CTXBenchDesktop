@@ -43,6 +43,7 @@ export interface Experiment {
   model: FrozenModelConfig;
   profiles: EvaluationProfiles;
   agentImage: string;
+  agentArgs?: string[];
   resources: ResourcePolicy;
   seed: number;
 }
@@ -74,6 +75,7 @@ export interface BenchmarkRun extends PlannedRun {
   failure?: string;
   pairingHash?: string;
   agentImageDigest?: string;
+  agentArgs?: string[];
   promptHash?: string;
   solverRunId?: string;
   outputDir?: string;
@@ -176,6 +178,7 @@ export interface DashboardSnapshot {
 }
 
 export interface CreateExperimentRequest {
+  agentArgs?: string[];
   builderWorkflow?: AgentWorkflow;
   solverWorkflow?: AgentWorkflow;
   budgetId?: string;

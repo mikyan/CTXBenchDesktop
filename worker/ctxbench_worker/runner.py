@@ -12,6 +12,7 @@ from typing import Protocol
 from .models import RunResult, RunSpec
 from .safe_files import safe_file
 from .workflows import workflow_request
+from .agent_args import normalize_agent_args, validate_pi_args, verify_agent_args_receipt
 
 ENV_NAME = re.compile(r"^[A-Z][A-Z0-9_]{1,127}$")
 DEFAULT_SECRET_ALLOWLIST = frozenset(
@@ -169,6 +170,21 @@ class DockerRunner:
         finally:
             client.close()
 
+    def validate_agent_args_image(self, image: str, args: object) -> None:
+        args = normalize_agent_args(args)
+        if not args:
+            return
+        import docker
+        client = docker.from_env()
+        try:
+            labels = client.images.get(image).labels or {}
+            if labels.get('io.ctxbench.agent-args') != '1':
+                raise ValueError('Agent image does not support startup arguments protocol v1. Rebuild the Pi image or use a compatible adapter.')
+            if labels.get('io.ctxbench.agent-kind') == 'pi':
+                validate_pi_args(args)
+        finally:
+            client.close()
+
     def run(self, spec: RunSpec) -> RunResult:
         try:
             import docker
@@ -176,6 +192,12 @@ class DockerRunner:
         except ImportError as error:
             raise RuntimeError("Install the pinned Docker SDK to use DockerRunner.") from error
 
+        args = normalize_agent_args(spec.agent_args)
+        # Validate before writing a request file, including for direct runner callers.
+        if any(value and value in arg for name in self.env_allowlist
+               if (value := os.environ.get(name)) for arg in args):
+            raise ValueError('Do not embed runtime credentials in agent startup arguments; use selected environment variables.')
+        self.validate_agent_args_image(spec.image, args)
         workspace = _within(self.repositories_root, spec.workspace)
         workflow = workflow_request(spec.workflow, spec.prompt)
         if workflow:
@@ -198,6 +220,7 @@ class DockerRunner:
                     "metadata": spec.metadata,
                     "envNames": list(spec.env_names),
                     **({'workflow': workflow} if workflow else {}),
+                    **({'agentArgs': list(args)} if args else {}),
                 },
                 separators=(",", ":"),
             ),
@@ -278,6 +301,8 @@ class DockerRunner:
                     cleaned = redact(content)
                     if cleaned != content:
                         artifact.write_text(cleaned, encoding="utf-8")
+            if exit_code == 0 and args:
+                verify_agent_args_receipt(json.loads(safe_file(output, 'result.json').read_text(encoding='utf-8')), args)
             return RunResult(
                 run_id=spec.run_id,
                 status="completed" if exit_code == 0 else "failed",

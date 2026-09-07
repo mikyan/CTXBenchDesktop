@@ -326,6 +326,8 @@ async fn create_experiment(request: CreateExperimentRequest) -> Result<Value, St
 #[cfg_attr(mobile, tauri::mobile_entry_point)]
 pub fn run() {
     tauri::Builder::default()
+        // Links are handled explicitly in React so failures are visible to the user.
+        .plugin(tauri_plugin_opener::Builder::new().open_js_links_on_click(false).build())
         .invoke_handler(tauri::generate_handler![
             bootstrap,
             diagnose_environment,

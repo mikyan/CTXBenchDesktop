@@ -111,6 +111,10 @@ The worker binds only to `127.0.0.1:48173`. API credentials are passed from an e
 
 Historical design evidence can be collected with `POST /v1/constraints/review-archive`. The request fixes a GitHub `owner/name`, cutoff timestamp, and bounded page/PR/comment limits. The worker retains only review comments from PRs merged by the cutoff and stores a content-addressed evaluator-only archive under `/var/lib/ctxbench/review-archives`. `GITHUB_TOKEN` is optional for public repositories and is never written to the archive.
 
+## Agent startup arguments
+
+Use **New experiment → Runtime and budgets → Agent startup arguments**, or the same editor in independent generation/mining dialogs. Add, remove or reorder rows; each is one literal argv element (for example `--tools` and `read,bash` in separate rows). No shell quoting, splitting, variable expansion or command execution occurs. Arguments are frozen for all agent stages, prompt steps and paired repeats, included in context/miner cache identity, and never sent to hidden-test graders. Use selected environment variables for secrets. This requires an updated Worker and an Agent image supporting the new protocol; old images fail explicitly. See the [adapter contract and supported Pi options](docs/agent-adapters.md#optional-startup-arguments-protocol-v1).
+
 ## Repository layout
 
 - `src/` — React desktop interface and testable experiment domain modules.

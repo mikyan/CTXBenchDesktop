@@ -22,6 +22,10 @@ const messages: Record<string, [string, string]> = {
 };
 
 export const infrastructureChinese: Record<string, string> = {
+  "Could not open the default browser. Copy this address and open it manually.": "无法打开默认浏览器，请复制以下网址后手动打开。",
+  "Copy link": "复制链接",
+  "Link copied.": "链接已复制。",
+  "Could not copy. Select the address and copy it manually.": "复制失败，请选中网址后手动复制。",
   "Open setup guide": "查看安装指导",
   "Diagnostics finished. Checks needing attention: {count}. Follow the guidance on this page.": "诊断完成：有 {count} 项需要处理，请按本页说明排查。",
   "The import script requires Python 3.10 or later inside WSL. If Python is missing, install it from your organization's approved package source first.": "导入脚本需要 WSL 内安装 Python 3.10 或更高版本。如果尚未安装，请先通过公司认可的软件源安装。",

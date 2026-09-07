@@ -16,7 +16,8 @@ RUN useradd --create-home --uid 10001 --shell /bin/bash ctxbench \
 COPY --chown=ctxbench:ctxbench docker/agent-pi/entrypoint.mjs /opt/ctxbench/entrypoint.mjs
 COPY --chown=ctxbench:ctxbench docker/agent-pi/mock-pi.mjs /opt/ctxbench/mock-pi.mjs
 COPY --chown=ctxbench:ctxbench docker/agent-pi/workflow-runtime.mjs /opt/ctxbench/workflow-runtime.mjs
-LABEL io.ctxbench.workflow="1"
+LABEL io.ctxbench.workflow="1" io.ctxbench.agent-args="1" io.ctxbench.agent-kind="pi"
+COPY docker/agent-pi/agent-args.mjs /opt/ctxbench/agent-args.mjs
 
 ENV HOME=/home/ctxbench \
     PI_NO_UPDATE_NOTIFIER=1 \

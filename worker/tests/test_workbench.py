@@ -36,6 +36,42 @@ class FixtureRunner:
 
 
 class WorkbenchTests(unittest.TestCase):
+    def test_startup_arguments_freeze_cache_pairing_and_recovery(self):
+        args = ('--config', '/opt/company agent/settings.json', '中文')
+        spec = replace(self.spec, agent_args=args, prepare_only=True)
+        experiment = self.workbench.create_experiment(spec)
+        self.workbench.run_experiment(experiment['id'])
+        first = self.runner.calls[0]
+        self.assertEqual(first.agent_args, args)
+        self.assertNotIn('PRIVATE_TARGET_TASK', first.prompt)
+        self.assertEqual(self.engine.database.get_spec(experiment['id']).agent_args, args)
+        self.assertEqual(experiment['agentArgs'], list(args))
+        self.workbench.control(experiment['id'], 'resume')
+        self.workbench.run_experiment(experiment['id'])
+        runs = self.engine.database.list_runs(experiment['id'])
+        self.assertEqual(len({run['pairingHash'] for run in runs}), 1)
+        self.assertTrue(all(call.agent_args == args for call in self.runner.calls))
+        self.assertEqual(sum(call.mode == 'generate-context' for call in self.runner.calls), 1)
+        self.assertEqual(len({call.prompt for call in self.runner.calls if call.mode == 'solve'}), 1)
+        self.workbench.run_experiment(experiment['id'])
+        self.assertEqual(len(self.runner.calls), 5)
+        changed = self.workbench.create_experiment(replace(spec, prepare_only=False, agent_args=('--verbose',)))
+        self.workbench.run_experiment(changed['id'])
+        other = self.engine.database.list_runs(changed['id'])[0]
+        self.assertNotEqual(next(run['contextArtifactId'] for run in runs if run['contextArtifactId']),
+                            next(run['contextArtifactId'] for run in self.engine.database.list_runs(changed['id']) if run['contextArtifactId']))
+        self.assertNotEqual(runs[0]['pairingHash'], other['pairingHash'])
+        self.assertEqual(sum(call.mode == 'generate-context' for call in self.runner.calls), 2)
+
+    def test_miner_cache_includes_startup_arguments(self):
+        task = replace(self.workbench.catalog.task(self.dataset['id'], 'task/1'), repository='https://github.com/fixture/repo.git')
+        with patch.object(self.workbench.runtime, 'baseline', return_value=(self.source, '2025-01-01T00:00:00Z')), \
+             patch('worker.ctxbench_worker.workbench.mine_review_archive', return_value={'pullRequests': []}):
+            first = self.workbench.mine(task, self.spec, 'fixture')
+            second = self.workbench.mine(task, replace(self.spec, agent_args=('--verbose',)), 'fixture')
+            self.assertNotEqual(first['id'], second['id'])
+            self.assertEqual(self.workbench.mine(task, replace(self.spec, agent_args=('--verbose',)), 'fixture')['id'], second['id'])
+
     def test_workflow_roundtrip_and_task_blind_context_cache(self):
         workflow = {'setupCommands': ['echo dependency-setup'], 'steps': [{'name': 'prepare', 'prompt': None}, {'name': 'refine', 'prompt': 'Refine the architecture context'}]}
         spec = replace(self.spec, builder_workflow=workflow)
@@ -417,7 +453,7 @@ class WorkbenchTests(unittest.TestCase):
                 (Path(spec.workspace) / 'votes.json').write_text('malformed' if len(judge_calls) == 1 else json.dumps(output))
             return result
         self.runner.run = runner
-        experiment = self.workbench.create_experiment(replace(self.spec, repeats=1, evaluate_constraints=True))
+        experiment = self.workbench.create_experiment(replace(self.spec, repeats=1, evaluate_constraints=True, agent_args=('--verbose',)))
         self.workbench.run_experiment(experiment['id'])
         failed = next(run for run in self.engine.database.list_runs(experiment['id']) if run['status'] == 'failed')
         self.assertTrue(failed['testsPassed'])
@@ -425,6 +461,7 @@ class WorkbenchTests(unittest.TestCase):
         self.workbench.control(experiment['id'], 'retry')
         self.workbench.run_experiment(experiment['id'])
         self.assertEqual(sum(call.mode == 'solve' for call in self.runner.calls), solve_count)
+        self.assertTrue(all(call.agent_args == ('--verbose',) for call in judge_calls))
         self.assertTrue(all(run['status'] == 'completed' and run['constraintVerdict'] == 'violated' for run in self.engine.database.list_runs(experiment['id'])))
 
     def test_reuse_frozen_constraints_without_history_access(self):

@@ -21,6 +21,7 @@ async function performRun(message) {
       return resolved;
     };
     try {
+      if (fixture.expectedArgs && JSON.stringify(process.argv.slice(3)) !== JSON.stringify(fixture.expectedArgs)) throw new Error("Startup argv did not match the fixture.");
       if (fixture.requireFile) await access(localPath(fixture.requireFile));
       if (fixture.requireDependency && spawnSync("python", ["-c", "import ctxbench_fixture_dependency; assert ctxbench_fixture_dependency.VALUE == 42"]).status !== 0) throw new Error("Dependency was not available in the fresh agent session");
       if (fixture.fail) throw new Error("Requested mock step failure");

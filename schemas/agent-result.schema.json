@@ -6,6 +6,8 @@
   "additionalProperties": true,
   "required": ["schemaVersion", "runId", "status", "exitCode", "changedFiles", "contextPaths"],
   "properties": {
+    "agentArgsProtocolVersion": { "const": 1 },
+    "agentArgsHash": { "type": "string", "pattern": "^[0-9a-f]{64}$" },
     "schemaVersion": { "const": 1 },
     "runId": { "type": "string" },
     "status": { "enum": ["completed", "failed", "timed-out", "cancelled"] },

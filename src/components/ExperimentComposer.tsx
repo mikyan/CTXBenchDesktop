@@ -8,6 +8,8 @@ import { environmentNamesError, parseEnvironmentNames } from "../lib/environment
 import { WorkflowEditor } from "./WorkflowEditor";
 import { defaultWorkflow, workflowError } from "../lib/workflow";
 import { datasetLabel } from "../lib/benchmark-labels";
+import { AgentArgsField } from "./AgentArgsField";
+import { agentArgsError } from "../lib/agent-args";
 
 export function ExperimentComposer({ creating, onClose, onCreate, artifacts }: {
   creating: boolean; onClose: () => void; onCreate: (request: CreateExperimentRequest) => Promise<void>; artifacts: KnowledgeArtifact[];
@@ -21,6 +23,7 @@ export function ExperimentComposer({ creating, onClose, onCreate, artifacts }: {
   const [profiles, setProfiles] = useState({ builder: defaultProfile(), solver: defaultProfile(), constraintMiner: defaultProfile(), constraintJudge: defaultProfile() });
   const [judges, setJudges] = useState<FrozenModelConfig[]>([]);
   const [image, setImage] = useState("ctxbench/agent-pi:0.1.0"); const [env, setEnv] = useState("");
+  const [agentArgs, setAgentArgs] = useState<string[]>([]);
   const [cpu, setCpu] = useState(4); const [memory, setMemory] = useState(8); const [timeout, setTimeoutMinutes] = useState(45);
   const [network, setNetwork] = useState<CreateExperimentRequest["resources"]["network"]>("api-only");
   const [prepareOnly, setPrepareOnly] = useState(false); const [constraints, setConstraints] = useState(false);
@@ -50,11 +53,11 @@ export function ExperimentComposer({ creating, onClose, onCreate, artifacts }: {
   const selectedPackages = (values: Record<string, string>) => Object.fromEntries(selected.filter((id) => values[id]).map((id) => [id, values[id]]));
   const request: CreateExperimentRequest = { name, benchmark: datasets.find((item) => item.id === dataset)?.benchmark ?? "custom", dataset, taskIds: selected, arms: ["none", arm], repeats, seed, profiles, model: profiles.solver,
     agentImage: image, resources: { cpus: cpu, memoryGb: memory, timeoutMinutes: timeout, network }, envNames: parseEnvironmentNames(env), prepareOnly, evaluateConstraints: constraints, contextArtifacts: selectedPackages(packages), constraintPackages: selectedPackages(constraintPackages), judgeProfiles: judges, budgetId,
-    builderWorkflow: arm === "skill-generated" ? builderWorkflow : defaultWorkflow(), solverWorkflow };
+    builderWorkflow: arm === "skill-generated" ? builderWorkflow : defaultWorkflow(), solverWorkflow, agentArgs };
   const requestJson = JSON.stringify(request);
   const checked = preflight?.request === requestJson ? preflight.report : undefined;
   const check = async () => {
-    const envError = environmentNamesError(env) ?? workflowError(solverWorkflow) ?? (arm === "skill-generated" ? workflowError(builderWorkflow) : undefined);
+    const envError = agentArgsError(agentArgs) ?? environmentNamesError(env) ?? workflowError(solverWorkflow) ?? (arm === "skill-generated" ? workflowError(builderWorkflow) : undefined);
     if (envError) { setError(t(envError)); return; }
     setChecking(true); setError("");
     try { const report = await workerRequest<NonNullable<typeof preflight>["report"]>("/preflight", "POST", request); setPreflight({ request: requestJson, report }); }
@@ -62,7 +65,7 @@ export function ExperimentComposer({ creating, onClose, onCreate, artifacts }: {
     finally { setChecking(false); }
   };
   const submit = async () => {
-    const envError = environmentNamesError(env) ?? workflowError(solverWorkflow) ?? (arm === "skill-generated" ? workflowError(builderWorkflow) : undefined);
+    const envError = agentArgsError(agentArgs) ?? environmentNamesError(env) ?? workflowError(solverWorkflow) ?? (arm === "skill-generated" ? workflowError(builderWorkflow) : undefined);
     if (envError) { setError(t(envError)); return; }
     if (!dataset || !selected.length || !name.trim()) { setError(t("Choose a dataset, tasks, and experiment name.")); return; }
     setError("");
@@ -92,6 +95,7 @@ export function ExperimentComposer({ creating, onClose, onCreate, artifacts }: {
     {arm === "skill-generated" && <WorkflowEditor title={t("Knowledge generation workflow")} value={builderWorkflow} onChange={setBuilderWorkflow} defaultPrompt={generationPrompt} />}
     <WorkflowEditor title={t("Solver workflow")} value={solverWorkflow} onChange={setSolverWorkflow} defaultPrompt={selected.length === 1 ? tasks.find((task) => task.id === selected[0])?.prompt : undefined} />
     <details><summary>{t("Runtime and budgets")}</summary><label>{t("Agent image")}<input value={image} onChange={(e) => setImage(e.target.value)} /></label><EnvironmentNamesField value={env} onChange={(value) => { environmentEdited.current = true; setEnv(value); }} />
+      <AgentArgsField value={agentArgs} onChange={setAgentArgs} />
       <div className="form-grid two"><label>CPU<input type="number" min={1} value={cpu} onChange={(e) => setCpu(Number(e.target.value))} /></label><label>{t("Memory (GiB)")}<input type="number" min={1} value={memory} onChange={(e) => setMemory(Number(e.target.value))} /></label><label>{t("Timeout (minutes)")}<input type="number" min={1} value={timeout} onChange={(e) => setTimeoutMinutes(Number(e.target.value))} /></label><label>{t("Network")}<select value={network} onChange={(e) => setNetwork(e.target.value as typeof network)}>{["api-only", "offline", "unrestricted"].map((item) => <option key={item}>{item}</option>)}</select></label></div></details>
     <label className="check-line"><input type="checkbox" checked={prepareOnly} onChange={(e) => setPrepareOnly(e.target.checked)} />{t("Prepare all context first; start solver runs later")}</label>
     <p>{t("{runs} runs · {keys} context keys", { runs: selected.length * repeats * 2, keys: new Set(tasks.filter((task) => selected.includes(task.id)).map((task) => `${task.repository}@${task.baseCommit}`)).size })}</p>

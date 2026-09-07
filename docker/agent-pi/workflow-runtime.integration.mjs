@@ -2,9 +2,36 @@ import assert from "node:assert/strict";
 // Linux-only Node tests, invoked explicitly with node --test inside the agent image.
 import test from "node:test";
 import { aggregateStats, runPiStep, runStartup } from "./workflow-runtime.mjs";
+import { piAgentArgs } from "./agent-args.mjs";
 
 const options = { cwd: "/tmp", env: { ...process.env, FIXTURE_SECRET: "synthetic-secret" }, timeoutMs: 3000,
   redact: (text) => text.replaceAll("synthetic-secret", "[REDACTED]") };
+
+test("the preinstalled Pi CLI accepts the extra flags without changing protocol or prompts", async () => {
+  const { parseArgs } = await import('/usr/local/lib/node_modules/@earendil-works/pi-coding-agent/dist/cli/args.js');
+  const extra = piAgentArgs(['--tools', 'read, bash', '--exclude-tools', 'write', '--verbose']);
+  const parsed = parseArgs(['--mode', 'rpc', '--no-session', '--no-extensions', '--no-skills', '--no-prompt-templates',
+    '--no-approve', '--offline', '--provider', 'fixture-provider', '--model', 'fixture-model', ...extra]);
+  assert.equal(parsed.mode, 'rpc');
+  assert.equal(parsed.provider, 'fixture-provider');
+  assert.equal(parsed.model, 'fixture-model');
+  assert.equal(parsed.noSession, true);
+  assert.deepEqual(parsed.tools, ['read', 'bash']);
+  assert.deepEqual(parsed.excludeTools, ['write']);
+  assert.deepEqual(parsed.messages, []);
+  assert.deepEqual(parsed.fileArgs, []);
+  assert.deepEqual(parsed.diagnostics, []);
+  assert.equal(parsed.unknownFlags.size, 0);
+});
+
+test("each agent subprocess receives literal ordered argv with no shell expansion", async () => {
+  const args = ['--tools', 'read, bash', '--exclude-tools', '$(echo literal); 中文', '--verbose'];
+  const result = await runPiStep({ request: { mode: 'grade', agentArgs: args, model: { provider: 'mock', model: 'deterministic', thinking: 'off' } },
+    prompt: 'CTXBENCH_WORKFLOW_TEST:' + JSON.stringify({ expectedArgs: args }), env: process.env, cwd: '/tmp',
+    timeoutMs: 3000, remainingTokens: 1000, redact: (text) => text, onRecord: () => {} });
+  assert.equal(result.status, 'completed');
+  assert.equal(result.promptError, null);
+});
 
 test("startup retains exports and keeps the environment handoff out of logs", async () => {
   const result = await runStartup(['export WORKFLOW_TEST_VALUE="中文=literal value"', 'printf "%s" "$FIXTURE_SECRET"'], options);

@@ -164,7 +164,7 @@ class Database:
         value["resources"] = ResourcePolicy(**value["resources"])
         value["profiles"] = {key: ModelConfig(**item) for key, item in value.get("profiles", {}).items()}
         value["judge_profiles"] = tuple(ModelConfig(**item) for item in value.get("judge_profiles", []))
-        for key in ("arms", "task_ids", "env_names"):
+        for key in ("arms", "task_ids", "env_names", "agent_args"):
             value[key] = tuple(value.get(key, []))
         return ExperimentSpec(**value)
 
@@ -336,6 +336,7 @@ class Database:
                 for role, profile in spec.get("profiles", {}).items()
             },
             "agentImage": spec["agent_image"],
+            "agentArgs": spec.get("agent_args", []),
             "resources": {
                 "cpus": spec["resources"]["cpus"],
                 "memoryGb": spec["resources"]["memory_gb"],

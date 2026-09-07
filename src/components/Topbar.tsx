@@ -1,5 +1,6 @@
 import { Bell, CircleHelp, Languages, Search } from "lucide-react";
 import { useI18n } from "../i18n";
+import { ExternalLink } from "./ExternalLink";
 
 export function Topbar({ runtime }: { runtime: "desktop" | "mock" }) {
   const { locale, setLocale, t } = useI18n();
@@ -17,7 +18,7 @@ export function Topbar({ runtime }: { runtime: "desktop" | "mock" }) {
           <button type="button" className={locale === "en" ? "selected" : ""} aria-pressed={locale === "en"} title={t("English")} onClick={() => setLocale("en")}>EN</button>
           <button type="button" className={locale === "zh-CN" ? "selected" : ""} aria-pressed={locale === "zh-CN"} title={t("Chinese")} onClick={() => setLocale("zh-CN")}>中</button>
         </div>
-        <a className="icon-button" aria-label={t("Help")} href="https://github.com/mikyan/CTXBenchDesktop" target="_blank" rel="noreferrer"><CircleHelp size={17} /></a>
+        <ExternalLink className="icon-button" label={t("Help")} destination="help"><CircleHelp size={17} /></ExternalLink>
         <div className="avatar" title={t("Local operator")}>LB</div>
       </div>
     </div>

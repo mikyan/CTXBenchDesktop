@@ -6,6 +6,7 @@ from dataclasses import asdict
 from .database import Database
 from .models import ModelConfig, ResourcePolicy, RunSpec
 from .runner import Runner
+from .agent_args import normalize_agent_args
 
 
 def run_spec_from_dict(value: dict[str, object]) -> RunSpec:
@@ -27,6 +28,7 @@ def run_spec_from_dict(value: dict[str, object]) -> RunSpec:
         skill_path=str(value["skill_path"]) if value.get("skill_path") else None,
         metadata=dict(value.get("metadata", {})),
         workflow=dict(value.get("workflow", {})),
+        agent_args=normalize_agent_args(value.get("agent_args")),
     )
 
 

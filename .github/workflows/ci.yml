@@ -21,6 +21,7 @@ jobs:
       - run: npm run build
       - run: node scripts/stage-deployment.mjs
       - run: cargo test --manifest-path src-tauri/Cargo.toml --locked
+      - run: cargo test --release --manifest-path src-tauri/Cargo.toml --locked --test windows_subsystem
   linux-boundaries:
     runs-on: ubuntu-latest
     steps:

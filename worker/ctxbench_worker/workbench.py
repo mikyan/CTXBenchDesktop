@@ -25,6 +25,7 @@ from .checkpoints import GradeCheckpoint, digest, stage_evidence, verify_stage
 from .preflight import estimate, storage_status
 from .budgets import TokenBudget, BudgetExhausted
 from .workflows import normalize_workflow, workflow_request
+from .agent_args import normalize_agent_args, verify_agent_args_receipt
 
 GENERATION_PROMPT = "/skill:ctxbench-generate-context\n\nCapability: tree-only. Generate a frozen repository context artifact from this exact baseline checkout."
 
@@ -136,6 +137,7 @@ class Workbench:
         return experiment
 
     def validate_inputs(self, spec: ExperimentSpec) -> list:
+        self.validate_agent_args(spec.agent_args, spec.agent_image)
         self.validate_workflow(spec.builder_workflow, 'generate-context')
         self.validate_workflow(spec.solver_workflow, 'solve')
         if spec.budget_id:
@@ -163,6 +165,14 @@ class Workbench:
         if isinstance(self.engine.runner, DockerRunner):
             selected_environment(spec.env_names, self.engine.runner.env_allowlist)
         return tasks
+
+    def validate_agent_args(self, value: object, image: str) -> tuple[str, ...]:
+        args = normalize_agent_args(value)
+        if any(self.redact(arg) != arg for arg in args):
+            raise ValueError('Do not embed runtime credentials in agent startup arguments; use selected environment variables.')
+        if args and isinstance(self.engine.runner, DockerRunner):
+            self.engine.runner.validate_agent_args_image(image, args)
+        return args
 
     def validate_workflow(self, workflow: object, mode: str):
         normalized = normalize_workflow(workflow)
@@ -298,7 +308,7 @@ class Workbench:
         return ExperimentSpec("Preparation", "custom", payload["dataset"], ("none", "skill-generated"), 1,
             (payload["taskId"],), model, payload["agentImage"], ResourcePolicy(**payload["resources"]), 0,
             profiles={"builder": model, "constraintMiner": model}, env_names=tuple(payload.get("envNames", [])), budget_id=payload.get('budgetId', ''),
-            builder_workflow=normalize_workflow(payload.get('workflow')))
+            builder_workflow=normalize_workflow(payload.get('workflow')), agent_args=normalize_agent_args(payload.get('agentArgs')))
 
     def redact(self, text: str) -> str:
         names = getattr(self.engine.runner, "env_allowlist", ())
@@ -324,6 +334,7 @@ class Workbench:
         self._check(experiment_id)
         if workflow and isinstance(self.engine.runner, DockerRunner):
             self.engine.runner.validate_workflow_image(image)
+        self.validate_agent_args(spec.agent_args, image)
         run_id = f"{mode[:8]}-{uuid.uuid4().hex[:20]}"
         workspace = workspace_factory()
         expected_document = None
@@ -352,7 +363,7 @@ class Workbench:
             result = self.engine.runner.run(RunSpec(run_id, mode, image, str(workspace), str(output), prompt,
                 model, spec.resources, spec.env_names, tuple(context_paths),
                 str(self.engine.context_skill_path) if mode == "generate-context" and self.engine.context_skill_path else None,
-                {"capability": "tree-only"} if mode == "generate-context" else {}, workflow=normalize_workflow(workflow)))
+                {"capability": "tree-only"} if mode == "generate-context" else {}, workflow=normalize_workflow(workflow), agent_args=spec.agent_args))
             metadata_path = safe_file(output, "result.json")
             metadata = json.loads(metadata_path.read_text(encoding="utf-8")) if metadata_path.exists() else {}
             if isinstance(self.engine.runner, DockerRunner) and (metadata.get("schemaVersion") != 1 or metadata.get("runId") != run_id):
@@ -371,6 +382,8 @@ class Workbench:
                         or any(actual.get('status') != 'completed' or actual.get('promptHash') != hashlib.sha256(expected['prompt'].encode()).hexdigest()
                                for actual, expected in zip(actual_steps, expected_steps))):
                     raise ValueError('Agent did not confirm every configured workflow step; refusing a partial or ignored workflow.')
+            if isinstance(self.engine.runner, DockerRunner):
+                verify_agent_args_receipt(metadata, spec.agent_args)
             # Do not checkpoint malformed model output as successful: retry must run that
             # stage again, while preserving other completed solve/grade/judge checkpoints.
             if mode == "solve":
@@ -454,6 +467,8 @@ class Workbench:
         skill = self.engine.context_skill_path
         skill_hash = fingerprint((skill / "SKILL.md").read_text(encoding="utf-8")) if skill else "mock-v1"
         generation_inputs = {"prompt": GENERATION_PROMPT, "image": image, "resources": asdict(spec.resources), "envNames": spec.env_names}
+        if spec.agent_args:
+            generation_inputs['agentArgs'] = spec.agent_args
         if normalize_workflow(spec.builder_workflow):
             generation_inputs['workflow'] = workflow_request(spec.builder_workflow, GENERATION_PROMPT)
         identity = ContextIdentity(task.repository, task.base_commit, "tree-only", skill_hash,
@@ -496,7 +511,7 @@ class Workbench:
             raise ValueError("Automatic review mining currently requires a GitHub owner/repository.")
         model = spec.profiles.get("constraintMiner", spec.model)
         key = fingerprint({"repository": repository, "commit": task.base_commit, "cutoff": cutoff, "historyVersion": 2, "model": asdict(model), "image": image,
-                           "prompt": mining_prompt(), "limits": [50, 10, 10]})
+                           "prompt": mining_prompt(), "limits": [50, 10, 10], **({'agentArgs': spec.agent_args} if spec.agent_args else {})})
         try:
             return self.db.get_document("constraintPackages", key)
         except KeyError:
@@ -607,13 +622,15 @@ class Workbench:
             return workspace
         pairing = {"task": task.solver_payload(), "model": asdict(spec.model), "resources": asdict(spec.resources),
                    "image": prepared["image"], "dataset": spec.dataset, "envNames": spec.env_names, "harness": prepared["harnessImage"], "graderImage": task.image}
+        if spec.agent_args:
+            pairing['agentArgs'] = spec.agent_args
         workflow = workflow_request(spec.solver_workflow, task.prompt)
         if workflow:
             pairing['workflow'] = workflow
         self.db.update_run(run["id"], "running", {"repository": task.repository, "commit": task.base_commit,
             "startedAt": run.get("startedAt", utc_now()), "contextArtifactId": key,
             "pairingHash": fingerprint(pairing), "promptHash": fingerprint(workflow['steps'] if workflow else task.prompt), "agentImageDigest": prepared["image"],
-            "mock": spec.model.provider == "mock" or not isinstance(self.engine.runner, DockerRunner)})
+            "mock": spec.model.provider == "mock" or not isinstance(self.engine.runner, DockerRunner), "agentArgs": list(spec.agent_args)})
         stage = self._agent(f"solve:{run['id']}", "solve", checkout, task.prompt, spec.model, spec, prepared["image"],
                             context_paths=context_paths, experiment_id=run["experimentId"])
         output = Path(stage["output"])

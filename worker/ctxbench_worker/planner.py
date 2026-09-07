@@ -5,6 +5,7 @@ import random
 
 from .models import ExperimentSpec, PlannedRun
 from .workflows import normalize_workflow
+from .agent_args import normalize_agent_args
 
 
 def validate_experiment(spec: ExperimentSpec) -> list[str]:
@@ -34,6 +35,10 @@ def validate_experiment(spec: ExperimentSpec) -> list[str]:
             normalize_workflow(workflow)
         except ValueError as error:
             errors.append(str(error))
+    try:
+        normalize_agent_args(spec.agent_args)
+    except ValueError as error:
+        errors.append(str(error))
     return errors
 
 

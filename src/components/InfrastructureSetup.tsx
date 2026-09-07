@@ -4,6 +4,7 @@ import { useI18n } from "../i18n";
 import { controlWorker, getDeploymentInfo } from "../lib/desktop";
 import { diagnosticReport, prerequisiteLabels, setupCommands, setupMessage, type DeploymentInfo, type WorkerAction, type WorkerActionResult } from "../lib/infrastructure";
 import { WslDistributionPicker } from "./WslDistributionPicker";
+import { ExternalLink } from "./ExternalLink";
 
 export function InfrastructureSetup({ distribution, onDistribution, onDiagnose, onBusy, diagnosing }: {
   distribution: string; onDistribution: (name: string) => void; onDiagnose: (distribution?: string) => void; onBusy: (busy: boolean) => void; diagnosing: boolean;
@@ -72,7 +73,7 @@ export function InfrastructureSetup({ distribution, onDistribution, onDiagnose, 
       {mode === "offline" ? <div className="setup-guidance">
         <h3>{t("Offline installation")}</h3>
         <ol>
-          <li>{t("On an Internet-connected computer, download all ctxbench-images assets from the same release and copy them into one folder on this computer.")} <a href="https://github.com/mikyan/CTXBenchDesktop/releases" target="_blank" rel="noreferrer">{t("Open release downloads")}</a></li>
+          <li>{t("On an Internet-connected computer, download all ctxbench-images assets from the same release and copy them into one folder on this computer.")} <ExternalLink destination="releases">{t("Open release downloads")}</ExternalLink></li>
           <li>{t("In the selected WSL distribution, change to that folder and run the verification and import commands below. Do not run them in Windows PowerShell.")}</li>
         </ol>
         <CommandBlock label={t("WSL terminal · run inside the offline image folder")} command={"sha256sum --check ctxbench-images-SHA256SUMS\npython3 ctxbench-images.py verify .\npython3 ctxbench-images.py import ."} onCopy={copy} />
@@ -117,7 +118,7 @@ export function InfrastructureSetup({ distribution, onDistribution, onDiagnose, 
           {info?.checks.some((check) => check.id === "data_directory" && !check.ok) && commands.directory && <CommandBlock label={t("Create the missing WSL data directory (requires sudo)")} command={commands.directory} onCopy={copy} />}
           {mode === "online" && <CommandBlock label={t("Build images")} command={commands.build} onCopy={copy} />}
         </> : <p>{t("Choose a distribution and pass the deployment-file check to generate exact commands. No relative-path fallback will be shown.")}</p>}
-        <p><a href="https://learn.microsoft.com/zh-cn/windows/wsl/install" target="_blank" rel="noreferrer">{t("WSL installation guide")}</a> · <a href="https://docs.docker.com/engine/install/ubuntu/" target="_blank" rel="noreferrer">{t("Docker Engine and Compose installation guide")}</a></p>
+        <p><ExternalLink destination="wsl">{t("WSL installation guide")}</ExternalLink> · <ExternalLink destination="docker">{t("Docker Engine and Compose installation guide")}</ExternalLink></p>
         <p>{t("For internal machines, follow your organization's approved installation, registry and certificate policies. Never put credentials in commands you share.")}</p>
       </details>
       {copyMessage && <p role="status">{t(copyMessage)}</p>}

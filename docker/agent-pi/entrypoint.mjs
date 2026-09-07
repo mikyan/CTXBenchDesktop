@@ -3,6 +3,7 @@ import { spawnSync } from "node:child_process";
 import { appendFile, cp, lstat, mkdir, readFile, writeFile } from "node:fs/promises";
 import path from "node:path";
 import { aggregateStats, runPiStep, runStartup } from "./workflow-runtime.mjs";
+import { piAgentArgs, agentArgsReceipt } from "./agent-args.mjs";
 
 const requestPath = "/ctxbench/request.json";
 const outputRoot = "/ctxbench/output";
@@ -35,11 +36,18 @@ if (workflow.version !== 1 || !Array.isArray(workflow.setupCommands) || !Array.i
 const deadline = Date.now() + Math.max(1, request.timeoutSeconds ?? 2700) * 1000;
 const steps = [];
 let cumulativeTokens = 0, workflowError = null, liveWrites = Promise.resolve();
+let argsReceipt = {};
+try {
+  const args = piAgentArgs(request.agentArgs);
+  if (args.some((arg) => redact(arg) !== arg)) throw new Error("Use environment variables for credentials, not startup arguments.");
+  request.agentArgs = Object.freeze(args);
+  argsReceipt = agentArgsReceipt(args);
+} catch (error) { workflowError = String(error.message); }
 const persistWorkflow = () => writeFile(path.join(outputRoot, "workflow.json"), redact(JSON.stringify({
   version: 1, setup: { ...setup, env: undefined, log: undefined }, steps,
   plannedSteps: workflow.steps.length, cumulativeTokens, error: workflowError,
 }, null, 2)), "utf8");
-const setup = await runStartup(workflow.setupCommands, { cwd: workspace, env: process.env, timeoutMs: deadline - Date.now(), redact });
+const setup = await runStartup(workflowError ? [] : workflow.setupCommands, { cwd: workspace, env: process.env, timeoutMs: deadline - Date.now(), redact });
 await writeFile(path.join(outputRoot, "setup.log"), setup.log, "utf8");
 if (!["skipped", "completed"].includes(setup.status)) workflowError = setup.error ?? "Startup commands timed out.";
 if (!workflowError && workflow.setupCommands.length) {
@@ -87,6 +95,7 @@ const exitCode = lastStep?.exitCode ?? setup.exitCode ?? 1;
 await liveWrites;
 await writeFile(path.join(outputRoot, "trajectory.jsonl"), `${trajectory.join("\n")}\n`, "utf8");
 const completion = {
+  ...argsReceipt,
   schemaVersion: 1, budgetProtocolVersion: 1, workflowProtocolVersion: 1, runId: request.runId,
   modelInvocations: steps.length, status: timedOut ? "timed-out" : "failed", exitCode,
   settled, budgetExceeded, budgetInterrupted, cumulativeTokens, sessionStats, promptError,
@@ -158,6 +167,7 @@ if (request.mode === "generate-context") {
 }
 
 const result = {
+  ...argsReceipt,
   schemaVersion: 1,
   budgetProtocolVersion: 1,
   runId: request.runId,

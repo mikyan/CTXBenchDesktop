@@ -31,6 +31,11 @@
 }
 :root:lang(zh-CN) { font-family: Inter, "Microsoft YaHei UI", "Microsoft YaHei", "Segoe UI Variable", "Segoe UI", sans-serif; }
 
+.external-link { position:relative; }
+.external-link-error { display:flex; flex-wrap:wrap; align-items:center; gap:10px; padding:12px; margin:8px 0; border:1px solid #835254; border-radius:6px; background:#291c22; color:#f1dce1; font-size:14px; line-height:1.6; }
+.external-link-error > span, .external-link-error code { flex-basis:100%; overflow-wrap:anywhere; user-select:text; }
+.topbar .external-link-error { position:absolute; top:100%; right:0; width:min(440px,calc(100vw - 48px)); z-index:80; box-shadow:var(--shadow); }
+
 .mono, code, kbd { font-family: "Cascadia Mono", "SFMono-Regular", Consolas, monospace; }
 
 * { box-sizing: border-box; }
@@ -330,7 +335,9 @@ dialog.workbench-dialog::backdrop { background:#02070cba; }
 .environment-names small { color: var(--muted); line-height:1.5; }
 .environment-options { display:flex; flex-wrap:wrap; gap:10px 16px; }
 .environment-options span { overflow-wrap:anywhere; }
-.workflow-editor fieldset, .workflow-command { display:flex; flex-direction:column; gap:12px; min-width:0; }
+.workflow-editor fieldset, .workflow-command, .agent-args-editor, .agent-arg-row { display:flex; flex-direction:column; gap:12px; min-width:0; }
+.agent-args-editor small { display:block; color:var(--muted); font-size:14px; line-height:1.6; }
+.agent-arg-row { padding:12px; border:1px solid var(--line); border-radius:8px; }
 .workflow-editor small { display:block; color: var(--muted); font-size: 14px; line-height:1.5; }
 .workflow-editor textarea[readonly] { color: var(--muted); }
 .workbench-form fieldset { border:1px solid #263b4c; border-radius:8px; padding:16px; }

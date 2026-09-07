@@ -6,6 +6,7 @@
   "additionalProperties": false,
   "required": ["schemaVersion", "runId", "mode", "prompt", "model", "timeoutSeconds"],
   "properties": {
+    "agentArgs": { "type": "array", "maxItems": 128, "items": { "type": "string", "maxLength": 4096, "pattern": "^[^\\u0000-\\u001f\\u007f-\\u009f\\ud800-\\udfff]*$" } },
     "schemaVersion": { "const": 1 },
     "runId": { "type": "string" },
     "mode": { "enum": ["solve", "generate-context", "grade", "mine-constraints", "judge-constraints"] },

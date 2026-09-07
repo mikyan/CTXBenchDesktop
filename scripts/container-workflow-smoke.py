@@ -17,13 +17,14 @@ runner = DockerRunner(root / 'repositories', root / 'runs', root / 'requests', w
 image = os.environ.get('CTXBENCH_WORKFLOW_TEST_IMAGE', 'ctxbench/agent-pi:0.1.0')
 setup = ['python3 -m venv "$HOME/bench-env"', 'source "$HOME/bench-env/bin/activate"',
          'python -m pip install --no-index ./ctxbench_fixture_dependency-0.1-py3-none-any.whl']
+agent_args = ('--tools', 'read, bash, edit, write', '--verbose')
 
 
 def prompt(**fixture):
     return 'CTXBENCH_WORKFLOW_TEST:' + json.dumps(fixture)
 
 
-def run_case(name, mode, workflow=None, max_tokens=10000):
+def run_case(name, mode, workflow=None, max_tokens=10000, args=()):
     workspace = root / 'repositories' / name
     workspace.mkdir()
     (workspace / 'README.md').write_text('Public synthetic baseline.\n')
@@ -37,7 +38,7 @@ def run_case(name, mode, workflow=None, max_tokens=10000):
     output = root / 'runs' / name
     result = runner.run(RunSpec(name, mode, image, str(workspace), str(output), 'Default fixture prompt',
         ModelConfig('mock', 'deterministic', 'off', max_tokens), ResourcePolicy(cpus=1, memory_gb=1, timeout_minutes=1, network='offline'),
-        workflow=workflow or {}))
+        workflow=workflow or {}, agent_args=args))
     metadata = json.loads((output / 'result.json').read_text())
     return result, metadata, output
 
@@ -46,13 +47,15 @@ reports = []
 for mode in ('generate-context', 'solve'):
     first, second = ('.ctx/step-one.md', '.ctx/step-two.md') if mode == 'generate-context' else ('step-one.txt', 'step-two.txt')
     workflow = {'setupCommands': setup, 'steps': [
-        {'name': 'First independent session', 'prompt': prompt(requireDependency=True, writeFile=first)},
-        {'name': 'Second independent session', 'prompt': prompt(requireDependency=True, requireFile=first, writeFile=second)},
+        {'name': 'First independent session', 'prompt': prompt(requireDependency=True, writeFile=first, expectedArgs=agent_args)},
+        {'name': 'Second independent session', 'prompt': prompt(requireDependency=True, requireFile=first, writeFile=second, expectedArgs=agent_args)},
     ]}
-    result, metadata, output = run_case(mode, mode, workflow)
+    result, metadata, output = run_case(mode, mode, workflow, args=agent_args)
     assert result.status == 'completed', f'{mode} failed; inspect {output}'
     assert metadata['modelInvocations'] == 2 and metadata['cumulativeTokens'] == 320
     assert all(step['status'] == 'completed' for step in metadata['workflowSteps'])
+    from worker.ctxbench_worker.agent_args import verify_agent_args_receipt
+    verify_agent_args_receipt(metadata, agent_args)
     records = [json.loads(line) for line in (output / 'trajectory.jsonl').read_text().splitlines() if line]
     assert len({record['sessionPid'] for record in records if record.get('type') == 'agent_start'}) == 2
     assert 'Successfully installed ctxbench-fixture-dependency-0.1' in (output / 'setup.log').read_text()
@@ -92,16 +95,17 @@ commit = seal(source)
 dataset = workbench.catalog.register('Paired workflows', 'custom', [{'id': 'workflow-pair', 'repository': str(source),
     'baseCommit': commit, 'prompt': 'Complete the fixture task', 'image': image,
     'test': {'command': ['python3', '-c', "from pathlib import Path; assert Path('solver-two.txt').is_file()"]}}])
-builder = {'steps': [{'prompt': prompt(writeFile='.ctx/builder-one.md')}, {'prompt': prompt(requireFile='.ctx/builder-one.md', writeFile='.ctx/builder-two.md')}]}
-solver = {'steps': [{'prompt': prompt(writeFile='solver-one.txt')}, {'prompt': prompt(requireFile='solver-one.txt', writeFile='solver-two.txt')}]}
+builder = {'steps': [{'prompt': prompt(writeFile='.ctx/builder-one.md', expectedArgs=agent_args)}, {'prompt': prompt(requireFile='.ctx/builder-one.md', writeFile='.ctx/builder-two.md', expectedArgs=agent_args)}]}
+solver = {'steps': [{'prompt': prompt(writeFile='solver-one.txt', expectedArgs=agent_args)}, {'prompt': prompt(requireFile='solver-one.txt', writeFile='solver-two.txt', expectedArgs=agent_args)}]}
 spec = ExperimentSpec('Workflow pairing', 'custom', dataset['id'], ('none', 'skill-generated'), 2, ('workflow-pair',),
     ModelConfig('mock', 'deterministic', 'off', 10000), image, ResourcePolicy(cpus=1, memory_gb=1, timeout_minutes=1, network='offline'),
-    42, builder_workflow=builder, solver_workflow=solver)
+    42, builder_workflow=builder, solver_workflow=solver, agent_args=agent_args)
 experiment = workbench.create_experiment(spec)
 workbench.run_experiment(experiment['id'])
 runs = engine.database.list_runs(experiment['id'])
 assert len(runs) == 4 and all(run['testsPassed'] for run in runs)
 assert len({run['pairingHash'] for run in runs}) == 1
+assert all(run['agentArgs'] == list(agent_args) for run in runs)
 stages = engine.database.list_documents('stages')
 assert len([stage for stage in stages if stage['id'].startswith('context:')]) == 1
 assert all(stage['metadata']['modelInvocations'] == 2 for stage in stages)

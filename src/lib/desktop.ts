@@ -79,6 +79,7 @@ export async function createExperiment(request: CreateExperimentRequest): Promis
     model: request.model,
     profiles: request.profiles,
     agentImage: request.agentImage,
+    agentArgs: request.agentArgs ?? [],
     resources: request.resources,
     seed: request.seed,
   };

@@ -39,6 +39,25 @@ Fail fast on setup/step failures, enforce the shared token/deadline limits acros
 
 Run `scripts/container-workflow-smoke.py` inside the Worker image with the Docker socket, shared data directory and repository mounted at `/source:ro`. It uses synthetic prompts and an offline fixture wheel, checks generation/solving, fresh sessions, failure stops, shared budgets and paired reuse, and never calls a Provider. `CTXBENCH_WORKFLOW_TEST_IMAGE` optionally selects a test image instead of `ctxbench/agent-pi:0.1.0`. Run `node --test /source/docker/agent-pi/workflow-runtime.integration.mjs` inside the Pi image with the repository mounted read-only to verify timeout/process cleanup and environment transfer. These Linux-only tests are separate from the frontend Vitest suite.
 
+## Optional startup-arguments protocol v1
+
+Experiments, independent `/prepare/context` and `/prepare/constraints` operations, and raw `/runs` requests accept `agentArgs: string[]` (default `[]`). In the desktop, use **New experiment → Runtime and budgets → Agent startup arguments**, or the same field in generation/mining dialogs. Each row is one literal argv element: `--tools` and `read,bash` are two rows. Preserve order, duplicates, Unicode, whitespace and empty strings; do not shell-split, expand variables, evaluate expressions, or add quoting. Startup arguments are different from Bash startup commands. Limits: 128 arguments, 4096 Unicode code points per argument, 32768 in total; control characters and unpaired surrogates are forbidden.
+
+One experiment-wide list applies to builders, solvers, miners, judges and every fresh prompt session. It is persisted for restart/retry and included in generation/miner cache identity and pairing hashes, but never sent to the hidden-test grader. An empty list preserves legacy cache keys and does not require the new capability. Previously frozen manual/imported packages remain explicitly reusable.
+
+The Worker passes non-empty `agentArgs` through the read-only request, **not** as Docker `command` or an entrypoint override. Images supporting this feature must declare `LABEL io.ctxbench.agent-args="1"`. Every successful adapter run must report `agentArgsProtocolVersion: 1` and `agentArgsHash`: lowercase SHA-256 of the UTF-8, compact JSON array (`JSON.stringify(args)` in JavaScript; `json.dumps(args, ensure_ascii=False, separators=(',', ':'))` in Python). Compute the receipt from the actual applied extra argv, after validation. A missing/mismatched receipt or an old image is rejected, not silently treated as a valid run. Custom adapters must reject unsupported options before model calls and must not let options override frozen prompts, models, budgets or isolation policies.
+
+The Pi image additionally declares `io.ctxbench.agent-kind="pi"`. Its pinned CLI supports these extra options here:
+
+- Value options: `--tools` / `-t`, `--exclude-tools` / `-xt`, followed by a separate non-empty tool-list argument (not `--tools=value`).
+- Switches: `--verbose`, `--no-tools` / `-nt`, `--no-builtin-tools` / `-nbt`, `--no-themes`, `--no-context-files` / `-nc`.
+
+`--no-context-files` disables Pi's automatic context-file loading in **both** arms; choose it only when that is the agent behavior you intend to measure. Provider/model/thinking, RPC mode, benchmark prompts, sessions, extensions and Skills remain controlled by the adapter. Unknown flags and positional prompts are rejected before model calls. Company agents may implement their own options under the same image contract; the Pi-specific list does not apply to them.
+
+Arguments are non-secret, persisted configuration. Use selected environment variables for credentials, never `--api-key`, `--token`, etc. The Worker rejects credential flags and configured credential values before persisting argv. No variable interpolation is performed: an internal adapter needing credentials as CLI values must obtain them from its explicitly selected environment at runtime and redact them; such resolved secrets must not enter the request, receipt or artifacts.
+
+Existing installations need an updated Worker **and** rebuilt/imported Pi image for non-empty arguments. From the project or the desktop's staged deployment directory, `docker compose -f docker/compose.yaml --profile build-only build ctxbench-worker agent-pi-image` builds both (check the compose service names before using custom deployments). Restart the Worker only after active jobs finish. Publishing a desktop installer alone does not update an already running Worker or image.
+
 ## Isolation rules
 
 The context-generation Skill is mounted by the worker only when `mode` is `generate-context`; solver images never receive it. Hidden tests, the gold patch, target PR content, and mined constraints belong to evaluator workspaces and must not be copied into agent requests or solver mounts.

@@ -1,5 +1,6 @@
 import { spawn } from "node:child_process";
 import { StringDecoder } from "node:string_decoder";
+import { piAgentArgs } from "./agent-args.mjs";
 
 const killTree = (child) => {
   try { process.kill(-child.pid, "SIGKILL"); } catch { child.kill("SIGKILL"); }
@@ -41,6 +42,8 @@ export async function runPiStep({ request, prompt, env, cwd, timeoutMs, remainin
   } else if (request.mode === "generate-context") {
     args.push("--skill", "/home/ctxbench/.pi/agent/skills/ctxbench-generate-context/SKILL.md");
   }
+  // argv is passed literally: no shell, quoting, interpolation or prompt injection.
+  args.push(...piAgentArgs(request.agentArgs));
   const started = Date.now();
   const agent = spawn(executable, args, { cwd, env, detached: true, stdio: ["pipe", "pipe", "pipe"] });
   const send = (command) => { if (!agent.stdin.destroyed) agent.stdin.write(`${JSON.stringify(command)}\n`); };

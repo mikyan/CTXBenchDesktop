@@ -3,5 +3,16 @@
   "identifier": "default",
   "description": "Default capability for the main CTXBench window",
   "windows": ["main"],
-  "permissions": ["core:default"]
+  "permissions": [
+    "core:default",
+    {
+      "identifier": "opener:allow-open-url",
+      "allow": [
+        { "url": "https://github.com/mikyan/CTXBenchDesktop/releases" },
+        { "url": "https://github.com/mikyan/CTXBenchDesktop" },
+        { "url": "https://learn.microsoft.com/zh-cn/windows/wsl/install" },
+        { "url": "https://docs.docker.com/engine/install/ubuntu/" }
+      ]
+    }
+  ]
 }
