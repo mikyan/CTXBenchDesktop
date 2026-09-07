@@ -1,0 +1,47 @@
+docs/desktop-setup.md
+  s_93c984b7787ad2::t_1d91eaa25feaa0 16-23,49-52
+src-tauri/src/deployment.rs
+  s_93c984b7787ad2::t_cf5c90254ebf38 1,7-8,54,118-122,128-129,144-145,368-373,383-407,429-444,479-484,530-533,539,553-562,565-646
+src-tauri/src/lib.rs
+  s_93c984b7787ad2::t_16f112cf1fc6fb 7,277,282-286
+src-tauri/src/process_stream.rs
+  s_93c984b7787ad2::t_9a8b57d142b33c 1-284
+src-tauri/tests/fixtures/build-progress/docker/Dockerfile
+  s_93c984b7787ad2::t_efeb08a035f80c 1-7
+src-tauri/tests/fixtures/build-progress/docker/compose.yaml
+  s_93c984b7787ad2::t_2ac1de91c02864 1-12
+src/components/ImageBuildProgress.tsx
+  s_93c984b7787ad2::t_604792af52df40 1-47
+src/components/InfrastructureSetup.tsx
+  s_93c984b7787ad2::t_5bd641dda4be39 1,8-9,15,20-25,29-35,52,64,102-103,122
+src/i18n.infrastructure.ts
+  s_93c984b7787ad2::t_f98734600aaab6 25-49
+src/lib/desktop.ts
+  s_93c984b7787ad2::t_763c8d433821ff 1,7,48,51
+src/lib/image-build.test.tsx
+  s_93c984b7787ad2::t_122d33f8edc628 1-111
+src/lib/image-build.ts
+  s_93c984b7787ad2::t_82f0e0b0249009 1-110
+src/lib/infrastructure.ts
+  s_93c984b7787ad2::t_0bad5b7361a6cc 2-7
+src/lib/wsl.test.tsx
+  s_93c984b7787ad2::t_f0cefe87b3c0d2 12,51-65
+src/styles.css
+  s_93c984b7787ad2::t_62202c051a84f7 523-543
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "development:1.7.3",
+  "base_commit_sha": "529f7b28eddb8b9d83738e19a06291b15567d68d",
+  "prompts": {},
+  "sessions": {
+    "s_93c984b7787ad2": {
+      "agent_id": {
+        "tool": "codex",
+        "id": "01a06b4f-963e-70a0-83ed-c8febc51fb4a",
+        "model": "unknown"
+      },
+      "human_author": "AI_BA <ai_ball@outlook.com>"
+    }
+  }
+}
