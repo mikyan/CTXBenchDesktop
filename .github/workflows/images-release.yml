@@ -50,7 +50,7 @@ jobs:
       - uses: actions/upload-artifact@v7
         with:
           name: ctxbench-offline-images-linux-amd64
-          path: artifacts/offline-images/*
+          path: ${{ hashFiles('artifacts/offline-images/*.zip') != '' && 'artifacts/offline-images/*.zip' || 'artifacts/offline-images/*' }}
           if-no-files-found: error
           compression-level: 0
           retention-days: 14
@@ -59,4 +59,4 @@ jobs:
         env:
           GH_TOKEN: ${{ github.token }}
           RELEASE_REPOSITORY: ${{ github.repository }}
-        run: python3 scripts/images-release.py publish artifacts/offline-images --repo "$RELEASE_REPOSITORY" --tag "$RELEASE_TAG"
+        run: python3 scripts/images-release.py publish artifacts/offline-images --repo "$RELEASE_REPOSITORY" --tag "$RELEASE_TAG" --single-file

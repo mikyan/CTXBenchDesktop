@@ -7,12 +7,14 @@ import { WslDistributionPicker } from "./WslDistributionPicker";
 import { ExternalLink } from "./ExternalLink";
 import { imageBuildStore } from "../lib/image-build";
 import { ImageBuildProgress } from "./ImageBuildProgress";
+import { offlineImportStore } from "../lib/offline-import";
+import { OfflineImageImport, OfflineImportProgress } from "./OfflineImageImport";
 
 export function InfrastructureSetup({ distribution, onDistribution, onDiagnose, onBusy, diagnosing }: {
   distribution: string; onDistribution: (name: string) => void; onDiagnose: (distribution?: string) => void; onBusy: (busy: boolean) => void; diagnosing: boolean;
 }) {
   const { t } = useI18n();
-  const [mode, setMode] = useState<"offline" | "online">(() => imageBuildStore.getSnapshot() ? "online" : "offline");
+  const [mode, setMode] = useState<"offline" | "online">(() => imageBuildStore.getSnapshot()?.status === "running" ? "online" : "offline");
   const [shell, setShell] = useState<"wsl" | "powershell">("powershell");
   const [info, setInfo] = useState<DeploymentInfo>();
   const [checking, setChecking] = useState(false);
@@ -20,13 +22,22 @@ export function InfrastructureSetup({ distribution, onDistribution, onDiagnose, 
   const [localAction, setActive] = useState<WorkerAction>();
   const [localResult, setResult] = useState<WorkerActionResult>();
   const build = useSyncExternalStore(imageBuildStore.subscribe, imageBuildStore.getSnapshot, imageBuildStore.getSnapshot);
-  const active = build?.status === "running" ? "build" : localAction;
-  const result = localResult ?? (build?.distribution === distribution ? build.result : undefined);
+  const imported = useSyncExternalStore(offlineImportStore.subscribe, offlineImportStore.getSnapshot, offlineImportStore.getSnapshot);
+  const active = build?.status === "running" ? "build" : imported?.status === "running" ? "import" : localAction;
+  const recent = imported && (!build || imported.startedAt >= build.startedAt) ? imported : build;
+  const result = localResult ?? (recent?.distribution === distribution ? recent.result : undefined);
   const checkedBuild = useRef(0);
+  const checkedImport = useRef(0);
   const [copyMessage, setCopyMessage] = useState("");
   const alive = useRef(true);
   useEffect(() => { alive.current = true; return () => { alive.current = false; }; }, []);
   useEffect(() => { onBusy(Boolean(active)); }, [active, onBusy]);
+  useEffect(() => {
+    if (!imported || imported.status === "running" || checkedImport.current === imported.id || imported.distribution !== distribution) return;
+    checkedImport.current = imported.id;
+    setRefresh((value) => value + 1);
+    onDiagnose(distribution);
+  }, [imported, distribution, onDiagnose]);
   useEffect(() => {
     if (!build || build.status === "running" || checkedBuild.current === build.id || build.distribution !== distribution) return;
     checkedBuild.current = build.id;
@@ -84,22 +95,19 @@ export function InfrastructureSetup({ distribution, onDistribution, onDiagnose, 
         <label><input type="radio" name="setup-mode" checked={mode === "offline"} disabled={Boolean(active)} onChange={() => setMode("offline")} />{t("Internal network / offline images")}</label>
         <label><input type="radio" name="setup-mode" checked={mode === "online"} disabled={Boolean(active)} onChange={() => setMode("online")} />{t("Internet available / build images")}</label>
       </fieldset>
-      {mode === "offline" ? <div className="setup-guidance">
-        <h3>{t("Offline installation")}</h3>
-        <ol>
-          <li>{t("On an Internet-connected computer, download all ctxbench-images assets from the same release and copy them into one folder on this computer.")} <ExternalLink destination="releases">{t("Open release downloads")}</ExternalLink></li>
-          <li>{t("In the selected WSL distribution, change to that folder and run the verification and import commands below. Do not run them in Windows PowerShell.")}</li>
-        </ol>
-        <CommandBlock label={t("WSL terminal · run inside the offline image folder")} command={"sha256sum --check ctxbench-images-SHA256SUMS\npython3 ctxbench-images.py verify .\npython3 ctxbench-images.py import ."} onCopy={copy} />
-        <p>{t("The import script requires Python 3.10 or later inside WSL. If Python is missing, install it from your organization's approved package source first.")}</p>
-        <p>{t("Importing does not start containers. After import, check prerequisites and click Start worker. Do not click Build images offline.")}</p>
-        <p>{t("The image bundle does not include datasets, baseline repositories or per-task test images. Those need separate preparation for an internal network.")}</p>
-      </div> : <div className="setup-guidance">
+      {mode === "offline" ? <OfflineImageImport distribution={distribution} disabled={disabled} state={imported} onBegin={() => setResult(undefined)} /> : <div className="setup-guidance">
         <h3>{t("Online installation")}</h3><p>{t("Build images downloads base images and dependencies and may take several minutes. Check registry access and free disk space first. The build does not start experiments or call a Provider.")}</p>
         <button className="button secondary" disabled={disabled} onClick={() => void action("build")}>{t("Build images")}</button>
       </div>}
 
       {build && <ImageBuildProgress key={build.id} build={build} />}
+      {imported && <OfflineImportProgress key={imported.id} state={imported} />}
+
+      {result && message && <div className={`setup-feedback ${result.ok ? "success" : "error"}`} role={result.ok ? "status" : "alert"}>
+        <h3>{t(message.title)}</h3><p>{t(message.help)}</p>
+        {result.detail && <details open={!result.ok || result.code === "logs"}><summary>{t("Technical details (redacted)")}</summary><pre>{t(result.detail)}</pre></details>}
+        <button className="button secondary" onClick={() => void copy(diagnosticReport(info, result))}><Copy size={16} />{t("Copy diagnostic report")}</button>
+      </div>}
 
       <div className="setup-check-header"><h3>{t("Deployment prerequisites")}</h3><button className="button secondary" disabled={disabled || checking} onClick={() => setRefresh((value) => value + 1)}><RefreshCw size={16} className={checking ? "spin" : ""} />{t("Check prerequisites")}</button></div>
       <p>{t("This check is read-only: it checks the deployment file, Compose, images and data directory without installing or starting containers.")}</p>
@@ -119,12 +127,7 @@ export function InfrastructureSetup({ distribution, onDistribution, onDiagnose, 
 
       <div className="toolbar"><button className="button primary" disabled={disabled} onClick={() => void action("start")}>{t("Start worker")}</button><button className="button secondary" disabled={disabled} onClick={() => void action("logs")}>{t("Read container logs")}</button><button className="button tertiary" disabled={disabled} onClick={() => void action("stop")}>{t("Stop worker")}</button></div>
       <p>{t("Start worker uses local images only: no build, no pull. Stop worker does not delete stored data. Pause active experiments before stopping or replacing the worker.")}</p>
-      {active && active !== "build" && <div className="setup-callout" role="status"><LoaderCircle className="spin" size={18} /><span>{t(active === "start" ? "Starting containers and waiting for the worker health check…" : "Reading or updating containers…")}</span></div>}
-      {result && message && <div className={`setup-feedback ${result.ok ? "success" : "error"}`} role={result.ok ? "status" : "alert"}>
-        <h3>{t(message.title)}</h3><p>{t(message.help)}</p>
-        {result.detail && <details open={!result.ok || result.code === "logs"}><summary>{t("Technical details (redacted)")}</summary><pre>{t(result.detail)}</pre></details>}
-        <button className="button secondary" onClick={() => void copy(diagnosticReport(info, result))}><Copy size={16} />{t("Copy diagnostic report")}</button>
-      </div>}
+      {active && active !== "build" && active !== "import" && <div className="setup-callout" role="status"><LoaderCircle className="spin" size={18} /><span>{t(active === "start" ? "Starting containers and waiting for the worker health check…" : "Reading or updating containers…")}</span></div>}
       <details className="setup-manual"><summary><FileCode size={18} /> {t("Manual commands and troubleshooting")}</summary>
         <p>{t("Commands below use the detected absolute path, so your current directory does not matter. Do not replace compose.yaml with compose.yml.")}</p>
         <label>{t("Where will you run the command?")}<select value={shell} onChange={(event) => setShell(event.target.value as "wsl" | "powershell")}><option value="powershell">Windows PowerShell</option><option value="wsl">{t("Selected WSL terminal")}</option></select></label>

@@ -274,6 +274,24 @@ async fn get_deployment_info(app: tauri::AppHandle, distribution: String) -> Res
 }
 
 #[tauri::command]
+async fn select_offline_bundle() -> Result<Option<String>, String> {
+    tauri::async_runtime::spawn_blocking(|| {
+        rfd::FileDialog::new().add_filter("CTXBench offline images ZIP / legacy manifest", &["zip", "json"])
+            .pick_file().map(|path| path.display().to_string())
+    }).await.map_err(|error| error.to_string())
+}
+
+#[tauri::command]
+async fn import_offline_images(app: tauri::AppHandle, distribution: String, package_path: String, on_progress: tauri::ipc::Channel<process_stream::BuildProgress>) -> Result<deployment::ActionResult, String> {
+    let root = deployment_root(&app)?;
+    let distribution = distribution.trim().to_string();
+    if distribution.is_empty() { return Err("Select an installed WSL distribution first.".into()); }
+    let version = app.package_info().version.to_string();
+    tauri::async_runtime::spawn_blocking(move || deployment::import_images(&root, &distribution, std::path::Path::new(&package_path), &version, |event| { let _ = on_progress.send(event); }))
+        .await.map_err(|_| "Offline import connection lost; check Docker before retrying.".to_string())
+}
+
+#[tauri::command]
 async fn worker_control(app: tauri::AppHandle, webview: tauri::Webview, action: String, distribution: String, on_progress: Option<tauri::ipc::JavaScriptChannelId>) -> Result<deployment::ActionResult, String> {
     let root = deployment_root(&app)?;
     let distribution = distribution.trim().to_string();
@@ -339,7 +357,7 @@ pub fn run() {
             list_wsl_distributions,
             get_deployment_info,
             create_experiment
-            ,worker_request, save_export, worker_control
+            ,worker_request, save_export, worker_control, select_offline_bundle, import_offline_images
         ])
         .run(tauri::generate_context!())
         .expect("error while running CTXBench Desktop");

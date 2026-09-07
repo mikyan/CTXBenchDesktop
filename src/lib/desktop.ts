@@ -51,6 +51,17 @@ export async function controlWorker(action: WorkerAction, distribution = savedDi
   return invoke<WorkerActionResult>("worker_control", { action, distribution: distribution.trim(), ...(onProgress ? { onProgress: new Channel<BuildProgressEvent>(onProgress) } : {}) });
 }
 
+export async function selectOfflineBundle(): Promise<string | null> {
+  if (!isTauri()) throw new Error("Offline image import requires the desktop application.");
+  return invoke<string | null>("select_offline_bundle");
+}
+
+export async function importOfflineImages(distribution: string, packagePath: string, onProgress: (event: BuildProgressEvent) => void): Promise<WorkerActionResult> {
+  if (!isTauri()) throw new Error("Offline image import requires the desktop application.");
+  if (!distribution.trim()) throw new Error("Select an installed WSL distribution first.");
+  return invoke<WorkerActionResult>("import_offline_images", { distribution: distribution.trim(), packagePath, onProgress: new Channel<BuildProgressEvent>(onProgress) });
+}
+
 export async function diagnoseEnvironment(distribution = savedDistribution()): Promise<DiagnosticItem[]> {
   if (isTauri()) return invoke<DiagnosticItem[]>("diagnose_environment", { distribution: distribution.trim() || null });
   const health = await workerRequest<{ version: string; runner: string }>("/health");

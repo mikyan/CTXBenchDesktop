@@ -7,6 +7,8 @@ use std::path::Path;
 use std::sync::{Mutex, OnceLock};
 use std::time::{Duration, Instant};
 
+static MUTATION: Mutex<()> = Mutex::new(());
+
 #[derive(Debug, Serialize)]
 #[serde(rename_all = "camelCase")]
 pub struct ActionResult {
@@ -380,7 +382,6 @@ pub fn control(
             command: None,
         };
     }
-    static MUTATION: Mutex<()> = Mutex::new(());
     let _guard = if action == "logs" {
         None
     } else {
@@ -457,9 +458,195 @@ pub fn control(
     }
 }
 
+pub fn offline_import_args(tool: &str, package: &str, version: &str) -> Vec<String> {
+    [
+        "python3",
+        "-I",
+        "-u",
+        tool,
+        "import",
+        package,
+        "--expected-version",
+        version,
+        "--progress-json",
+        "--require-stopped",
+    ]
+    .iter()
+    .map(|value| value.to_string())
+    .collect()
+}
+
+fn offline_error_code(detail: &str) -> String {
+    // Helper errors share a "bundle" prefix; preserve actionable OS/Docker failures.
+    let infrastructure = classify_error(detail, "action");
+    if detail.contains("Version mismatch") {
+        "bundle_version".into()
+    } else if detail.contains("Active CTXBench containers") {
+        "worker_running".into()
+    } else if infrastructure != "action" {
+        infrastructure
+    } else if [
+        "ZIP",
+        "checksum",
+        "SHA-256",
+        "bundle",
+        "Bundle",
+        "manifest",
+        "Manifest",
+        "archive part",
+    ]
+    .iter()
+    .any(|part| detail.contains(part))
+    {
+        "bundle_invalid".into()
+    } else {
+        classify_error(detail, "action")
+    }
+}
+
+pub fn import_images(
+    root: &Path,
+    distribution: &str,
+    package: &Path,
+    version: &str,
+    mut progress: impl FnMut(BuildProgress),
+) -> ActionResult {
+    let secrets = secret_values(root);
+    let fail = |code: &str, detail: String| ActionResult {
+        ok: false,
+        code: code.into(),
+        detail: redact(&detail, &secrets),
+        command: None,
+    };
+    let _guard = match MUTATION.try_lock() {
+        Ok(guard) => guard,
+        Err(_) => {
+            return fail(
+                "action",
+                "Another infrastructure action is still running.".into(),
+            );
+        }
+    };
+    let started = Instant::now();
+    progress(BuildProgress {
+        phase: "checking",
+        lines: vec![],
+        elapsed_ms: 0,
+        last_output_ms: None,
+    });
+    if !package.is_absolute()
+        || !package.is_file()
+        || !(package
+            .extension()
+            .is_some_and(|ext| ext.eq_ignore_ascii_case("zip"))
+            || package
+                .file_name()
+                .is_some_and(|name| name == "ctxbench-images-manifest.json"))
+    {
+        return fail(
+            "bundle_invalid",
+            "Select an offline images ZIP or the legacy ctxbench-images-manifest.json file.".into(),
+        );
+    }
+    // Only our installed importer is executed; scripts inside a user-supplied ZIP are data.
+    let tool = root.join("scripts/images-release.py");
+    if !tool.is_file() {
+        return fail("offline_tool", tool.display().to_string());
+    }
+    if let Err(error) = wsl::output(
+        distribution,
+        &[
+            "python3",
+            "-I",
+            "-c",
+            "import sys; assert sys.version_info >= (3,10), 'Python 3.10+ required'",
+        ],
+    ) {
+        return fail("python", error);
+    }
+    let translate = |path: &Path| -> Result<String, String> {
+        let translated = wsl::output(
+            distribution,
+            &["wslpath", "-a", &path.display().to_string()],
+        )?;
+        if !translated.starts_with('/') || translated.contains(['\r', '\n']) {
+            return Err("WSL returned an invalid file path.".into());
+        }
+        wsl::output(distribution, &["test", "-r", &translated])?;
+        Ok(translated)
+    };
+    let tool = match translate(&tool) {
+        Ok(path) => path,
+        Err(error) => return fail("wsl_path", error),
+    };
+    let package = match translate(package) {
+        Ok(path) => path,
+        Err(error) => return fail("wsl_path", error),
+    };
+    let args = offline_import_args(&tool, &package, version);
+    let mut process = std::process::Command::new("wsl.exe");
+    process
+        .args(["--distribution", distribution, "--exec"])
+        .args(&args);
+    match process_stream::run(
+        &mut process,
+        Duration::from_secs(3600),
+        started,
+        |line| redact(line, &secrets),
+        &mut progress,
+    ) {
+        Ok(detail) => ActionResult {
+            ok: true,
+            code: "images_import".into(),
+            detail,
+            command: None,
+        },
+        Err(detail) => fail(&offline_error_code(&detail), detail),
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn offline_import_uses_only_installed_tool_and_literal_arguments() {
+        let args = offline_import_args(
+            "/mnt/c/Program Files/CTXBench/scripts/images-release.py",
+            "/mnt/d/离线 包/pkg';echo.zip",
+            "0.1.2",
+        );
+        assert_eq!(&args[..3], ["python3", "-I", "-u"]);
+        assert_eq!(args[5], "/mnt/d/离线 包/pkg';echo.zip");
+        assert!(args.contains(&"--require-stopped".into()));
+        assert!(args.contains(&"--expected-version".into()));
+        assert!(
+            !args
+                .iter()
+                .any(|value| value == "bash" || value.ends_with("ctxbench-images.py"))
+        );
+        assert_eq!(
+            offline_error_code("Version mismatch: package v0.1.0"),
+            "bundle_version"
+        );
+        assert_eq!(
+            offline_error_code("Active CTXBench containers detected"),
+            "worker_running"
+        );
+        assert_eq!(offline_error_code("SHA-256 mismatch"), "bundle_invalid");
+        assert_eq!(
+            offline_error_code("Image bundle error: permission denied"),
+            "permission"
+        );
+        assert_eq!(
+            offline_error_code("Image bundle error: no space left on device"),
+            "disk_space"
+        );
+        assert_eq!(
+            offline_error_code("Image bundle error: operation timed out"),
+            "timeout"
+        );
+    }
 
     #[test]
     fn startup_is_offline_and_preserves_absolute_paths() {
@@ -561,6 +748,35 @@ mod tests {
                 .any(|check| check.id == "compose" && check.ok)
         );
         println!("{}", serde_json::to_string(&info).unwrap());
+    }
+
+    #[test]
+    #[cfg(windows)]
+    #[ignore = "requires Ubuntu WSL Python; rejects a corrupt ZIP without mutating Docker"]
+    fn real_offline_import_rejects_corruption_through_wsl() {
+        let root = Path::new(env!("CARGO_MANIFEST_DIR")).parent().unwrap();
+        let folder =
+            std::env::temp_dir().join(format!("ctxbench 离线 test {}", uuid::Uuid::new_v4()));
+        std::fs::create_dir(&folder).unwrap();
+        let package = folder.join("invalid package.zip");
+        std::fs::write(&package, b"This is not an archive").unwrap();
+        let mut events = Vec::new();
+        let result = import_images(root, "Ubuntu", &package, "0.1.2", |event| {
+            events.push(event)
+        });
+        // Only this test's two explicit temporary paths are removed.
+        std::fs::remove_file(package).unwrap();
+        std::fs::remove_dir(folder).unwrap();
+        assert!(!result.ok, "{result:?}");
+        assert_eq!(result.code, "bundle_invalid", "{result:?}");
+        assert!(result.detail.contains("not a zip file"), "{result:?}");
+        assert!(events.iter().any(|event| event.phase == "checking"));
+        assert!(
+            events
+                .iter()
+                .flat_map(|event| &event.lines)
+                .any(|line| line.contains("Image bundle error"))
+        );
     }
 
     #[test]

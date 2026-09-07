@@ -17,6 +17,12 @@ export interface DeploymentInfo {
 }
 
 export const setupMessages: Record<string, { title: string; help: string }> = {
+  images_import: { title: "Offline images imported", help: "Next, click Start worker. No images were downloaded or built, and no containers were started. Existing image tags were preserved as backups." },
+  bundle_invalid: { title: "The offline package is invalid or incomplete", help: "Choose the original offline images ZIP from the matching release, not the Windows installer or source-code ZIP. For legacy bundles, keep all parts together and select ctxbench-images-manifest.json. Redownload damaged or missing files." },
+  bundle_version: { title: "The offline package version does not match", help: "Use a desktop installer and offline images package from the same release. Do not mix versions; download the matching package and retry." },
+  python: { title: "Python is unavailable in the selected WSL", help: "Install Python 3.10 or later in this WSL distribution using your organization's approved source. No pip packages are needed for offline import." },
+  offline_tool: { title: "The packaged offline importer is missing", help: "Reinstall the complete desktop application. The trusted importer must be present at deployment/scripts/images-release.py; scripts inside the downloaded package are never executed." },
+  worker_running: { title: "Stop CTXBench before importing images", help: "Pause active experiments and stop the worker, then retry. Import will not stop containers automatically or change an active experiment's runtime images." },
   compose_file: { title: "Deployment file not found", help: "The installer must include deployment/docker/compose.yaml next to the application. Reinstall the complete desktop package; do not move only the executable. The filename ends in .yaml, not .yml." },
   wsl_path: { title: "WSL cannot access the deployment file", help: "Check that the selected distribution can access the Windows installation drive. Use the absolute path shown below; a relative docker/compose.yaml path only works from the deployment directory." },
   compose: { title: "Docker Compose is unavailable", help: "Docker Engine and Docker Compose are separate checks. Install the Compose plugin inside the selected WSL distribution using your organization's approved package source, then check again." },

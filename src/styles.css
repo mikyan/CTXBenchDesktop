@@ -541,3 +541,10 @@ dialog.workbench-dialog::backdrop { background:#02070cba; }
 .image-build-transfer { overflow-wrap:anywhere; font-size:14px; }
 @keyframes build-pending { to { background-position:80px 0; } }
 @media(prefers-reduced-motion: reduce) { .image-build-progress progress:indeterminate { animation:none; } }
+.offline-import-steps { display:grid; gap:18px; padding-left:24px; }
+.offline-import-steps li { padding-left:4px; }
+.offline-import-steps strong { font-size:16px; }
+.offline-import-steps p { margin:8px 0; }
+.setup-panel .offline-confirm { display:flex; flex-direction:row; align-items:flex-start; gap:10px; margin:16px 0; line-height:1.6; }
+.setup-panel .offline-confirm input { width:18px; height:18px; min-height:18px; flex:0 0 18px; margin:2px 0 0; padding:0; accent-color:var(--cyan); }
+.offline-selected-path { white-space:pre-wrap; overflow-wrap:anywhere; padding:12px; color:var(--text); background:#080d13; font-size:14px; border-radius:6px; }

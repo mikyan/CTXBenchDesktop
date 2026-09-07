@@ -8,10 +8,14 @@ WSL、发行版、Docker Engine 三项通过，只说明基础环境就绪。CTX
 
 1. 选择正确的 WSL2 发行版。Docker Engine 与 Compose 插件均须安装在这个发行版中。
 2. 选择镜像准备方式。内网模式默认不显示构建按钮；Windows 安装包只包含部署源码，不包含 Docker 镜像。
-3. 内网安装：在外网下载同一版本的全部 `ctxbench-images-*` 附件，在所选 WSL 中进入镜像文件夹，依次执行页面中的校验、验证、导入命令。命令要求 Python 3.10+ 和 Docker；请使用公司认可的安装来源。导入不会自动启动服务。替换已有镜像前应先暂停实验并停止相关服务。
+3. 内网安装：首次安装下载两个文件——Windows 安装程序和同版本的 **`ctxbench-images-v版本号-linux-amd64.zip`**；已有桌面软件只需下载镜像 ZIP。软件会显示应下载的完整文件名。点击 **选择离线镜像 ZIP 包**，确认来源可信且已暂停实验、停止工作节点，再点 **校验并导入镜像**。不用解压、下载独立校验文件或输入命令。所选 WSL 仍须安装 Python 3.10+ 和 Docker；请使用公司认可的安装来源。
 4. 点击 **检查启动条件**。依次确认部署文件、Compose、四个应用镜像和 WSL 数据目录。缺少数据目录时，手动命令区会生成针对实际目录的创建命令，不会自动删除或修改已有数据。
 5. 点击 **启动工作节点**。启动明确使用 `--no-build --pull never`，不会隐式联网构建或下载。只有 Windows 端健康检查通过才提示启动成功。
 6. 成功后再配置 Agent 环境变量、评测集和基线资源。离线应用镜像不包含数据集、基线仓库或用例测试镜像，详见 [离线镜像说明](offline-images.md)。
+
+离线导入会显示校验、传输、Docker 解包、注册镜像的阶段进度。传输完成不等于导入完成；解包阶段可能暂时没有输出。保持应用开启，切换页面再回来仍可查看。失败后保留处理建议与有限的脱敏日志；版本不匹配、包损坏、Worker/评测容器仍运行时会拦截。导入程序来自桌面安装目录，不执行 ZIP 内脚本，也不自动停止/启动容器。
+
+已有旧分片包时，将全部配套文件放在同一个目录，使用同一个选择文件按钮改选 `ctxbench-images-manifest.json`。超过单文件限制的包继续采用分片方式。已发布的 v0.1.2 及更早桌面版本没有此选择文件入口，须升级到包含此功能的安装版；旧版手动命令见离线镜像说明。
 
 ### 在线构建进度
 
@@ -52,7 +56,9 @@ Logs support auto-follow and copy, retaining at most 500 recent lines / 100,000 
 
 WSL and Docker readiness do not imply that the CTXBench worker is installed. In **Infrastructure → Install and start the worker**, select one WSL2 distribution, prepare the matching images, check prerequisites, and start the worker. Docker Engine and the Compose plugin must both be available in that distribution. No Provider key is required for setup.
 
-The default offline path guides verification/import of the separate image bundle. Online builds are an explicit alternative. Startup uses local images only (`--no-build --pull never`) and reports success only after Windows can reach the worker health endpoint. Missing files, Compose, images, data mounts, permissions, port conflicts and unreachable workers have distinct next steps and redacted technical details.
+The default offline path needs **one images ZIP** after installing the desktop (two downloads on a fresh machine: installer + ZIP). Select the ZIP, confirm a trusted source and stopped worker, then click **Verify and import images**. The app displays the expected filename/version, verifies every checksum before loading, shows stage-specific progress, and runs only its installed importer—not scripts inside the ZIP. No extraction or shell commands are needed. Python 3.10+ and Docker must already be installed in the selected WSL. To use an old split package, keep all files together and select its `ctxbench-images-manifest.json`. Released desktops v0.1.2 and earlier do not have this picker; upgrade to a release containing it.
+
+Online builds remain an explicit alternative. Import never starts/stops containers and refuses active workers/benchmark containers. Startup uses local images only (`--no-build --pull never`) and reports success only after Windows can reach the worker health endpoint. Missing files, Compose, images, data mounts, permissions, port conflicts and unreachable workers have distinct next steps and redacted technical details.
 
 The installed Compose file is `<installation directory>/deployment/docker/compose.yaml`. Manual commands use detected absolute paths and can be copied for either PowerShell or the selected WSL shell. Do not move only the executable, guess relative paths, or change `.yaml` to `.yml`. Read container logs and copy the limited diagnostic report for support; review it before sharing and never include credentials or `.env` files.
 

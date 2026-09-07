@@ -117,7 +117,7 @@ docker compose -f docker/compose.yaml up -d ctxbench-worker
 python3 scripts/images-release.py pack --version v0.1.0 --output artifacts/images-v0.1.0
 ```
 
-GitHub Actions 的 **Offline Docker images** 支持手动构建下载；发布 Release 时会基于对应标签构建并上传独立镜像附件。包内包含 gzip 分片、SHA-256、镜像清单、中英文说明、自包含导入器和禁止联网构建/拉取的 Compose 文件。仅包含四个应用镜像，不包含用例镜像或数据。内网导入、发布权限、版本匹配和使用示例见[离线镜像发布说明](docs/offline-images.md)。
+GitHub Actions 的 **Offline Docker images** 支持手动构建下载；从 v0.1.3 起，Release 默认只需下载一个 `ctxbench-images-v版本号-linux-amd64.zip` 镜像附件。首次安装另需 Windows 安装程序；已有桌面软件只需镜像 ZIP。在 **基础设施 → 离线安装** 选择文件后，软件自动校验并导入，显示阶段进度，无需解压或输入命令；WSL 仍须已有 Python 3.10+ 和 Docker。超过单文件限制时保留分片方式，旧包可选择清单文件导入。已发布 v0.1.2 及更早桌面版需升级才有此入口。包内仅有四个应用镜像，不包含用例镜像或数据。版本匹配、兼容导入和发布说明见[离线镜像发布说明](docs/offline-images.md)。
 
 Agent 容器没有 Docker socket，只接收白名单环境变量。可信评分监督进程可下载或构建环境；正式测试子容器断网并限制 CPU / 内存。官方测试选择及评分规则保留。
 

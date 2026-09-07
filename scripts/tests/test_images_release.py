@@ -12,6 +12,9 @@ import tempfile
 import unittest
 from unittest.mock import patch
 import uuid
+import zipfile
+import stat
+import contextlib
 
 SCRIPT = Path(__file__).resolve().parents[1] / "images-release.py"
 spec = importlib.util.spec_from_file_location("images_release", SCRIPT)
@@ -56,6 +59,155 @@ class LoadProcess:
 
 
 class BundleTests(unittest.TestCase):
+    def test_single_zip_contains_everything_and_never_extracts_or_executes_helper(self):
+        manifest = self.make_bundle()
+        archive = self.folder / release.single_file_name(manifest["version"])
+        with zipfile.ZipFile(archive) as zipped:
+            self.assertEqual(set(zipped.namelist()), set(release.bundle_files(manifest)))
+            self.assertTrue(all(info.compress_type == zipfile.ZIP_STORED for info in zipped.infolist()))
+        moved = self.root / "Chinese 离线 bundle.zip"
+        archive.rename(moved)
+        with patch.object(release, "command") as command:
+            self.assertEqual(release.verify(moved), manifest)
+            command.assert_not_called()
+        self.assertEqual(release.verify(self.folder / release.MANIFEST), manifest)
+        self.assertFalse((self.root / release.HELPER).exists())
+
+    def test_zip_rejects_unsafe_entries_and_bombs_before_docker(self):
+        manifest = self.make_bundle()
+        valid = self.folder / release.single_file_name(manifest["version"])
+        for kind in ("path", "duplicate", "symlink", "compressed", "unexpected", "missing"):
+            path = self.root / f"{kind}.zip"
+            with zipfile.ZipFile(valid) as original, zipfile.ZipFile(path, "w") as corrupt:
+                for name in original.namelist():
+                    if kind == "missing" and name == manifest["parts"][0]["name"]:
+                        continue
+                    corrupt.writestr(name, original.read(name))
+                entry = zipfile.ZipInfo("extra.txt")
+                if kind == "path": entry.filename = "../escape.py"
+                if kind == "duplicate": entry.filename = release.MANIFEST
+                if kind == "symlink": entry.external_attr = (stat.S_IFLNK | 0o777) << 16
+                if kind == "compressed": entry.compress_type = zipfile.ZIP_DEFLATED
+                if kind != "missing": corrupt.writestr(entry, b"ignored")
+            with self.subTest(kind=kind), patch.object(release, "command") as docker:
+                with self.assertRaises(ValueError): release.import_bundle(path)
+                docker.assert_not_called()
+
+    def test_zip_corruption_version_mismatch_and_oversized_metadata_precede_mutation(self):
+        manifest = self.make_bundle()
+        archive = self.folder / release.single_file_name(manifest["version"])
+        with patch.object(release, "command") as docker:
+            with self.assertRaisesRegex(ValueError, "Version mismatch"):
+                release.import_bundle(archive, expected_version="v0.2.0")
+            docker.assert_not_called()
+        damaged = self.root / "damaged.zip"
+        with zipfile.ZipFile(archive) as original, zipfile.ZipFile(damaged, "w") as changed:
+            for name in original.namelist():
+                data = original.read(name)
+                if name == manifest["parts"][0]["name"]: data = data[:-1] + bytes([data[-1] ^ 1])
+                changed.writestr(name, data)
+        with patch.object(release, "command") as docker:
+            with self.assertRaisesRegex(ValueError, "SHA-256"):
+                release.import_bundle(damaged)
+            docker.assert_not_called()
+        (self.folder / release.MANIFEST).write_bytes(b"x" * (release.MAX_METADATA + 1))
+        with self.assertRaisesRegex(ValueError, "metadata is too large"):
+            release.verify(self.folder)
+
+    def test_single_file_zip_limit_and_exclusive_creation(self):
+        manifest = self.make_bundle()
+        archive = self.folder / release.single_file_name(manifest["version"])
+        with self.assertRaises(FileExistsError): release.create_single_file(self.folder)
+        original_verify = release.verify
+        with patch.object(release, "verify", return_value=original_verify(self.folder)), patch.object(release, "ASSET_LIMIT", 1024):
+            with self.assertRaisesRegex(ValueError, "2 GiB"):
+                release.create_single_file(self.folder, self.root / "too-large.zip")
+        self.assertTrue(archive.is_file())
+
+    def test_running_worker_blocks_zip_import_before_tag_or_load(self):
+        manifest = self.make_bundle()
+        for running in (["running-worker"], ["", "running-agent"]):
+            with self.subTest(running=running), patch.object(release, "command", side_effect=[json.dumps({"OSType": "linux", "Architecture": "amd64"}), *running]) as command, patch.object(release.subprocess, "Popen") as start:
+                with self.assertRaisesRegex(ValueError, "Active CTXBench"):
+                    release.import_bundle(self.folder / release.single_file_name(manifest["version"]), require_stopped=True)
+                self.assertTrue(all(call.args[1] in ("info", "ps") for call in command.call_args_list))
+                start.assert_not_called()
+
+    def test_zip_import_streams_bytes_and_stage_progress(self):
+        manifest = self.make_bundle()
+        def docker(*args, **kwargs):
+            if args[1] == "info": return json.dumps({"OSType": "linux", "Architecture": "amd64"})
+            return ""
+        process = LoadProcess()
+        output = io.StringIO()
+        with patch.object(release, "command", side_effect=docker), patch.object(release.subprocess, "Popen", return_value=process), contextlib.redirect_stdout(output):
+            release.import_bundle(self.folder / release.single_file_name(manifest["version"]), release.Progress(True), "0.1.0", require_stopped=True)
+        self.assertEqual(process.stdin.saved, b"".join((self.folder / part["name"]).read_bytes() for part in manifest["parts"]))
+        events = [json.loads(line[len(release.PROGRESS_PREFIX):]) for line in output.getvalue().splitlines() if line.startswith(release.PROGRESS_PREFIX)]
+        self.assertEqual(set(event["phase"] for event in events), {"verify", "load", "unpack", "register", "complete"})
+        self.assertEqual(events[-1], {"phase": "complete", "completed": 4, "total": 4})
+
+    def test_publish_single_zip_only_and_reject_stale_wrapper(self):
+        self.publishable()
+        archive = self.folder / release.single_file_name("v0.1.0")
+        calls = []
+        def gh(*args, **kwargs):
+            calls.append(args)
+            return json.dumps({"assets": []} if "/releases/" in args[2] else {"sha": self.source["commit"]}) if args[1] == "api" else ""
+        with patch.object(release, "command", side_effect=gh):
+            with self.assertRaisesRegex(ValueError, "manifests differ"):
+                release.publish(self.folder, "owner/repo", "v0.1.0", single_file=True)
+        # Only the generated fixture wrapper is replaced, not a published artifact.
+        archive.unlink()
+        release.create_single_file(self.folder)
+        calls.clear()
+        with patch.object(release, "command", side_effect=gh):
+            release.publish(self.folder, "owner/repo", "v0.1.0", single_file=True)
+        uploads = [call for call in calls if call[1:3] == ("release", "upload")]
+        self.assertEqual(len(uploads), 1)
+        self.assertEqual(Path(uploads[0][4]), archive)
+
+    def test_single_zip_publication_resumes_identical_asset_without_overwrite(self):
+        self.publishable()
+        archive = self.folder / release.single_file_name("v0.1.0")
+        archive.unlink()
+        release.create_single_file(self.folder)
+        for checksum in (release.digest(archive), "bad"):
+            asset = {"name": archive.name, "digest": "sha256:" + checksum, "size": archive.stat().st_size}
+            with self.subTest(checksum=checksum), patch.object(release, "command", side_effect=[json.dumps({"assets": [asset]}), json.dumps({"sha": self.source["commit"]})]) as command:
+                if checksum == "bad":
+                    with self.assertRaisesRegex(ValueError, "not overwritten"):
+                        release.publish(self.folder, "owner/repo", "v0.1.0", single_file=True)
+                else:
+                    release.publish(self.folder, "owner/repo", "v0.1.0", single_file=True)
+                self.assertEqual(command.call_count, 2)
+
+    def test_publish_original_zip_from_actions_without_extracting_it(self):
+        self.publishable()
+        archive = self.folder / release.single_file_name("v0.1.0")
+        archive.unlink()
+        release.create_single_file(self.folder)
+        moved = self.root / archive.name
+        archive.rename(moved)
+        def gh(*args, **kwargs):
+            return json.dumps({"assets": []} if "/releases/" in args[2] else {"sha": self.source["commit"]}) if args[1] == "api" else ""
+        with patch.object(release, "command", side_effect=gh) as command:
+            release.publish(moved, "owner/repo", "v0.1.0")
+        uploads = [call for call in command.call_args_list if call.args[1:3] == ("release", "upload")]
+        self.assertEqual(len(uploads), 1)
+        self.assertEqual(Path(uploads[0].args[4]), moved)
+
+    def test_publication_falls_back_to_parts_when_no_single_zip_exists(self):
+        self.publishable()
+        (self.folder / release.single_file_name("v0.1.0")).unlink()
+        def gh(*args, **kwargs):
+            return json.dumps({"assets": []} if "/releases/" in args[2] else {"sha": self.source["commit"]}) if args[1] == "api" else ""
+        with patch.object(release, "command", side_effect=gh) as command:
+            release.publish(self.folder, "owner/repo", "v0.1.0", single_file=True)
+        uploads = [call for call in command.call_args_list if call.args[1:3] == ("release", "upload")]
+        self.assertEqual(len(uploads), 6)
+        self.assertFalse(any("--clobber" in call.args for call in uploads))
+
     def test_compose_config_keeps_host_paths_and_credentials_unresolved(self):
         with patch.object(release, "command", return_value=json.dumps(fixture_config())) as run:
             config = release.compose_config(Path("/source checkout"))
@@ -359,7 +511,7 @@ class DockerRoundtrip(unittest.TestCase):
                 self.assertGreaterEqual(len(manifest["parts"]), 3)
                 # Only this test's randomly named tags are removed, never production images.
                 release.command("docker", "image", "rm", *refs)
-                release.import_bundle(args.output)
+                release.import_bundle(args.output / release.single_file_name("test-roundtrip"), release.Progress(True), "test-roundtrip")
                 for ref in refs:
                     release.command("docker", "image", "inspect", "--format", "{{.Id}}", ref, capture=True)
             finally:

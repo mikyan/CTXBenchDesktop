@@ -52,7 +52,9 @@ describe("deployment guidance", () => {
       }));
       expect(html).toContain(translate(locale, "Offline installation"));
       expect(html).toContain(translate(locale, "Read container logs"));
-      expect(html).toContain("ctxbench-images.py verify .");
+      expect(html).toContain(translate(locale, "Select offline images ZIP"));
+      expect(html).toContain("ctxbench-images-manifest.json");
+      expect(html).not.toContain("ctxbench-images.py verify .");
       expect(html).not.toContain("docker compose -f docker/compose.yaml");
       expect(html).not.toContain(`>${translate(locale, "Build images")}</button>`);
     }
