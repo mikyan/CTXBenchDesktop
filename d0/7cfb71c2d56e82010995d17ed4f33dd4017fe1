@@ -1,0 +1,35 @@
+src-tauri/tauri.conf.json
+  s_160ecc294b79e0::t_a6b0c6d41d835c 4
+src-tauri/Cargo.toml
+  s_160ecc294b79e0::t_a6b0c6d41d835c 3
+package.json
+  s_160ecc294b79e0::t_a6b0c6d41d835c 4
+package-lock.json
+  s_93c984b7787ad2::t_7f5c9eb84a43b2 3,9
+src-tauri/Cargo.lock
+  s_93c984b7787ad2::t_c17202f4a6f68d 725
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "development:1.7.3",
+  "base_commit_sha": "d07cfb71c2d56e82010995d17ed4f33dd4017fe1",
+  "prompts": {},
+  "sessions": {
+    "s_160ecc294b79e0": {
+      "agent_id": {
+        "tool": "codex",
+        "id": "01a06b47-944f-76f3-8380-74bb83cda689",
+        "model": "gpt-6-astra"
+      },
+      "human_author": "AI_BA <ai_ball@outlook.com>"
+    },
+    "s_93c984b7787ad2": {
+      "agent_id": {
+        "tool": "codex",
+        "id": "01a06b4f-963e-70a0-83ed-c8febc51fb4a",
+        "model": "unknown"
+      },
+      "human_author": "AI_BA <ai_ball@outlook.com>"
+    }
+  }
+}
