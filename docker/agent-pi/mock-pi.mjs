@@ -1,5 +1,5 @@
 import { createInterface } from "node:readline";
-import { mkdir, writeFile } from "node:fs/promises";
+import { access, mkdir, writeFile } from "node:fs/promises";
 import path from "node:path";
 import { spawnSync } from "node:child_process";
 
@@ -10,8 +10,26 @@ let completed = false;
 async function performRun(message) {
   if (completed) return;
   completed = true;
-  send({ type: "agent_start" });
+  send({ type: "agent_start", sessionPid: process.pid });
   send({ type: "turn_start" });
+  // Synthetic workflow probes are available only through the explicit mock provider.
+  if (message.startsWith("CTXBENCH_WORKFLOW_TEST:")) {
+    const fixture = JSON.parse(message.slice("CTXBENCH_WORKFLOW_TEST:".length));
+    const localPath = (relative) => {
+      const resolved = path.resolve(relative);
+      if (!resolved.startsWith(`${process.cwd()}${path.sep}`)) throw new Error("Invalid mock fixture path");
+      return resolved;
+    };
+    try {
+      if (fixture.requireFile) await access(localPath(fixture.requireFile));
+      if (fixture.requireDependency && spawnSync("python", ["-c", "import ctxbench_fixture_dependency; assert ctxbench_fixture_dependency.VALUE == 42"]).status !== 0) throw new Error("Dependency was not available in the fresh agent session");
+      if (fixture.fail) throw new Error("Requested mock step failure");
+      if (fixture.writeFile) { const target = localPath(fixture.writeFile); await mkdir(path.dirname(target), { recursive: true }); await writeFile(target, "Workflow fixture\n"); }
+    } catch (error) {
+      send({ type: "response", id: "ctxbench-prompt", success: false, error: error.message });
+      return;
+    }
+  }
   const delay = Number(process.env.CTXBENCH_TEST_DELAY_SECONDS ?? 0);
   if (delay > 0) await new Promise((resolve) => setTimeout(resolve, delay * 1000));
   if (mode === "generate-context") {

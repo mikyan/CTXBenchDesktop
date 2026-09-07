@@ -24,11 +24,15 @@ class ApiInputTests(unittest.TestCase):
                 "agentImage": "ctxbench/agent-pi:0.1.0",
                 "resources": {"cpus": 2, "memoryGb": 4, "timeoutMinutes": 10, "network": "offline"},
                 "seed": 42,
+                "builderWorkflow": {"setupCommands": ["echo prepare"], "steps": [{"prompt": None}, {"prompt": "Refine architecture"}]},
+                "solverWorkflow": {"steps": [{"prompt": "Plan {{default_prompt}}"}, {"prompt": "Implement plan"}]},
             }
         )
         spec = _spec(value)
         self.assertEqual(set(spec.profiles), {"builder", "solver", "constraintMiner", "constraintJudge"})
         self.assertEqual(spec.profiles["constraintJudge"].model, "judge")
+        self.assertEqual(spec.builder_workflow['setupCommands'], ['echo prepare'])
+        self.assertEqual(len(spec.solver_workflow['steps']), 2)
 
 
 if __name__ == "__main__":

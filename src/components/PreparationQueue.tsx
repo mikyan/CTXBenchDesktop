@@ -4,12 +4,14 @@ import { useI18n } from "../i18n";
 import { workerRequest } from "../lib/desktop";
 import { relativeTime } from "../lib/format";
 import { StatusBadge } from "./shared";
+import { WorkflowLogs } from "./WorkflowLogs";
 
 export function PreparationQueue({ operations, kind }: { operations: OperationRecord[]; kind: "context" | "constraints" }) {
   const { t, locale } = useI18n();
   const [busy, setBusy] = useState<string>();
   const [error, setError] = useState("");
   const [showAll, setShowAll] = useState(false);
+  const [logs, setLogs] = useState<string>();
   const selected = operations.filter((item) => item.kind === kind).sort((a, b) => b.createdAt.localeCompare(a.createdAt));
   const act = async (id: string, action: string) => {
     setBusy(id); setError("");
@@ -27,6 +29,7 @@ export function PreparationQueue({ operations, kind }: { operations: OperationRe
         <td><strong>{item.taskId ?? item.id}</strong><small className="muted">{item.id}</small>{item.failure && <p className="form-error">{item.failure}</p>}</td>
         <td><StatusBadge status={item.status} /></td><td>{relativeTime(item.updatedAt, locale)}</td>
         <td><div className="toolbar">
+          <button className="button secondary" onClick={() => setLogs(item.id)}>{t("Workflow logs")}</button>
           {["queued", "running"].includes(item.status) && <button className="button secondary" disabled={busy === item.id} onClick={() => void act(item.id, "pause")}>{t("Pause")}</button>}
           {item.status === "paused" && <button className="button secondary" disabled={busy === item.id} onClick={() => void act(item.id, "resume")}>{t("Resume")}</button>}
           {["failed", "cancelled"].includes(item.status) && <button className="button secondary" disabled={busy === item.id} onClick={() => void act(item.id, "retry")}>{t("Retry")}</button>}
@@ -35,5 +38,6 @@ export function PreparationQueue({ operations, kind }: { operations: OperationRe
       </tr>)}
     </tbody></table></div>
     {selected.length > 8 && <button className="text-button" onClick={() => setShowAll(!showAll)}>{t(showAll ? "Show less" : "Show all")}</button>}
+    {logs && <WorkflowLogs operationId={logs} onClose={() => setLogs(undefined)} />}
   </section>;
 }

@@ -18,6 +18,9 @@ class PreflightTests(unittest.TestCase):
         result = estimate(spec, tasks)
         self.assertEqual((result['runs'], result['builderInvocations'], result['minerInvocations'], result['judgeInvocations']), (8, 1, 1, 24))
         self.assertEqual(result['configuredTokenAllowance'], 3400)
+        multi = estimate(replace(spec, builder_workflow={'steps': [{'prompt': None}] * 2}, solver_workflow={'steps': [{'prompt': None}] * 3}), tasks)
+        self.assertEqual((multi['builderPromptSteps'], multi['solverPromptSteps']), (2, 24))
+        self.assertEqual(multi['configuredTokenAllowance'], 3400)
         result = estimate(replace(spec, arms=('none', 'manual'), constraint_packages={'one': 'package', 'two': 'package'}), tasks)
         self.assertEqual(result['configuredTokenAllowance'], 3200)
 

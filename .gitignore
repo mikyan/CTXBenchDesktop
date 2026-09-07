@@ -12,6 +12,7 @@ src-tauri/target/
 .env.*
 !.env.example
 artifacts/
+ctxbench-images-*.tar*
 worker-data/
 .tmp-worker/
 coverage/

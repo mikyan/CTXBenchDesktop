@@ -4,6 +4,7 @@ import hashlib
 import random
 
 from .models import ExperimentSpec, PlannedRun
+from .workflows import normalize_workflow
 
 
 def validate_experiment(spec: ExperimentSpec) -> list[str]:
@@ -28,6 +29,11 @@ def validate_experiment(spec: ExperimentSpec) -> list[str]:
         errors.append("Provider and model must be frozen before planning.")
     if not spec.agent_image.strip():
         errors.append("A pinned container agent image is required.")
+    for workflow in (spec.builder_workflow, spec.solver_workflow):
+        try:
+            normalize_workflow(workflow)
+        except ValueError as error:
+            errors.append(str(error))
     return errors
 
 

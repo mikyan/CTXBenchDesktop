@@ -11,6 +11,7 @@ from typing import Protocol
 
 from .models import RunResult, RunSpec
 from .safe_files import safe_file
+from .workflows import workflow_request
 
 ENV_NAME = re.compile(r"^[A-Z][A-Z0-9_]{1,127}$")
 DEFAULT_SECRET_ALLOWLIST = frozenset(
@@ -66,6 +67,8 @@ class MockRunner:
     """Deterministic adapter used for UI and engine tests without a provider."""
 
     def run(self, spec: RunSpec) -> RunResult:
+        if spec.workflow:
+            raise ValueError('Use a workflow-capable Docker agent image for custom workflows; the host mock does not execute commands.')
         started = time.monotonic()
         output = Path(spec.output_dir)
         output.mkdir(parents=True, exist_ok=True)
@@ -157,6 +160,15 @@ class DockerRunner:
         finally:
             client.close()
 
+    def validate_workflow_image(self, image: str) -> None:
+        import docker
+        client = docker.from_env()
+        try:
+            if client.images.get(image).labels.get('io.ctxbench.workflow') != '1':
+                raise ValueError('Agent image does not support workflow protocol v1. Rebuild the Pi image or use a compatible adapter.')
+        finally:
+            client.close()
+
     def run(self, spec: RunSpec) -> RunResult:
         try:
             import docker
@@ -165,6 +177,11 @@ class DockerRunner:
             raise RuntimeError("Install the pinned Docker SDK to use DockerRunner.") from error
 
         workspace = _within(self.repositories_root, spec.workspace)
+        workflow = workflow_request(spec.workflow, spec.prompt)
+        if workflow:
+            if spec.mode not in {'solve', 'generate-context'}:
+                raise ValueError('Custom workflows are only supported for context generation and solving.')
+            self.validate_workflow_image(spec.image)
         output = _within(self.artifacts_root, spec.output_dir)
         output.mkdir(parents=True, exist_ok=True)
         request_path = _within(self.request_root, str(self.request_root / f"{spec.run_id}.json"))
@@ -179,6 +196,8 @@ class DockerRunner:
                     "timeoutSeconds": spec.resources.timeout_minutes * 60,
                     "contextPaths": list(spec.context_paths),
                     "metadata": spec.metadata,
+                    "envNames": list(spec.env_names),
+                    **({'workflow': workflow} if workflow else {}),
                 },
                 separators=(",", ":"),
             ),

@@ -274,11 +274,53 @@ button:focus-visible, input:focus-visible, select:focus-visible { outline: 2px s
 @media (prefers-reduced-motion: reduce) { *,*::before,*::after{scroll-behavior:auto!important;animation-duration:.01ms!important;transition-duration:.01ms!important} }
 dialog.workbench-dialog { color:var(--text, #dce8f2); background:#101820; border:1px solid #304352; border-radius:16px; width:min(780px, 90vw); max-height:88vh; padding:0; box-shadow:0 24px 80px #0009; }
 dialog.workbench-dialog::backdrop { background:#02070cba; }
+/* Dataset authoring uses normal reading sizes even within compact lab chrome. */
+.dataset-wizard { display:flex; flex-direction:column; gap:16px; font-size:13px; line-height:1.65; }
+.dataset-wizard h3 { margin:0; font-size:18px; color:#e3edf4; scroll-margin-top:90px; }
+.dataset-wizard h4 { margin:0 0 8px; font-size:14px; }
+.dataset-wizard p { margin:0; color:#a8bdcc; overflow-wrap:anywhere; }
+.dataset-wizard .wizard-lead { color:#d7e6ee; font-size:14px; }
+.dataset-wizard .wizard-fields { border:0; margin:0; padding:0; min-width:0; display:flex; flex-direction:column; gap:16px; }
+.wizard-environment { display:flex; flex-direction:column; gap:12px; }
+.wizard-steps { list-style:none; display:grid; grid-template-columns:repeat(4,minmax(0,1fr)); gap:8px; padding:0; margin:0; }
+.wizard-steps button { display:flex; flex-direction:column; gap:6px; align-items:flex-start; width:100%; height:100%; padding:10px; border:1px solid #2a3e4d; background:#0b151e; color:#9fb4c5; border-radius:8px; font-size:12px; text-align:left; cursor:pointer; }
+.wizard-steps button span { display:grid; place-items:center; width:23px; height:23px; border-radius:50%; background:#1c3040; }
+.wizard-steps [aria-current=step] button { border-color:var(--cyan); color:var(--cyan); background:#102a30; }
+.wizard-steps button:disabled { opacity:.6; cursor:default; }
+.wizard-guide, .wizard-notice { padding:14px; border:1px solid #2a4555; background:#10212b; border-radius:8px; }
+.wizard-guide ol { margin:0; padding-left:20px; color:#b7cbd8; }
+.wizard-guide li + li { margin-top:8px; }
+.wizard-actions { display:flex; flex-wrap:wrap; align-items:flex-end; gap:8px; }
+.wizard-task-picker { flex:1; min-width:200px; }
+.dataset-wizard .button { min-height:36px; font-size:12px; }
+.dataset-wizard .text-button { font-size:13px; text-align:left; white-space:normal; }
+.dataset-wizard .form-grid input, .dataset-wizard .form-grid select { font-size:13px; }
+.dataset-wizard details { border-top:1px solid #2a3e4d; padding-top:10px; }
+.dataset-wizard summary { cursor:pointer; color:#b8d9e6; }
+.dataset-wizard details > :not(summary) { margin-top:12px; }
+.dataset-wizard .wizard-inherited { font-size:12px; }
+.wizard-review { width:100%; border-collapse:collapse; text-align:left; font-size:12px; }
+.wizard-review th, .wizard-review td { padding:10px; border-bottom:1px solid #2a3e4d; vertical-align:top; overflow-wrap:anywhere; max-width:340px; }
+.wizard-review code { color:var(--cyan); }
+.dataset-wizard .form-error { font-size:13px; }
+.dataset-wizard .wizard-valid { color:#76d9ae; }
+.wizard-footer { display:flex; justify-content:space-between; align-items:center; gap:12px; padding:16px 0; border-top:1px solid #2a3e4d; position:sticky; bottom:-24px; background:#101820; z-index:1; }
+.wizard-footer span { color:#9fb4c5; font-size:12px; }
+.wizard-success { display:flex; flex-direction:column; gap:16px; }
+@media(max-width:620px) { .wizard-steps { grid-template-columns:repeat(2,minmax(0,1fr)); } .dataset-wizard .form-grid.two { grid-template-columns:1fr; } }
 .workbench-dialog header { display:flex; justify-content:space-between; align-items:center; position:sticky; top:0; background:#101820; padding:18px 24px; z-index:2; border-bottom:1px solid #263340; }
 .workbench-dialog h2 { margin:0; font-size:20px; }
 .workbench-form { display:flex; flex-direction:column; gap:16px; padding:24px; }
 .workbench-form label, .setup-panel label { display:flex; flex-direction:column; gap:7px; color:#b6c8d7; font-size:13px; }
-.workbench-form input:not([type=checkbox]), .workbench-form select, .workbench-results select, .setup-panel input { width:100%; min-height:36px; padding:8px 10px; background:#0a1119; border:1px solid #304352; border-radius:6px; color:#e1eaf2; }
+.workbench-form input:not([type=checkbox]), .workbench-form textarea, .workbench-form select, .workbench-results select, .setup-panel input { width:100%; min-height:36px; padding:8px 10px; background:#0a1119; border:1px solid #304352; border-radius:6px; color:#e1eaf2; }
+.workbench-form textarea { resize:vertical; font:12px/1.5 Consolas,monospace; }
+.environment-names, .runtime-variable-fields { display:flex; flex-direction:column; gap:12px; min-width:0; }
+.environment-names small { color:#8599ab; line-height:1.5; }
+.environment-options { display:flex; flex-wrap:wrap; gap:10px 16px; }
+.environment-options span { overflow-wrap:anywhere; }
+.workflow-editor fieldset, .workflow-command { display:flex; flex-direction:column; gap:12px; min-width:0; }
+.workflow-editor small { display:block; color:#8599ab; font-size:12px; line-height:1.5; }
+.workflow-editor textarea[readonly] { color:#8ea5b8; }
 .workbench-form fieldset { border:1px solid #263b4c; border-radius:8px; padding:16px; }
 .workbench-form legend { color:#63d2ce; padding:0 8px; }
 .workbench-form .check-line { display:flex; flex-direction:row; align-items:flex-start; gap:10px; }

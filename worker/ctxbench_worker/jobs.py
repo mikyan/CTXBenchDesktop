@@ -26,6 +26,7 @@ def run_spec_from_dict(value: dict[str, object]) -> RunSpec:
         context_paths=tuple(value.get("context_paths", ())),
         skill_path=str(value["skill_path"]) if value.get("skill_path") else None,
         metadata=dict(value.get("metadata", {})),
+        workflow=dict(value.get("workflow", {})),
     )
 
 

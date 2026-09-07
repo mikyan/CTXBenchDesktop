@@ -46,6 +46,8 @@ class ExperimentSpec:
     judge_profiles: tuple[ModelConfig, ...] = ()
     constraint_packages: dict[str, str] = field(default_factory=dict)
     budget_id: str = ''
+    builder_workflow: dict[str, Any] = field(default_factory=dict)
+    solver_workflow: dict[str, Any] = field(default_factory=dict)
 
 
 @dataclass(frozen=True)
@@ -74,6 +76,7 @@ class RunSpec:
     context_paths: tuple[str, ...] = ()
     skill_path: str | None = None
     metadata: dict[str, Any] = field(default_factory=dict)
+    workflow: dict[str, Any] = field(default_factory=dict)
 
 
 @dataclass(frozen=True)

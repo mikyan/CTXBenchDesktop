@@ -9,8 +9,9 @@ import { relativeTime, titleCase } from "../lib/format";
 import { Pagination } from "../components/Pagination";
 import { pageWindow } from "../domain/pagination";
 import { TokenBudgets } from "../components/TokenBudgets";
+import { benchmarkLabel } from "../lib/benchmark-labels";
 
-export function ExperimentsPage({ snapshot, onNewExperiment, onExport, onImport, onAction, onRun }: { snapshot: DashboardSnapshot; onNewExperiment: () => void; onExport: (format: "json" | "csv" | "html") => void; onImport: () => void; onAction: (id: string, action: string) => void; onRun: (run: BenchmarkRun) => void }) {
+export function ExperimentsPage({ snapshot, onNewExperiment, onExport, onImport, onCreateDataset, onAction, onRun }: { snapshot: DashboardSnapshot; onNewExperiment: () => void; onExport: (format: "json" | "csv" | "html") => void; onImport: () => void; onCreateDataset: () => void; onAction: (id: string, action: string) => void; onRun: (run: BenchmarkRun) => void }) {
   const { locale, t } = useI18n();
   const [query, setQuery] = useState("");
   const [selected, setSelected] = useState("");
@@ -31,7 +32,7 @@ export function ExperimentsPage({ snapshot, onNewExperiment, onExport, onImport,
         eyebrow={t("EXPERIMENTS")}
         title={t("Runs and comparisons")}
         description={t("Every context arm is paired against a frozen no-context baseline.")}
-        actions={<><button className="button secondary" onClick={onImport}>{t("Import dataset")}</button><button type="button" className="button primary" onClick={onNewExperiment}><FlaskConical size={16} /> {t("New experiment")}</button></>}
+        actions={<><button className="button secondary" onClick={onCreateDataset}>{t("Create dataset")}</button><button className="button secondary" onClick={onImport}>{t("Import dataset")}</button><button type="button" className="button primary" onClick={onNewExperiment}><FlaskConical size={16} /> {t("New experiment")}</button></>}
       />
 
       <section className="subnav-stats">
@@ -62,7 +63,7 @@ export function ExperimentsPage({ snapshot, onNewExperiment, onExport, onImport,
               <div className="experiment-main">
                 <div className="experiment-heading"><h3>{experiment.name}</h3><StatusBadge status={experiment.status} /></div>
                 <div className="experiment-meta">
-                  <span>{t(titleCase(experiment.benchmark))}</span><i />
+                  <span>{benchmarkLabel(experiment.benchmark, t)}</span><i />
                   <span>{experiment.model.provider}/{experiment.model.model}</span><i />
                   <span>{t("{tasks} tasks × {repeats}", { tasks: experiment.tasks, repeats: experiment.repeats })}</span><i />
                   <span>{t("seed {seed}", { seed: experiment.seed })}</span>
@@ -86,12 +87,12 @@ export function ExperimentsPage({ snapshot, onNewExperiment, onExport, onImport,
         })}
       </section>
 
-      {!filtered.length && <p className="empty-state">{t("No experiments yet. Import tasks, then create a paired experiment.")}</p>}
+      {!filtered.length && <p className="empty-state">{t("No experiments yet. Create or import a dataset, then create a paired experiment.")}</p>}
       <section className="panel workbench-results"><h2>{t("Run results and evidence")}</h2>
         <select aria-label={t("Select experiment")} value={selected} onChange={(e) => { setSelected(e.target.value); setResultPage(0); }}><option value="">{t("All experiments")}</option>{snapshot.experiments.map((experiment) => <option key={experiment.id} value={experiment.id}>{experiment.name}</option>)}</select>
         <div className="toolbar"><label>{t("Filter runs")}<input value={runQuery} onChange={(e) => { setRunQuery(e.target.value); setResultPage(0); }} /></label><label>{t("Status")}<select value={runStatus} onChange={(e) => { setRunStatus(e.target.value); setResultPage(0); }}><option value="">{t("All statuses")}</option>{["queued", "running", "grading", "completed", "failed", "cancelled"].map((status) => <option key={status} value={status}>{t(titleCase(status))}</option>)}</select></label></div>
         <p>{t("Real runs only; mock results are excluded.")}</p>
-        {pairedComparisons(selectedRuns.filter((run) => !run.mock)).map((block) => <p key={`${block.experimentId}:${block.arm}`}>{snapshot.experiments.find((experiment) => experiment.id === block.experimentId)?.name} · {t(titleCase(block.arm))} · {block.pairs} {t("pairs")} / {block.taskCount} {t("Tasks")} · {t("Knowledge lift")} {signedPercent(block.lift)} · 95% CI {block.ci95 ? block.ci95.map((value) => signedPercent(value)).join(" … ") : t("More tasks needed")} · {t("Repeat variance")} {block.repeatVariance.toFixed(3)}</p>)}
+        {pairedComparisons(selectedRuns.filter((run) => !run.mock)).map((block) => <p key={`${block.experimentId}:${block.arm}`}>{snapshot.experiments.find((experiment) => experiment.id === block.experimentId)?.name} · {t(titleCase(block.arm))} · {block.pairs} {t("pairs")} / {block.taskCount} {t("Tasks")} · {t("Knowledge lift")} {signedPercent(block.lift, 1, locale)} · 95% CI {block.ci95 ? block.ci95.map((value) => signedPercent(value, 1, locale)).join(" … ") : t("More tasks needed")} · {t("Repeat variance")} {block.repeatVariance.toFixed(3)}</p>)}
         <div className="table-scroll"><table className="data-table"><thead><tr>{["Task", "Arm", "Status", "Tests", "Constraint", "Evidence"].map((label) => <th key={label}>{t(label)}</th>)}</tr></thead><tbody>{visibleRuns.slice(resultsWindow.start, resultsWindow.end).map((run) => <tr key={run.id}><td>{run.taskId}{run.mock && <small> · MOCK</small>}</td><td>{t(titleCase(run.arm))} · {run.repeat}</td><td><StatusBadge status={run.status} /></td><td>{run.testsPassed === undefined ? "—" : run.testsPassed ? t("PASS") : t("FAIL")}</td><td>{run.constraintVerdict ? t(titleCase(run.constraintVerdict)) : t("Not judged")}</td><td><button className="text-button" onClick={() => onRun(run)}>{t("Details")}</button></td></tr>)}</tbody></table></div>
         <Pagination total={visibleRuns.length} page={resultPage} onChange={setResultPage} />
       </section>

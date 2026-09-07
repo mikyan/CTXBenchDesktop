@@ -26,6 +26,17 @@ class BudgetTests(unittest.TestCase):
         with self.assertRaises(ValueError):
             self.budget.validate('round', [ModelConfig('mock', 'different', 'off', 100)])
 
+    def test_confirmed_setup_failure_before_any_model_call_releases_reservation(self):
+        self.reserve('setup-failure', 400)
+        result = self.budget.settle('setup-failure', {'runId': 'setup-failure', 'budgetProtocolVersion': 1,
+            'workflowProtocolVersion': 1, 'modelInvocations': 0, 'cumulativeTokens': 0, 'status': 'failed'})
+        self.assertEqual(result['chargedTokens'], 0)
+        self.assertEqual(result['status'], 'settled')
+        self.reserve('model-failure', 400)
+        result = self.budget.settle('model-failure', {'runId': 'model-failure', 'budgetProtocolVersion': 1,
+            'workflowProtocolVersion': 1, 'modelInvocations': 1, 'cumulativeTokens': 0, 'status': 'failed'})
+        self.assertEqual(result['chargedTokens'], 400)
+
     def test_explicit_increase_preserves_spend_reservations_and_history(self):
         self.reserve('spent', 400)
         self.budget.settle('spent', None)

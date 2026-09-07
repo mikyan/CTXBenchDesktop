@@ -2,7 +2,10 @@
 .gitignore
 .env
 .env.*
+**/.env
+**/.env.*
 !.env.example
+.desktop-deployment
 node_modules
 dist
 src-tauri/target
@@ -10,6 +13,7 @@ src-tauri/gen/schemas
 worker-data
 .tmp-worker
 artifacts
+ctxbench-images-*.tar*
 coverage
 **/__pycache__
 **/*.py[cod]

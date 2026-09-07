@@ -8,6 +8,9 @@ if (path.dirname(destination) !== root || path.basename(destination) !== ".deskt
 if (existsSync(destination)) rmSync(destination, { recursive: true });
 const files = ["docker/compose.yaml", "worker/requirements.txt", "README.md", "docs/architecture.md", "docs/evaluation.md", "docs/agent-adapters.md", "docs/reassessment.md", "scripts/images-export.sh", "scripts/images-import.sh", "scripts/wsl/install-docker.sh", "scripts/container-smoke.py", "scripts/container-resilience.py", "scripts/scale-smoke.py", "scripts/verify-live-experiment.py", "scripts/regrade-acceptance.py"];
 files.push('scripts/run-campaign.py', 'README.zh-CN.md');
+files.push('scripts/container-environment-smoke.py', 'scripts/container-workflow-smoke.py');
+files.push('scripts/images-release.py', 'docs/offline-images.md');
+files.push('docs/custom-datasets.md');
 for (const folder of ["docker/agent-pi", "docker/official-harness", "docker/worker", "docker/egress-proxy", "worker/ctxbench_worker", "skills/ctxbench-generate-context", "schemas"]) {
   for (const entry of readdirSync(path.join(root, folder), { withFileTypes: true })) {
     if (entry.isFile() && !entry.name.startsWith(".") && !entry.name.endsWith(".pyc")) files.push(`${folder}/${entry.name}`);

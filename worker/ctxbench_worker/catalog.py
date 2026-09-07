@@ -22,9 +22,13 @@ class Catalog:
         self.root, self.database = root, database
         (root / "datasets").mkdir(parents=True, exist_ok=True)
 
-    def register(self, name: str, benchmark: str, rows: list[dict]) -> dict:
-        if benchmark not in {"custom", "swebench", "ctxbench"} or not name.strip() or not rows:
+    @staticmethod
+    def validate(name: str, benchmark: str, rows: list[dict]) -> list[TaskRecord]:
+        """Validate exactly as registration does, without writes or runtime I/O."""
+        if not isinstance(name, str) or not isinstance(benchmark, str) or benchmark not in {"custom", "swebench", "ctxbench"} or not name.strip() or not rows:
             raise ValueError("A dataset name, benchmark kind, and nonempty task set are required.")
+        if not isinstance(rows, list) or not all(isinstance(row, dict) for row in rows):
+            raise ValueError("Dataset rows must be an array of task records.")
         if len(rows) > 10000:
             raise ValueError("Import at most 10,000 tasks per dataset.")
         tasks = ([custom_task(row) for row in rows] if benchmark == "custom" else
@@ -39,8 +43,14 @@ class Catalog:
             parsed = urlparse(task.repository)
             if parsed.username or parsed.password:
                 raise ValueError("Repository URLs must not embed credentials.")
+            if task.source == "custom" and parsed.scheme and (parsed.query or parsed.fragment):
+                raise ValueError("Repository URLs must not contain query strings or fragments.")
             if task.source == "custom" and not task.test_command:
                 raise ValueError("Custom tasks need a nonempty test command.")
+        return tasks
+
+    def register(self, name: str, benchmark: str, rows: list[dict]) -> dict:
+        tasks = self.validate(name, benchmark, rows)
         key = fingerprint({"benchmark": benchmark, "rows": rows})
         path = self.root / "datasets" / f"{key}.json"
         path.write_text(json.dumps(rows), encoding="utf-8")

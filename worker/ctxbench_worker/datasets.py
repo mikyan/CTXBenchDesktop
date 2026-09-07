@@ -6,6 +6,8 @@ from pathlib import Path
 from typing import Any, Iterable, Mapping
 from urllib.parse import urlparse
 
+from .artifacts import safe_relative_path
+
 
 @dataclass(frozen=True)
 class TaskRecord:
@@ -40,15 +42,46 @@ def _repository(value: str) -> str:
 
 
 def custom_task(value: Mapping[str, Any]) -> TaskRecord:
+    if set(value) - {"id", "repository", "baseCommit", "prompt", "test", "image", "build", "goldPatch", "metadata"}:
+        raise ValueError("Custom task contains unsupported fields; follow the custom task schema.")
+    if "metadata" in value and not isinstance(value["metadata"], Mapping):
+        raise ValueError("Custom task metadata must be an object.")
     required = ("id", "repository", "baseCommit", "prompt", "test")
     missing = [key for key in required if not value.get(key)]
     if missing:
         raise ValueError(f"Custom task is missing required fields: {', '.join(missing)}")
+    for key in ("id", "repository", "baseCommit", "prompt"):
+        if not isinstance(value[key], str) or not value[key].strip() or "\0" in value[key]:
+            raise ValueError(f"Custom task {key} must be nonempty text without NUL characters.")
     test = value["test"]
     if not isinstance(test, Mapping) or not isinstance(test.get("command"), list):
         raise ValueError("Custom task test.command must be an argument array.")
+    if set(test) - {"command", "hiddenPatch"}:
+        raise ValueError("Custom task test contains unsupported fields.")
+    command = test["command"]
+    if not command or not all(isinstance(arg, str) and "\0" not in arg for arg in command) or not command[0].strip():
+        raise ValueError("Custom task test.command must be a nonempty string argument array without NUL characters.")
+    for patch in (test.get("hiddenPatch"), value.get("goldPatch")):
+        if patch is not None and (not isinstance(patch, str) or "\0" in patch):
+            raise ValueError("Evaluator patches must be text without NUL characters.")
     if not value.get("image") and not value.get("build"):
         raise ValueError("Custom tasks require image or an explicit build recipe.")
+    if "image" in value and (not isinstance(value["image"], str) or not value["image"].strip() or any(c.isspace() or c == "\0" for c in value["image"])):
+        raise ValueError("Provide a test image reference without whitespace.")
+    if "build" in value:
+        build = value["build"]
+        if not isinstance(build, Mapping) or not isinstance(build.get("dockerfile"), str) or build["dockerfile"].strip() in {"", "."}:
+            raise ValueError("Custom task build requires a relative Dockerfile path.")
+        if set(build) - {"dockerfile", "context", "args"}:
+            raise ValueError("Custom task build contains unsupported fields.")
+        for path in (build["dockerfile"], build.get("context", ".")):
+            if not isinstance(path, str) or "\0" in path or "\\" in path or not path:
+                raise ValueError("Build paths must stay inside the baseline repository; use Linux relative paths.")
+            if path != ".":
+                safe_relative_path(path)
+        args = build.get("args", {})
+        if not isinstance(args, Mapping) or not all(isinstance(k, str) and isinstance(v, str) and "\0" not in k + v for k, v in args.items()):
+            raise ValueError("Build arguments must be a JSON object with string values.")
     return TaskRecord(
         id=str(value["id"]),
         repository=_repository(str(value["repository"])),

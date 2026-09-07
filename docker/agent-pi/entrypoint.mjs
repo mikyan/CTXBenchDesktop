@@ -1,8 +1,8 @@
 import { createHash } from "node:crypto";
-import { spawn, spawnSync } from "node:child_process";
-import { StringDecoder } from "node:string_decoder";
+import { spawnSync } from "node:child_process";
 import { appendFile, cp, lstat, mkdir, readFile, writeFile } from "node:fs/promises";
 import path from "node:path";
+import { aggregateStats, runPiStep, runStartup } from "./workflow-runtime.mjs";
 
 const requestPath = "/ctxbench/request.json";
 const outputRoot = "/ctxbench/output";
@@ -21,124 +21,80 @@ const initialCommit = spawnSync("git", ["rev-parse", "HEAD"], { cwd: workspace, 
 if (!/^[0-9a-f]{40}$/.test(initialCommit ?? "")) throw new Error("Workspace must have a frozen Git baseline.");
 
 const secretValues = Object.entries(process.env)
-  .filter(([name, value]) => value && /(KEY|TOKEN|SECRET|PASSWORD|CREDENTIAL)/i.test(name))
+  .filter(([name, value]) => value && ((request.envNames ?? []).includes(name) || /(KEY|TOKEN|SECRET|PASSWORD|CREDENTIAL)/i.test(name)))
   .map(([, value]) => value)
-  .filter((value) => value.length >= 8)
   .sort((left, right) => right.length - left.length);
 
 const redact = (value) => secretValues.reduce((text, secret) => text.replaceAll(secret, "[REDACTED]"), value);
 const trajectory = [];
-let sessionStats = null;
-let settled = false;
-let timedOut = false;
-let budgetExceeded = false;
-let budgetInterrupted = false;
-let cumulativeTokens = 0;
-let promptError = null;
-
-let executable = "pi";
-let args = [
-  "--mode", "rpc",
-  "--no-session",
-  "--no-extensions",
-  "--no-skills",
-  "--no-prompt-templates",
-  "--no-approve",
-  "--offline",
-  "--provider", request.model.provider,
-  "--model", request.model.model,
-];
-if (request.model.provider === "mock") {
-  executable = "node";
-  args = ["/opt/ctxbench/mock-pi.mjs", request.mode];
-} else if (request.mode === "generate-context") {
-  args.push("--skill", "/home/ctxbench/.pi/agent/skills/ctxbench-generate-context/SKILL.md");
-}
-const agent = spawn(executable, args, {
-  cwd: workspace,
-  env: process.env,
-  stdio: ["pipe", "pipe", "pipe"],
-});
-
-const send = (command) => agent.stdin.write(`${JSON.stringify(command)}\n`);
-const decoder = new StringDecoder("utf8");
-let buffer = "";
-
-function onRecord(line) {
-  if (!line) return;
-  const safeLine = redact(line);
-  trajectory.push(safeLine);
-  void appendFile(liveTrajectoryPath, `${safeLine}\n`, "utf8");
-  let event;
-  try {
-    event = JSON.parse(line);
-  } catch {
-    return;
-  }
-  if (event.type === "extension_ui_request" && ["select", "confirm", "input", "editor"].includes(event.method)) {
-    send({ type: "extension_ui_response", id: event.id, cancelled: true });
-  }
-  if (event.type === "message_end" && event.message?.role === "assistant" && event.message.usage) {
-    const usage = event.message.usage;
-    cumulativeTokens += Number(
-      usage.totalTokens ?? (usage.input ?? 0) + (usage.output ?? 0) + (usage.cacheRead ?? 0) + (usage.cacheWrite ?? 0),
-    );
-    if (cumulativeTokens >= request.model.max_tokens && !budgetExceeded) {
-      budgetExceeded = true;
-      budgetInterrupted = !["stop", "end_turn"].includes(event.message.stopReason);
-      send({ type: "abort" });
-    }
-  }
-  if (event.type === "response" && event.id === "ctxbench-prompt" && !event.success) {
-    promptError = event.error ?? "Pi rejected the benchmark prompt.";
-    agent.kill("SIGTERM");
-  }
-  if (event.type === "agent_settled" && !settled) {
-    settled = true;
-    send({ id: "ctxbench-stats", type: "get_session_stats" });
-  }
-  if (event.type === "response" && event.id === "ctxbench-stats") {
-    sessionStats = event.success ? event.data : null;
-    agent.kill("SIGTERM");
-  }
-}
-
-agent.stdout.on("data", (chunk) => {
-  buffer += decoder.write(chunk);
-  for (;;) {
-    const newline = buffer.indexOf("\n");
-    if (newline < 0) break;
-    let line = buffer.slice(0, newline);
-    buffer = buffer.slice(newline + 1);
-    if (line.endsWith("\r")) line = line.slice(0, -1);
-    onRecord(line);
-  }
-});
-
-let stderr = "";
-agent.stderr.on("data", (chunk) => { stderr += redact(chunk.toString("utf8")); });
-
-const timeout = setTimeout(() => {
-  timedOut = true;
-  send({ type: "abort" });
-  setTimeout(() => agent.kill("SIGKILL"), 5_000).unref();
-}, Math.max(1, request.timeoutSeconds ?? 2700) * 1000);
-
 const capability = request.metadata?.capability ?? "tree-only";
-const prompt = request.prompt;
-
-if (request.model.thinking) {
-  send({ type: "set_thinking_level", level: request.model.thinking });
+const workflow = request.workflow ?? { version: 1, setupCommands: [], steps: [{ name: "", prompt: request.prompt }] };
+if (workflow.version !== 1 || !Array.isArray(workflow.setupCommands) || !Array.isArray(workflow.steps) || !workflow.steps.length) {
+  throw new Error("Invalid workflow protocol.");
 }
-send({ id: "ctxbench-prompt", type: "prompt", message: prompt });
-
-const exitCode = await new Promise((resolve) => agent.on("close", (code) => resolve(code ?? 1)));
-clearTimeout(timeout);
-buffer += decoder.end();
-if (buffer) onRecord(buffer.endsWith("\r") ? buffer.slice(0, -1) : buffer);
-
+const deadline = Date.now() + Math.max(1, request.timeoutSeconds ?? 2700) * 1000;
+const steps = [];
+let cumulativeTokens = 0, workflowError = null, liveWrites = Promise.resolve();
+const persistWorkflow = () => writeFile(path.join(outputRoot, "workflow.json"), redact(JSON.stringify({
+  version: 1, setup: { ...setup, env: undefined, log: undefined }, steps,
+  plannedSteps: workflow.steps.length, cumulativeTokens, error: workflowError,
+}, null, 2)), "utf8");
+const setup = await runStartup(workflow.setupCommands, { cwd: workspace, env: process.env, timeoutMs: deadline - Date.now(), redact });
+await writeFile(path.join(outputRoot, "setup.log"), setup.log, "utf8");
+if (!["skipped", "completed"].includes(setup.status)) workflowError = setup.error ?? "Startup commands timed out.";
+if (!workflowError && workflow.setupCommands.length) {
+  const current = spawnSync("git", ["rev-parse", "HEAD"], { cwd: workspace, encoding: "utf8" });
+  const changed = spawnSync("git", ["status", "--porcelain", "--untracked-files=all"], { cwd: workspace, encoding: "utf8" });
+  const ignored = spawnSync("git", ["ls-files", "--others", "--ignored", "--exclude-standard", "-z"], { cwd: workspace, encoding: "utf8" });
+  if (current.status !== 0 || current.stdout.trim() !== initialCommit || changed.status !== 0 || changed.stdout.trim()
+      || ignored.status !== 0 || ignored.stdout.split("\0").filter(Boolean).some(isContextPath)) {
+    workflowError = "Startup commands changed the frozen repository. Install dependencies outside the checkout or in ignored environment directories.";
+  }
+}
+await persistWorkflow();
+for (const [index, step] of workflow.steps.entries()) {
+  if (workflowError) break;
+  if (Date.now() >= deadline) { workflowError = "Workflow timeout exhausted before the next step."; break; }
+  if (cumulativeTokens >= request.model.max_tokens) { workflowError = "Workflow token budget exhausted before the next step."; break; }
+  const record = { index: index + 1, name: step.name, promptHash: createHash("sha256").update(step.prompt).digest("hex"), status: "running" };
+  steps.push(record); await persistWorkflow();
+  if (request.workflow) {
+    const marker = JSON.stringify({ type: "workflow_step_start", step: index + 1, name: step.name, promptHash: record.promptHash });
+    trajectory.push(marker);
+    liveWrites = liveWrites.then(() => appendFile(liveTrajectoryPath, `${marker}\n`, "utf8"));
+  }
+  const completed = await runPiStep({ request, prompt: step.prompt, env: setup.env, cwd: workspace,
+    timeoutMs: deadline - Date.now(), remainingTokens: request.model.max_tokens - cumulativeTokens, redact,
+    onRecord: (line) => {
+      trajectory.push(line);
+      liveWrites = liveWrites.then(() => appendFile(liveTrajectoryPath, `${line}\n`, "utf8"));
+    },
+  });
+  cumulativeTokens += completed.cumulativeTokens;
+  Object.assign(record, completed, { stderr: undefined });
+  await appendFile(path.join(outputRoot, "agent.stderr.log"), completed.stderr, "utf8");
+  if (completed.status !== "completed") workflowError = completed.promptError ?? `Prompt step ${index + 1} ${completed.status}.`;
+  await persistWorkflow();
+}
+const lastStep = steps.at(-1);
+const sessionStats = request.workflow ? aggregateStats(steps) : lastStep?.sessionStats ?? null;
+const settled = !workflowError && steps.length === workflow.steps.length && !!lastStep?.settled;
+const timedOut = setup.status === "timed-out" || steps.some((step) => step.timedOut) || !!workflowError?.includes("timeout");
+const budgetExceeded = steps.some((step) => step.budgetExceeded) || cumulativeTokens >= request.model.max_tokens;
+const budgetInterrupted = steps.some((step) => step.budgetInterrupted) || (steps.length < workflow.steps.length && budgetExceeded);
+const promptError = steps.find((step) => step.promptError)?.promptError ?? null;
+const exitCode = lastStep?.exitCode ?? setup.exitCode ?? 1;
+await liveWrites;
 await writeFile(path.join(outputRoot, "trajectory.jsonl"), `${trajectory.join("\n")}\n`, "utf8");
-await writeFile(path.join(outputRoot, "agent.stderr.log"), stderr, "utf8");
+const completion = {
+  schemaVersion: 1, budgetProtocolVersion: 1, workflowProtocolVersion: 1, runId: request.runId,
+  modelInvocations: steps.length, status: timedOut ? "timed-out" : "failed", exitCode,
+  settled, budgetExceeded, budgetInterrupted, cumulativeTokens, sessionStats, promptError,
+  workflowError: workflowError ?? "Final artifact validation did not complete.", workflowSteps: steps,
+  changedFiles: [], contextPaths: [],
+};
+await writeFile(path.join(outputRoot, "result.json"), redact(JSON.stringify(completion, null, 2)), "utf8");
+if (workflowError && steps.length === 0) process.exit(timedOut ? 124 : 1);
 
 spawnSync("git", ["add", "-N", "--", "."], { cwd: workspace });
 const git = (...args) => {
@@ -216,18 +172,22 @@ const result = {
   changedFiles,
   contextPaths,
   contextManifest,
+  workflowProtocolVersion: 1,
+  modelInvocations: steps.length,
+  workflowError,
+  workflowSteps: steps,
 };
 const emptyContextArtifact = request.mode === "generate-context"
   && Object.keys(contextManifest?.files ?? {}).length === 0;
 result.emptyContextArtifact = emptyContextArtifact;
 result.status = timedOut
   ? "timed-out"
-  : promptError || budgetInterrupted || emptyContextArtifact
+  : workflowError || promptError || budgetInterrupted || emptyContextArtifact
     ? "failed"
     : exitCode === 0 || settled
       ? "completed"
       : "failed";
-await writeFile(path.join(outputRoot, "result.json"), JSON.stringify(result, null, 2), "utf8");
+await writeFile(path.join(outputRoot, "result.json"), redact(JSON.stringify(result, null, 2)), "utf8");
 process.exit(result.status === "completed" ? 0 : timedOut ? 124 : budgetExceeded ? 125 : 1);
 
 function isContextPath(value) {

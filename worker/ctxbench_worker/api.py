@@ -7,7 +7,7 @@ import re
 from contextlib import asynccontextmanager
 from pathlib import Path
 
-from fastapi import FastAPI, HTTPException, Request
+from fastapi import Body, FastAPI, HTTPException, Request
 from fastapi.responses import JSONResponse
 from pydantic import BaseModel, ConfigDict, Field
 
@@ -15,10 +15,11 @@ from .engine import ExperimentEngine, create_engine_from_environment
 from .history import GitHubClient, JsonClient, mine_review_archive
 from .jobs import JobWorker
 from .models import ExperimentSpec, ModelConfig, ResourcePolicy, RunSpec
-from .workbench import Workbench
+from .workbench import Workbench, GENERATION_PROMPT
 from .runner import ENV_NAME, DEFAULT_SECRET_ALLOWLIST, DockerRunner
 from .safe_files import safe_file
 from .preflight import storage_status
+from .workflows import normalize_workflow
 
 
 class ModelConfigInput(BaseModel):
@@ -66,6 +67,8 @@ class ExperimentInput(BaseModel):
     judgeProfiles: list[ModelConfigInput] = Field(default_factory=list)
     constraintPackages: dict[str, str] = Field(default_factory=dict)
     budgetId: str = ''
+    builderWorkflow: dict = Field(default_factory=dict)
+    solverWorkflow: dict = Field(default_factory=dict)
 
 
 class RunInput(BaseModel):
@@ -80,6 +83,7 @@ class RunInput(BaseModel):
     envNames: list[str] = Field(default_factory=list)
     contextPaths: list[str] = Field(default_factory=list)
     metadata: dict[str, object] = Field(default_factory=dict)
+    workflow: dict = Field(default_factory=dict)
 
 
 class HistoryMineInput(BaseModel):
@@ -139,7 +143,38 @@ def _spec(value: ExperimentInput) -> ExperimentSpec:
         judge_profiles=tuple(_model(profile) for profile in value.judgeProfiles),
         constraint_packages=value.constraintPackages,
         budget_id=value.budgetId,
+        builder_workflow=normalize_workflow(value.builderWorkflow),
+        solver_workflow=normalize_workflow(value.solverWorkflow),
     )
+
+
+def _credential_updates(value: object) -> list[tuple[str, str]]:
+    # Validate the entire batch before touching worker state. Errors must never echo input values.
+    if not isinstance(value, dict):
+        raise ValueError("Invalid environment variable name or value.")
+    if "variables" in value:
+        if set(value) != {"variables"}:
+            raise ValueError("Invalid environment variable name or value.")
+        rows = value["variables"]
+    else:
+        rows = [value]
+    if not isinstance(rows, list) or not 1 <= len(rows) <= 100:
+        raise ValueError("Enter between 1 and 100 environment variables.")
+    updates: list[tuple[str, str]] = []
+    seen: set[str] = set()
+    for row in rows:
+        if not isinstance(row, dict) or set(row) != {"name", "value"}:
+            raise ValueError("Invalid environment variable name or value.")
+        name, secret = row["name"], row["value"]
+        if not isinstance(name, str) or not ENV_NAME.fullmatch(name) or not isinstance(secret, str) or "\0" in secret:
+            raise ValueError("Invalid environment variable name or value.")
+        if name in {"PATH", "HOME", "PYTHONPATH", "NODE_OPTIONS", "LD_PRELOAD", "DOCKER_HOST", "HTTP_PROXY", "HTTPS_PROXY", "NO_PROXY"} or name.startswith("CTXBENCH_"):
+            raise ValueError("This variable controls the worker and cannot be changed as an agent credential.")
+        if name in seen:
+            raise ValueError("Each environment variable name must be unique.")
+        seen.add(name)
+        updates.append((name, secret))
+    return updates
 
 
 def create_app(
@@ -153,6 +188,7 @@ def create_app(
     selected_history_client = history_client or GitHubClient(os.environ.get("GITHUB_TOKEN") or None)
     workbench = Workbench(selected_engine, selected_history_client)
     data_root = workbench.root
+    runtime_names = set(getattr(selected_engine.runner, "env_allowlist", DEFAULT_SECRET_ALLOWLIST))
 
     @asynccontextmanager
     async def lifespan(_: FastAPI):
@@ -258,7 +294,9 @@ def create_app(
                 context_paths=tuple(value.contextPaths),
                 skill_path=skill_path,
                 metadata=value.metadata,
+                workflow=normalize_workflow(value.workflow),
             )
+            workbench.validate_workflow(spec.workflow, value.mode)
             return jobs.enqueue(spec)
         except ValueError as error:
             raise HTTPException(status_code=422, detail=str(error)) from error
@@ -310,7 +348,28 @@ def create_app(
                 rows = json.loads(path.read_text(encoding="utf-8"))
         if not isinstance(rows, list) or not all(isinstance(row, dict) for row in rows):
             raise ValueError("Dataset rows must be an array of task records.")
-        return workbench.catalog.register(str(value.get("name", "")), str(value.get("benchmark", "")), rows)
+        protect_dataset_credentials({**value, "rows": rows})
+        return workbench.catalog.register(value.get("name", ""), value.get("benchmark", ""), rows)
+
+    def protect_dataset_credentials(value: dict):
+        # Inspect decoded strings, not JSON escaping, including evaluator-only fields.
+        def check(item):
+            if isinstance(item, str) and workbench.redact(item) != item:
+                raise ValueError("Do not embed runtime credentials in dataset fields; configure them in Infrastructure instead.")
+            if isinstance(item, dict):
+                for key, child in item.items():
+                    check(key)
+                    check(child)
+            elif isinstance(item, list):
+                for child in item:
+                    check(child)
+        check(value)
+
+    @app.post("/v1/datasets/validate")
+    def validate_dataset(value: dict):
+        protect_dataset_credentials(value)
+        tasks = workbench.catalog.validate(value.get("name", ""), value.get("benchmark", ""), value.get("rows"))
+        return {"valid": True, "count": len(tasks), "testsExecuted": False}
 
     @app.post("/v1/context/import", status_code=201)
     def import_context(value: dict):
@@ -332,11 +391,20 @@ def create_app(
         resources = _resources(ResourcePolicyInput.model_validate(value["resources"]))
         payload = {"dataset": value["dataset"], "taskId": value["taskId"], "model": model.__dict__,
                    "resources": resources.__dict__, "agentImage": value.get("agentImage", "ctxbench/agent-pi:0.1.0"), "envNames": value.get("envNames", []), 'budgetId': value.get('budgetId', '')}
+        workflow = normalize_workflow(value.get('workflow'))
+        workbench.validate_workflow(workflow, 'generate-context' if kind == 'context' else 'mine-constraints')
+        payload['workflow'] = workflow
         return workbench.enqueue(kind, payload)
 
     @app.get("/v1/operations/{operation_id}")
     def get_operation(operation_id: str):
-        return workbench.db.get_document("operations", operation_id)
+        operation = workbench.db.get_document("operations", operation_id)
+        stages = sorted((stage for stage in workbench.db.list_documents('stages') if stage.get('operationId') == operation_id),
+                        key=lambda stage: stage.get('startedAt', ''))
+        run_id = stages[-1]['runId'] if stages else None
+        if not run_id and operation['kind'] == 'context' and operation.get('result', {}).get('id'):
+            run_id = selected_engine.artifacts.verify(operation['result']['id']).get('provenance', {}).get('runId')
+        return {**operation, 'agentRunId': run_id}
 
     @app.post("/v1/operations/{operation_id}/{action}")
     def operation_action(operation_id: str, action: str):
@@ -344,34 +412,35 @@ def create_app(
 
     @app.get("/v1/runtime")
     def runtime_settings():
-        names = getattr(selected_engine.runner, "env_allowlist", DEFAULT_SECRET_ALLOWLIST)
+        names = runtime_names | set(getattr(selected_engine.runner, "env_allowlist", DEFAULT_SECRET_ALLOWLIST))
         return {"runner": type(selected_engine.runner).__name__, "dataDirectory": str(data_root),
+                'defaultPrompts': {'builder': GENERATION_PROMPT},
                 'storage': storage_status(data_root),
                 "credentials": [{"name": name, "configured": bool(os.environ.get(name))} for name in sorted(names)],
                 "datasetFiles": sorted(path.name for path in (data_root / "datasets").glob("*") if path.suffix in {".parquet", ".jsonl"})}
 
     @app.post("/v1/runtime/credentials")
-    def set_credential(value: dict):
-        name, secret = value.get("name", ""), value.get("value", "")
-        if not isinstance(name, str) or not ENV_NAME.fullmatch(name) or not isinstance(secret, str):
-            raise ValueError("Invalid environment variable name or value.")
-        if name in {"PATH", "HOME", "PYTHONPATH", "NODE_OPTIONS", "LD_PRELOAD", "DOCKER_HOST", "HTTP_PROXY", "HTTPS_PROXY"} or name.startswith("CTXBENCH_"):
-            raise ValueError("This variable controls the worker and cannot be changed as an agent credential.")
+    def set_credential(value: object = Body(...)):
+        updates = _credential_updates(value)
         if workbench._active or any(item["status"] in {"queued", "running"} for item in workbench.db.list_documents("operations")):
             raise ValueError("Finish or pause pending work before changing runtime credentials.")
-        if secret:
-            os.environ[name] = secret
-        else:
-            os.environ.pop(name, None)
+        for name, secret in updates:
+            if secret:
+                os.environ[name] = secret
+            else:
+                os.environ.pop(name, None)
+            if name == "GITHUB_TOKEN" and isinstance(selected_history_client, GitHubClient):
+                selected_history_client.token = secret or None
+        names = {name for name, _ in updates}
+        runtime_names.update(names)
         if isinstance(selected_engine.runner, DockerRunner):
-            selected_engine.runner.env_allowlist = selected_engine.runner.env_allowlist | {name}
-        if name == "GITHUB_TOKEN" and isinstance(selected_history_client, GitHubClient):
-            selected_history_client.token = secret or None
-        return {"name": name, "configured": bool(secret)}
+            selected_engine.runner.env_allowlist = selected_engine.runner.env_allowlist | names
+        configured = [{"name": name, "configured": bool(secret)} for name, secret in updates]
+        return {"credentials": configured} if "variables" in value else configured[0]
 
     @app.get("/v1/run-output")
     def run_output(runId: str, file: str = "trajectory.jsonl", offset: int = 0):
-        allowed = {"trajectory.jsonl", "trajectory.live.jsonl", "raw_agent.patch", "graded.patch", "context_mutation.patch", "result.json", "container.log", "agent.stderr.log", "grading/evaluator.log", "grading/summary.json"}
+        allowed = {"trajectory.jsonl", "trajectory.live.jsonl", "raw_agent.patch", "graded.patch", "context_mutation.patch", "result.json", "container.log", "agent.stderr.log", "setup.log", "workflow.json", "grading/evaluator.log", "grading/summary.json"}
         if file not in allowed or offset < 0:
             raise ValueError("Unsupported output file or offset.")
         directory = (data_root / "runs" / runId).resolve()

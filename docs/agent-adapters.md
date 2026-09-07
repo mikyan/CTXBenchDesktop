@@ -27,6 +27,18 @@ Exit `0` only after outputs are durably written. Use `124` for a timeout and a n
 
 The adapter writes `trajectory.live.jsonl` while Pi is running, then writes the canonical redacted `trajectory.jsonl` on exit. Prompt-submission errors terminate immediately instead of occupying the queue until the outer timeout.
 
+## Optional workflow protocol v1
+
+Experiments freeze `builderWorkflow` and `solverWorkflow` separately. Independent `/prepare/context` operations accept `workflow`. Configuration uses `setupCommands: string[]` and ordered `steps: [{name, prompt}]`; a null prompt means the existing stage default, while `{{default_prompt}}` explicitly substitutes that default in custom text. Omitting configuration preserves the original one-step behavior and cache keys.
+
+The Worker resolves prompts, sends the optional `workflow: {version: 1, setupCommands, steps}` in the agent request, and requires image label `io.ctxbench.workflow=1`. All steps execute sequentially in one container with fresh agent sessions, shared files, one cumulative token allowance and one wall-clock deadline. Bash startup commands run once as the unprivileged agent user, before model calls; exported environment/venv activation transfers in memory, never through output artifacts. The baseline must remain unchanged. Package downloads use the same explicitly selected network policy as the agent; setup commands never run in evaluator containers.
+
+The bundled Pi image includes pip and venv. Prefer `$HOME/bench-env` for dependencies; system packages belong in the Dockerfile. Pin dependency versions or bake dependencies into an immutable image for reproducibility. A step may use predecessor files, but the adapter does not automatically add conversation history, retrieval hints or forced context reads. Generation receives only baseline code and generation prompts; final generated files must remain context-owned.
+
+Fail fast on setup/step failures, enforce the shared token/deadline limits across steps, and produce `workflow.json`, `setup.log` and the existing final patch/trajectory outputs. Results report `workflowProtocolVersion: 1`, `modelInvocations`, `workflowError`, ordered `workflowSteps` (status, SHA-256 of the exact UTF-8 prompt, usage) and aggregate `cumulativeTokens`/`sessionStats`. The Worker rejects adapters that do not confirm all configured steps. No-model setup failures with a valid zero-call receipt release the token reservation; interrupted model calls retain conservative accounting. Retrying a failed workflow uses a clean container and replays the whole workflow, not an incomplete middle checkpoint.
+
+Run `scripts/container-workflow-smoke.py` inside the Worker image with the Docker socket, shared data directory and repository mounted at `/source:ro`. It uses synthetic prompts and an offline fixture wheel, checks generation/solving, fresh sessions, failure stops, shared budgets and paired reuse, and never calls a Provider. `CTXBENCH_WORKFLOW_TEST_IMAGE` optionally selects a test image instead of `ctxbench/agent-pi:0.1.0`. Run `node --test /source/docker/agent-pi/workflow-runtime.integration.mjs` inside the Pi image with the repository mounted read-only to verify timeout/process cleanup and environment transfer. These Linux-only tests are separate from the frontend Vitest suite.
+
 ## Isolation rules
 
 The context-generation Skill is mounted by the worker only when `mode` is `generate-context`; solver images never receive it. Hidden tests, the gold patch, target PR content, and mined constraints belong to evaluator workspaces and must not be copied into agent requests or solver mounts.
@@ -36,6 +48,10 @@ The context-generation Skill is mounted by the worker only when `mode` is `gener
 ## Adding internal credentials
 
 Use Infrastructure's runtime credential form to add internal names/values in worker memory, then select only the names in the experiment. For persistent deployment, add names to `CTXBENCH_EXTRA_ENV_ALLOWLIST` **and explicitly pass those variables into the worker's Compose environment** (for example through a local Compose override). A `.env` interpolation file alone does not automatically forward arbitrary variables. Never put credentials into Dockerfiles or build arguments. Any internal adapter must redact values from its outputs.
+
+The form supports multiple name/value rows with **Add variable** and **Save environment variables**. All rows are validated before any values are changed; duplicate names, reserved worker controls and invalid rows reject the entire batch. Values are masked and cleared from the form after saving. In experiments, context generation and constraint mining, select multiple configured names or paste names separated by newlines, spaces or commas. These fields accept **names only**, not `NAME=value`; saved variables are not automatically passed to every agent. A base-URL variable only has an effect if the selected agent adapter recognizes that name, and it does not bypass the network allowlist.
+
+`POST /v1/runtime/credentials` accepts `{"variables":[{"name":"INTERNAL_AGENT_KEY","value":"<runtime value>"},{"name":"INTERNAL_AGENT_URL","value":"https://provider.internal/v1"}]}`. The response contains only variable names and configured flags. The previous single `{name, value}` request remains supported. Restarting the worker clears UI-entered values.
 
 The bundled Pi image supports Xiaomi Token Plan China with provider `xiaomi-token-plan-cn`, model `mimo-v2.5-pro` (or `mimo-v2.5`), and runtime variable `XIAOMI_TOKEN_PLAN_CN_API_KEY`. The API-only proxy admits only the China Token Plan hostname for this adapter.
 

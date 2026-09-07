@@ -1,21 +1,34 @@
 import { Box, Check, Clipboard, Container, Copy, HardDrive, KeyRound, Network, RefreshCw, ServerCog, TerminalSquare } from "lucide-react";
-import { useEffect, useState } from "react";
+import { useEffect, useRef, useState } from "react";
 import { DiagnosticIcon, PageTitle, StatusBadge } from "../components/shared";
 import type { DiagnosticItem, RuntimeSettings } from "../domain/types";
 import { useI18n } from "../i18n";
 import { controlWorker, workerRequest } from "../lib/desktop";
+import { runtimeVariablesPayload, type RuntimeVariable } from "../lib/environment";
 
 export function InfrastructurePage({ diagnostics, onDiagnose, diagnosing }: { diagnostics: DiagnosticItem[]; onDiagnose: (distribution?: string) => void; diagnosing: boolean }) {
   const { t } = useI18n();
   const [copied, setCopied] = useState(false);
   const [settings, setSettings] = useState<RuntimeSettings>();
-  const [variable, setVariable] = useState("XIAOMI_TOKEN_PLAN_CN_API_KEY");
-  const [secret, setSecret] = useState(""); const [busy, setBusy] = useState(false); const [message, setMessage] = useState("");
+  const [variables, setVariables] = useState<(RuntimeVariable & { id: number })[]>([{ id: 0, name: "XIAOMI_TOKEN_PLAN_CN_API_KEY", value: "" }]);
+  const nextVariableId = useRef(1);
+  const [busy, setBusy] = useState(false); const [message, setMessage] = useState("");
+  const [credentialMessage, setCredentialMessage] = useState("");
   const [distribution, setDistribution] = useState(() => localStorage.getItem("ctxbench-distribution") || "Ubuntu");
   const refresh = () => workerRequest<RuntimeSettings>("/runtime").then(setSettings).catch(() => {});
   useEffect(() => { void refresh(); }, []);
   const action = async (value: "start" | "stop" | "build") => { setBusy(true); setMessage(""); try { setMessage(await controlWorker(value, distribution)); await refresh(); onDiagnose(); } catch (error) { setMessage(String(error)); } finally { setBusy(false); } };
-  const save = async () => { setBusy(true); try { await workerRequest("/runtime/credentials", "POST", { name: variable, value: secret }); setSecret(""); setMessage(t("Credential saved in worker memory until restart.")); await refresh(); } catch (error) { setMessage(String(error)); } finally { setBusy(false); } };
+  const save = async () => {
+    setBusy(true); setCredentialMessage("");
+    try {
+      await workerRequest("/runtime/credentials", "POST", runtimeVariablesPayload(variables));
+      setVariables([{ id: nextVariableId.current++, name: "", value: "" }]);
+      setCredentialMessage("Environment variables saved in worker memory until restart.");
+      await refresh();
+    } catch (error) { setCredentialMessage(error instanceof Error ? error.message : String(error)); }
+    finally { setBusy(false); }
+  };
+  const updateVariable = (id: number, changes: Partial<RuntimeVariable>) => setVariables((rows) => rows.map((row) => row.id === id ? { ...row, ...changes } : row));
   const command = "docker compose -f docker/compose.yaml up -d --build ctxbench-worker";
   const copyCommand = async () => {
     await navigator.clipboard.writeText(command);
@@ -82,9 +95,20 @@ export function InfrastructurePage({ diagnostics, onDiagnose, diagnosing }: { di
           <div className="workbench-form"><h3>{t("Agent environment")}</h3>
             <p>{settings?.runner} · {settings?.dataDirectory}</p>
             {settings?.credentials.map((item) => <small key={item.name}>{item.name} · {t(item.configured ? "Configured" : "Not configured")}</small>)}
-            <label>{t("Environment variable name")}<input value={variable} onChange={(e) => setVariable(e.target.value)} /></label>
-            <label>{t("Secret value")}<input type="password" autoComplete="new-password" value={secret} onChange={(e) => setSecret(e.target.value)} /></label>
-            <button className="button primary" disabled={busy || !secret} onClick={() => void save()}>{t("Save runtime credential")}</button>
+            <p>{t("Add multiple name/value rows and save them together. Values are hidden and are never returned by the worker.")}</p>
+            {variables.map((row, index) => <fieldset key={row.id} disabled={busy}>
+              <legend>{t("Variable {index}", { index: index + 1 })}</legend>
+              <div className="runtime-variable-fields">
+                <label>{t("Environment variable name")}<input value={row.name} autoComplete="off" spellCheck={false} placeholder="OPENAI_API_KEY" onChange={(event) => updateVariable(row.id, { name: event.target.value })} /></label>
+                <label>{t("Environment variable value")}<input type="password" autoComplete="new-password" value={row.value} onChange={(event) => updateVariable(row.id, { value: event.target.value })} /></label>
+                <button type="button" className="button tertiary" disabled={variables.length === 1} aria-label={t("Remove variable {index}", { index: index + 1 })} onClick={() => setVariables((rows) => rows.filter((item) => item.id !== row.id))}>{t("Remove variable")}</button>
+              </div>
+            </fieldset>)}
+            <div className="toolbar">
+              <button type="button" className="button secondary" disabled={busy || variables.length >= 100} onClick={() => setVariables([...variables, { id: nextVariableId.current++, name: "", value: "" }])}>{t("Add variable")}</button>
+              <button type="button" className="button primary" disabled={busy || !variables.some((row) => row.value)} onClick={() => void save()}>{t("Save environment variables")}</button>
+            </div>
+            {credentialMessage && <p role="status">{t(credentialMessage)}</p>}
             <p>{t("Values stay in worker memory. Restart clears values entered here; deployment environment variables remain available.")}</p>
           </div>
         </div>

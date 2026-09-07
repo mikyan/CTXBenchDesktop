@@ -17,6 +17,7 @@ def digest(root: Path, relative: str) -> str:
 def stage_evidence(stage: dict, mode: str) -> dict:
     output, workspace = Path(stage['output']), Path(stage['workspace'])
     names = ['result.json']
+    names += [name for name in ('workflow.json', 'setup.log') if safe_file(output, name).exists()]
     if mode == 'solve':
         names += ['graded.patch']
         names += [name for name in ('raw_agent.patch', 'context_mutation.patch') if safe_file(output, name).exists()]

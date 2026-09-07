@@ -5,6 +5,7 @@ from pathlib import Path
 
 from .models import ExperimentSpec
 from .planner import validate_experiment
+from .workflows import step_count
 
 
 def storage_status(root: Path) -> dict:
@@ -33,6 +34,8 @@ def estimate(spec: ExperimentSpec, tasks: list) -> dict:
         'judges': solves * sum(profile.max_tokens for profile in judges) if spec.evaluate_constraints else 0,
     }
     return {'tasks': count, 'runs': solves, 'contextKeys': keys, 'builderInvocations': builders,
+            'builderPromptSteps': builders * step_count(spec.builder_workflow),
+            'solverPromptSteps': solves * step_count(spec.solver_workflow),
             'minerInvocations': miners, 'judgeInvocations': solves * 3 if spec.evaluate_constraints else 0,
             'configuredTokenAllowance': sum(allowance.values()), 'tokensByRole': allowance,
             'cacheReuseNotDeducted': True, 'prepareOnly': spec.prepare_only,

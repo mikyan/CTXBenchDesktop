@@ -1,0 +1,62 @@
+name: Offline Docker images
+
+on:
+  release:
+    types: [published]
+  workflow_dispatch:
+    inputs:
+      release_tag:
+        description: 'Existing Release tag to build and attach to; leave blank for an Actions-only snapshot'
+        required: false
+        type: string
+
+permissions:
+  contents: write
+
+concurrency:
+  group: offline-images-${{ inputs.release_tag || github.event.release.tag_name || github.ref }}
+  cancel-in-progress: false
+
+jobs:
+  images:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 120
+    env:
+      RELEASE_TAG: ${{ inputs.release_tag || github.event.release.tag_name }}
+    steps:
+      - uses: actions/checkout@v7
+        with:
+          ref: ${{ inputs.release_tag || github.event.release.tag_name || github.sha }}
+          persist-credentials: false
+      - name: Test packaging and a real Docker save/load round trip
+        env:
+          CTXBENCH_IMAGE_RELEASE_DOCKER_TEST: '1'
+        run: python3 -m unittest discover -s scripts/tests -v
+      - name: Build and package the four application images
+        run: |
+          bundle_version="${RELEASE_TAG:-snapshot-${GITHUB_SHA:0:12}}"
+          python3 scripts/images-release.py pack --version "$bundle_version" --output artifacts/offline-images
+          python3 scripts/images-release.py verify artifacts/offline-images
+      - name: Smoke-test packaged image entrypoints without a Provider
+        run: |
+          worker_image=$(python3 -c 'import json; print(next(i["archiveReference"] for i in json.load(open("artifacts/offline-images/ctxbench-images-manifest.json"))["images"] if i["service"] == "ctxbench-worker"))')
+          agent_image=$(python3 -c 'import json; print(next(i["archiveReference"] for i in json.load(open("artifacts/offline-images/ctxbench-images-manifest.json"))["images"] if i["service"] == "agent-pi-image"))')
+          harness_image=$(python3 -c 'import json; print(next(i["archiveReference"] for i in json.load(open("artifacts/offline-images/ctxbench-images-manifest.json"))["images"] if i["service"] == "official-harness-image"))')
+          proxy_image=$(python3 -c 'import json; print(next(i["archiveReference"] for i in json.load(open("artifacts/offline-images/ctxbench-images-manifest.json"))["images"] if i["service"] == "ctxbench-egress-proxy"))')
+          docker run --rm --network none --entrypoint python "$worker_image" -c 'import ctxbench_worker.api'
+          docker run --rm --network none --entrypoint node --mount "type=bind,src=$PWD,dst=/source,readonly" "$agent_image" --test /source/docker/agent-pi/workflow-runtime.integration.mjs
+          docker run --rm --network none "$harness_image" --help
+          docker run --rm --network none --entrypoint squid "$proxy_image" -k parse
+      - uses: actions/upload-artifact@v7
+        with:
+          name: ctxbench-offline-images-linux-amd64
+          path: artifacts/offline-images/*
+          if-no-files-found: error
+          compression-level: 0
+          retention-days: 14
+      - name: Attach independent image assets to the existing Release
+        if: env.RELEASE_TAG != ''
+        env:
+          GH_TOKEN: ${{ github.token }}
+          RELEASE_REPOSITORY: ${{ github.repository }}
+        run: python3 scripts/images-release.py publish artifacts/offline-images --repo "$RELEASE_REPOSITORY" --tag "$RELEASE_TAG"

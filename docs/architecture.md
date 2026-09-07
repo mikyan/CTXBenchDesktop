@@ -20,7 +20,7 @@ The desktop diagnoses prerequisites and controls the worker. It does not silentl
 - `Workbench` owns the persistent prepare → solve → grade → judge lifecycle; `ExperimentEngine` owns plans and adapter interfaces. Preparation is a barrier across all selected tasks, with an optional `ready` stop before solving.
 - `ArtifactStore` exposes atomic publish/lookup while hiding canonical identity, path validation, hashing, staging, and deduplication.
 - `Runner` is the container execution seam. `MockRunner` and `DockerRunner` are real adapters; tests and production cross the same interface.
-- Dataset import is a normalization seam. SWE-bench, AGENTBench, and custom JSONL become one `TaskRecord`; its `solver_payload` excludes evaluator-only fields by construction.
+- Dataset import is a normalization seam. SWE-bench, CTXBench (formerly AGENTBench), and custom JSONL become one `TaskRecord`; its `solver_payload` excludes evaluator-only fields by construction. Upstream `agentbench` paths and internal source identifiers remain unchanged.
 - Constraint extraction/judgment is orthogonal to the functional grader and consumes the patch only after the solver finishes.
 
 ## Causal data flow
@@ -47,7 +47,7 @@ The Compose deployment bind-mounts `/var/lib/ctxbench` at the same logical data 
 
 Every resolved agent/harness/custom-test image receives a `ctxbench/frozen:sha256-…` reference to survive mutable-tag rebuilds. Do not prune those references while experiments may need retry. Custom test images are built once from the untouched baseline, never from an Agent patch. Run/evaluator containers are disposable; retained checkouts, artifacts and logs are intentionally preserved for audit and consume disk space.
 
-Formal grading uses the pinned `ctxbench/official-harness` image. It vendors fixed commits of the upstream SWE-bench and ETH SRI AgentBench harnesses and receives only the generated graded patch plus evaluator-owned task data. The harness container may launch the upstream per-instance grading image through the Docker socket; it never shares Provider credentials with that image.
+Formal grading uses the pinned `ctxbench/official-harness` image. It vendors fixed commits of the upstream SWE-bench and CTXBench (formerly AGENTBench) harnesses and receives only the generated graded patch plus evaluator-owned task data. The harness container may launch the upstream per-instance grading image through the Docker socket; it never shares Provider credentials with that image.
 
 Historical constraint mining starts from the GitHub repository-wide pull-request review-comment stream. The Worker filters comments and merged PRs against the pinned baseline cutoff before storing them, and preserves review/thread IDs, diff hunks, final PR patches, and commit provenance. The model-based miner sees that archive but not the target task; independent judges see mined constraints, the target task, and the already-produced candidate patch but never participate in solving.
 

@@ -1,6 +1,7 @@
 import { useCallback, useContext, useEffect, useMemo, useState } from "react";
 import type { ReactNode } from "react";
 import { workbenchChinese } from "./i18n.workbench";
+import { datasetWizardChinese } from "./i18n.dataset-wizard";
 import { I18nContext, type I18nValue } from "./i18n.context";
 
 export type Locale = "en" | "zh-CN";
@@ -11,6 +12,7 @@ const STORAGE_KEY = "ctxbench.locale";
 
 const zhCN: Record<string, string> = {
   ...workbenchChinese,
+  ...datasetWizardChinese,
   "Experiment plan created. Context preparation is queued.": "实验计划已创建，知识上下文准备任务已进入队列。",
   "Environment diagnostics completed.": "环境诊断已完成。",
   "Could not start CTXBench": "无法启动 CTXBench",
@@ -69,7 +71,8 @@ const zhCN: Record<string, string> = {
   "Tree Only": "仅代码树",
   "History Aware": "包含历史",
   "Custom": "自定义",
-  "Ctxbench": "CTXBench",
+  "Ctxbench": "CTXBench（原 AGENTBench）",
+  "CTXBench (formerly AGENTBench)": "CTXBench（原 AGENTBench）",
   "Swebench": "SWE-bench",
   "Neutral": "中立",
   "Satisfied": "满足",

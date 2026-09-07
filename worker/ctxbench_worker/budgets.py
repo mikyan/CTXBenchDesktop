@@ -129,7 +129,8 @@ class TokenBudget:
             values = [value for value in (metadata.get('cumulativeTokens'), tokens.get('total')) if type(value) is int and value >= 0]
             reported = max(values, default=0)
             complete = (metadata.get('runId') == run_id and metadata.get('budgetProtocolVersion') == 1
-                        and metadata.get('status') == 'completed' and bool(values))
+                        and bool(values) and (metadata.get('status') == 'completed' or
+                            (metadata.get('workflowProtocolVersion') == 1 and metadata.get('modelInvocations') == 0 and reported == 0)))
             record.update(status='settled' if complete else 'unconfirmed', reportedTokens=reported,
                           chargedTokens=reported if complete else max(reported, record['reservedTokens']), updatedAt=utc_now())
             connection.execute("UPDATE documents SET payload_json=? WHERE kind='tokenAttempts' AND id=?", (json.dumps(record), run_id))

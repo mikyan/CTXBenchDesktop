@@ -6,7 +6,8 @@ CTXBench Desktop is a local-first Windows desktop benchmark workbench for paired
 
 ## Implemented workbench
 
-- SWE-bench, CTXBench/AGENTBench, and custom-manifest experiment types.
+- SWE-bench, CTXBench (formerly AGENTBench), and custom-manifest experiment types.
+- [Guided custom dataset creation](docs/custom-datasets.md): **Experiments → Create dataset**, with reusable defaults, multiple tasks, test templates, evaluator-only patches, definition validation and JSON export.
 - Paired and randomized `none` versus `skill-generated`, `manual`, or `developer-historical` context arms.
 - Content-addressed context artifacts generated once per exact repository commit and reused across runs.
 - Pi coding-agent image using its JSONL RPC mode, with provider/model selection and allowlisted environment injection.
@@ -16,7 +17,7 @@ CTXBench Desktop is a local-first Windows desktop benchmark workbench for paired
 - Functional pass rate, knowledge lift, variance, win/loss/tie, and SWE-Shield-style DSR/DVR/DNR plus PPVR metrics.
 - JSON, spreadsheet-safe CSV, and self-contained HTML reports; Windows NSIS installer containing the image build sources.
 
-The CTXBench adapter targets the task format and harness from the [CTXBench/AgentBench paper](https://arxiv.org/abs/2602.11988) and [official repository](https://github.com/eth-sri/agentbench). The SWE-Shield layer is a documented compatible implementation, not a claim of bit-for-bit replication.
+The CTXBench (formerly AGENTBench) adapter targets the task format and harness from the [CTXBench paper](https://arxiv.org/abs/2602.11988) and [official repository](https://github.com/eth-sri/agentbench). The paper's [v1](https://arxiv.org/html/2602.11988v1#S3) used AGENTbench; [v2](https://arxiv.org/html/2602.11988v2#S3) renamed it CTXbench. Upstream repository/dataset paths still use `agentbench`. Display names do not change frozen dataset IDs, grading inputs or historical records, and do not imply that every v2 test revision has been verified. The SWE-Shield layer is a documented compatible implementation, not a claim of bit-for-bit replication.
 
 ## Run the available development mode
 
@@ -43,7 +44,7 @@ The source Worker defaults to a deterministic test adapter. Full benchmark execu
 ## Desktop workflow
 
 1. In **Infrastructure**, select the WSL distribution, build the bundled images, then start the worker. Configure API keys there (memory-only until restart), or through deployment environment variables.
-2. In **Experiments → Import dataset**, import JSON/JSONL, or a parquet file already placed in the worker's `/var/lib/ctxbench/datasets` directory. Official sources: [ETH SRI AgentBench](https://huggingface.co/datasets/eth-sri/agentbench) and [SWE-bench Verified](https://huggingface.co/datasets/princeton-nlp/SWE-bench_Verified). Dataset rows are content-hashed and frozen.
+2. In **Experiments → Import dataset**, import JSON/JSONL, or a parquet file already placed in the worker's `/var/lib/ctxbench/datasets` directory. Official sources: [CTXBench (formerly AGENTBench)](https://huggingface.co/datasets/eth-sri/agentbench) and [SWE-bench Verified](https://huggingface.co/datasets/princeton-nlp/SWE-bench_Verified). Dataset rows are content-hashed and frozen.
 3. Select actual imported tasks, Provider/model, role-specific token budgets, resources, repeats, and a context arm. Check **prepare all context first** to stop at `ready`; resume when ready to solve.
 4. For cross-model comparisons without regenerating context, select **Frozen package** and reuse a generated or manually imported package with exactly matching repository and baseline commit. JSON packages and documentation folders are supported. A manually supplied baseline declaration is an assertion by its author, not proof of how the document was generated.
 5. Optionally enable historical-PR constraint mining. Automatic packages are **silver** and use three independent judge sessions (separate models are optional). Failed judges are visible and retryable; they never become invented neutral votes.
@@ -94,9 +95,11 @@ docker compose -f docker/compose.yaml --profile build-only build
 docker compose -f docker/compose.yaml up -d ctxbench-worker
 ```
 
-The build-only profile also produces `ctxbench/official-harness:0.1.0`. That image pins upstream SWE-bench and ETH SRI AgentBench revisions. Solver containers never receive the Docker socket. The trusted evaluator supervisor may fetch/build official images; its child **test containers are offline** with CPU/memory limits. Upstream test selection and scoring are retained.
+The build-only profile also produces `ctxbench/official-harness:0.1.0`. That image pins upstream SWE-bench and CTXBench (formerly AGENTBench) harness revisions. Solver containers never receive the Docker socket. The trusted evaluator supervisor may fetch/build official images; its child **test containers are offline** with CPU/memory limits. Upstream test selection and scoring are retained.
 
-New AgentBench experiments prepare a baseline-specific evaluator environment **before any builder or solver call**. The original instance image may contain only the repository, not its dependencies. Baseline setup runs in one networked shell, preserving virtual-environment activation, in a child with no host mounts, Docker socket or injected Provider credentials. The resulting image and setup receipt are frozen by digest. A separate offline gold-patch self-check must pass before the environment is admitted; gold patches and test runners never enter the reusable setup image or agents. Test commands also share a shell, and missing/empty/malformed result maps are evaluator errors, not failed model scores. Full runner diagnostics are retained in evaluator-only `repo-tests.json` and `instance-tests.json`.
+Prebuild a separate offline image bundle with `python3 scripts/images-release.py pack --version v0.1.0 --output artifacts/images-v0.1.0`. The **Offline Docker images** GitHub workflow offers manual Actions artifacts and attaches independent image assets when a Release is published. Bundles include compressed parts, SHA-256 checksums, image/source metadata, a standalone importer and offline-only Compose configuration. These contain the four application images, not task images or datasets. See [offline image releases](docs/offline-images.md) for clean-source/tag requirements, upload commands and air-gapped import instructions.
+
+New CTXBench experiments prepare a baseline-specific evaluator environment **before any builder or solver call**. The original instance image may contain only the repository, not its dependencies. Baseline setup runs in one networked shell, preserving virtual-environment activation, in a child with no host mounts, Docker socket or injected Provider credentials. The resulting image and setup receipt are frozen by digest. A separate offline gold-patch self-check must pass before the environment is admitted; gold patches and test runners never enter the reusable setup image or agents. Test commands also share a shell, and missing/empty/malformed result maps are evaluator errors, not failed model scores. Full runner diagnostics are retained in evaluator-only `repo-tests.json` and `instance-tests.json`.
 
 Known dependency compatibility pins are baseline-scoped and included in the image identity, in [agentbench_environment.py](docker/official-harness/agentbench_environment.py). They are explicit adapter differences, not an upstream lockfile. An incompatible official test is blocked and diagnosed; it is not rewritten to make the gold patch pass. Existing experiments keep their frozen harness and preparation rules. Test a repaired harness against retained patches in separate output directories; do not silently upgrade half a pair or merge repaired scores into an old campaign. Offline transfers must include the prepared evaluator images as well as the original instance images.
 

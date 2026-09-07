@@ -2,6 +2,7 @@ import { useCallback, useEffect, useState } from "react";
 import { CheckCircle2, LoaderCircle, X } from "lucide-react";
 import type { Page } from "./app-types";
 import { ExperimentComposer } from "./components/ExperimentComposer";
+import { DatasetWizard } from "./components/DatasetWizard";
 import { DatasetDialog, PreparationDialog, RunDialog, PackageDialog } from "./components/WorkbenchDialogs";
 import { Sidebar } from "./components/Sidebar";
 import { Topbar } from "./components/Topbar";
@@ -25,7 +26,7 @@ export default function App() {
   const [diagnostics, setDiagnostics] = useState<DiagnosticItem[]>([]);
   const [toast, setToast] = useState<string>();
   const closeToast = useCallback(() => setToast(undefined), []);
-  const [dialog, setDialog] = useState<"dataset" | "context" | "manual" | "constraints">();
+  const [dialog, setDialog] = useState<"dataset" | "dataset-create" | "context" | "manual" | "constraints">();
   const [selectedRun, setSelectedRun] = useState<BenchmarkRun>();
   const [selectedPackage, setSelectedPackage] = useState<string>();
   const refresh = () => loadSnapshot().then((value) => { setSnapshot((old) => ({ ...value, diagnostics: old?.diagnostics ?? value.diagnostics })); setLoadingError(undefined); }).catch((error: unknown) => setLoadingError(error instanceof Error ? error.message : String(error)));
@@ -104,7 +105,7 @@ export default function App() {
           {loadingError && <p className="connection-banner" role="alert">{t("Worker disconnected — showing last received data")}</p>}
           {snapshot.runtime === "mock" && <p className="connection-banner">{t("Demo data — not benchmark results")}</p>}
           {page === "overview" && <DashboardPage snapshot={snapshot} onNewExperiment={() => setModalOpen(true)} onOpenExperiments={() => setPage("experiments")} onRun={setSelectedRun} />}
-          {page === "experiments" && <ExperimentsPage snapshot={snapshot} onNewExperiment={() => setModalOpen(true)} onImport={() => setDialog("dataset")} onRun={setSelectedRun} onAction={(id, action) => { void workerRequest(`/experiments/${id}/${action}`, "POST").then(refresh).catch((error) => setToast(String(error))); }} onExport={(format) => { void exportSnapshot(snapshot, format).catch((error) => setToast(String(error))); }} />}
+          {page === "experiments" && <ExperimentsPage snapshot={snapshot} onNewExperiment={() => setModalOpen(true)} onImport={() => setDialog("dataset")} onCreateDataset={() => setDialog("dataset-create")} onRun={setSelectedRun} onAction={(id, action) => { void workerRequest(`/experiments/${id}/${action}`, "POST").then(refresh).catch((error) => setToast(String(error))); }} onExport={(format) => { void exportSnapshot(snapshot, format).catch((error) => setToast(String(error))); }} />}
           {page === "knowledge" && <KnowledgePage snapshot={snapshot} onImport={() => setDialog("manual")} onGenerate={() => setDialog("context")} onView={setSelectedPackage} />}
           {page === "constraints" && <ConstraintsPage snapshot={snapshot} onMine={() => setDialog("constraints")} />}
           {page === "infrastructure" && <InfrastructurePage diagnostics={diagnostics} onDiagnose={handleDiagnose} diagnosing={diagnosing} />}
@@ -112,7 +113,8 @@ export default function App() {
       </main>
       {modalOpen && <ExperimentComposer creating={creating} onClose={() => setModalOpen(false)} onCreate={handleCreate} artifacts={snapshot.artifacts} />}
       {dialog === "dataset" && <DatasetDialog onClose={() => setDialog(undefined)} onComplete={() => void refresh()} />}
-      {dialog && dialog !== "dataset" && <PreparationDialog kind={dialog} onClose={() => setDialog(undefined)} onComplete={() => void refresh()} />}
+      {dialog === "dataset-create" && <DatasetWizard onClose={() => setDialog(undefined)} onComplete={() => void refresh()} />}
+      {dialog && dialog !== "dataset" && dialog !== "dataset-create" && <PreparationDialog kind={dialog} onClose={() => setDialog(undefined)} onComplete={() => void refresh()} />}
       {selectedRun && <RunDialog run={snapshot.runs.find((run) => run.id === selectedRun.id) ?? selectedRun} onClose={() => setSelectedRun(undefined)} />}
       {selectedPackage && <PackageDialog id={selectedPackage} onClose={() => setSelectedPackage(undefined)} />}
       {toast && <Toast message={toast} onClose={closeToast} />}

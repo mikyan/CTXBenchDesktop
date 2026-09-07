@@ -344,6 +344,8 @@ class Database:
             },
             "seed": spec["seed"],
             "envNames": spec.get("env_names", []),
+            "builderWorkflow": spec.get("builder_workflow", {}),
+            "solverWorkflow": spec.get("solver_workflow", {}),
             "contextArtifacts": spec.get("context_artifacts", {}),
             "constraintPackages": spec.get("constraint_packages", {}),
             "evaluateConstraints": spec.get("evaluate_constraints", False),

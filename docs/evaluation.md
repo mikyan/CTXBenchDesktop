@@ -2,7 +2,7 @@
 
 ## CTXBench paired study
 
-Dataset compatibility follows the [CTXBench/AgentBench paper](https://arxiv.org/abs/2602.11988) and its [official harness](https://github.com/eth-sri/agentbench). CTXBench Desktop adds the paired frozen-context experiment around the same repository tasks; it does not rewrite their task prompts.
+Dataset compatibility follows the [CTXBench (formerly AGENTBench) paper](https://arxiv.org/abs/2602.11988) and its [official harness](https://github.com/eth-sri/agentbench). The benchmark was named AGENTbench in paper v1 and CTXbench in v2; upstream paths and internal `agentbench` source identifiers are retained for compatibility. This display-name update neither changes frozen datasets nor certifies inclusion of all v2 test revisions. CTXBench Desktop adds the paired frozen-context experiment around the same repository tasks; it does not rewrite their task prompts.
 
 The primary estimand is the within-task, within-repeat effect of a frozen context package. A pair fixes repository commit, task text, hidden tests, coding-agent image/version, provider, model, thinking level, token budget, runtime resources, timeout, and network policy. Only repository context files differ.
 

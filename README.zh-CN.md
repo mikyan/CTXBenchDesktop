@@ -4,12 +4,14 @@
 
 CTXBench Desktop 是本地优先的 Windows 桌面代码 Agent 评测工作台。它在相同仓库、基线 commit、任务提示词、模型和资源配置下，对比有无冻结知识库的生成效果，并结合功能测试与 SWE-Shield 风格的设计约束评审。
 
+命名说明：论文 [v1](https://arxiv.org/html/2602.11988v1#S3) 将评测集称为 AGENTbench，[v2](https://arxiv.org/html/2602.11988v2#S3) 改称 CTXbench。因此界面统一显示 **CTXBench（原 AGENTBench）**；官方 `eth-sri/agentbench` 地址、内部来源标识及既有冻结数据保持不变。名称更新不代表已逐项核验 v2 的全部测试修订。
+
 ## 支持的场景
 
 - **SWE-bench**：导入官方任务，执行代码修复，使用官方测试评分。
-- **CTXBench / AgentBench**：对比无知识库、Skill 生成、人工导入和基线自带上下文。适配 [CTXBench/AgentBench 论文](https://arxiv.org/abs/2602.11988)及[官方仓库](https://github.com/eth-sri/agentbench)的数据和评分工具。
+- **CTXBench（原 AGENTBench）**：对比无知识库、Skill 生成、人工导入和基线自带上下文。适配 [CTXBench 论文](https://arxiv.org/abs/2602.11988)及[官方仓库](https://github.com/eth-sri/agentbench)的数据和评分工具。
 - **SWE-Shield 风格约束评测**：从基线截止日期之前的历史 PR 评审中挖掘设计约束，再由三个独立评审会话判断候选补丁是否满足约束；支持测试通过后仍违反约束的统计。这是有来源证据的兼容实现，不是论文的逐项完整复现。
-- **自定义任务**：通过 manifest 指定基线、容器镜像或构建配方、测试命令及评测专用隐藏测试。
+- **自定义任务**：可在 **实验 → 创建评测集** 中按四步向导添加任务，设置默认或独立仓库环境、测试命令及隐藏测试；支持定义校验和 JSON 导出，也保留 manifest 导入。[查看用例设计与创建指南](docs/custom-datasets.md)。
 
 知识库是被动的仓库文件，例如 `AGENTS.md` 或文档目录。工具不会修改任务提示词、插入检索提示或强制 Agent 阅读知识库。生成只依赖指定基线，不得接触目标 PR、标准答案、隐藏测试、未来历史或挖掘出的约束。
 
@@ -52,12 +54,25 @@ npm run tauri dev
 
 ## 桌面操作流程
 
-1. 在**基础设施**中选择 WSL 发行版，构建镜像并启动 Worker。可在这里配置 API Key（仅保留到 Worker 重启），或通过部署环境变量配置；不要把密钥写入仓库、镜像或知识库。
-2. 在**实验 → 导入数据集**中导入 JSON / JSONL；parquet 文件须先放入 Worker 的 `/var/lib/ctxbench/datasets`。官方来源：[ETH SRI AgentBench](https://huggingface.co/datasets/eth-sri/agentbench)、[SWE-bench Verified](https://huggingface.co/datasets/princeton-nlp/SWE-bench_Verified)。导入内容会计算哈希并冻结。
+1. 在**基础设施**中选择 WSL 发行版，构建镜像并启动 Worker。Agent 环境变量支持**添加变量**，填写多组名称和值后**保存全部环境变量**（仅保留到 Worker 重启），或通过部署环境变量配置；不要把密钥写入仓库、镜像或知识库。在实验、知识库生成和约束挖掘窗口中，可勾选多个已配置变量，或输入以换行、空格、逗号分隔的变量名；此处只填名称，不填值。只有选中的变量会传入 Agent，地址等配置是否生效取决于 Agent 是否识别对应变量名。
+2. 在**实验 → 导入数据集**中导入 JSON / JSONL；parquet 文件须先放入 Worker 的 `/var/lib/ctxbench/datasets`。官方来源：[CTXBench（原 AGENTBench）](https://huggingface.co/datasets/eth-sri/agentbench)、[SWE-bench Verified](https://huggingface.co/datasets/princeton-nlp/SWE-bench_Verified)。导入内容会计算哈希并冻结。
 3. 选择实际任务、Provider / 模型、各角色额度、资源、重复次数及上下文分支。选择**先准备全部上下文**可停在 `ready` 状态，之后显式恢复求解。
 4. 跨模型复用时选择**冻结包**。支持 JSON 包和文档目录，仓库与基线 commit 必须完全匹配。人工提供的基线声明是作者声明，并不能证明文档确实基于该版本生成。
 5. 按需开启历史 PR 约束挖掘。自动生成的约束包标为银级（silver）；三个评审会话相互独立，可配置不同模型。评审失败会明确报错，不会伪造为中立票。
 6. 查看配对结果和证据后导出报告。基础设施错误不应算成模型功能测试失败，也不能进入有效功能评分的分母。
+
+## 启动命令与多步 Prompt 编排
+
+在新建实验中分别展开**知识库生成编排**和**评测求解编排**；单独生成知识库的窗口也提供相同配置。默认没有启动命令，只有一步，使用原有的生成指令或当前任务 Prompt。可添加、删除、上下移动步骤，每步填写自己的 Prompt；`{{default_prompt}}` 可引用该阶段原有的默认 Prompt，不会额外注入知识库读取提示。
+
+- **启动命令**在用户启动任务后、Agent 模型调用前执行，只在隔离容器内运行。多条命令共用 Bash 环境，`export`、`source` 激活的环境会传给所有后续步骤。镜像已预装 Python pip/venv；建议在 `$HOME` 下创建虚拟环境，固定依赖版本。命令不能修改基线代码、提交或知识上下文；系统级依赖仍应放入 Dockerfile。
+- **独立步骤**顺序执行，共享容器、依赖和工作目录文件，但每步开启全新的 Pi 会话，不自动传递前一步对话。最终合并所有步骤的文件改动再评分；知识库文件仍只能来自文档路径。
+- **失败与预算**：安装失败不调用模型；中间步骤失败或超时会阻止后续步骤。整条流程共享所选角色原有的 Token 和超时额度，增加步骤不会自动扩大额度。失败、中断后重试会从干净容器重新执行该流程，当前不提供步骤中间断点续跑。
+- **网络与评分隔离**：启动命令遵守用户选定的网络策略，`api-only` 不会自动放行 pip/npm 仓库。内网包源需配置代理白名单，或预装进镜像；若显式选择 `unrestricted`，该策略对整条 Agent 流程生效。启动命令不在隐藏测试评分器中执行，评分依赖仍由用例测试镜像/官方评测环境准备。
+- **配对与复用**：有、无知识库两侧使用相同求解编排；改动命令或 Prompt 会改变配对标识，生成编排变更也会产生新的知识库缓存标识。已完成的冻结知识库仍可供多个实验复用。
+- **证据**：知识库准备队列提供**编排日志**；求解运行详情中可选择 `workflow.json` 查看每步状态和用量，选择 `setup.log` 查看脱敏后的安装输出。
+
+使用此功能需要更新桌面、Worker 和 Pi 镜像。内部 Agent 镜像须实现工作流协议 v1 并声明 `io.ctxbench.workflow=1`；旧镜像不会静默忽略编排。命令和 Prompt 会作为实验配置保存，请只引用环境变量，不要直接粘贴密钥。
 
 ## 额度、批次与磁盘
 
@@ -90,11 +105,19 @@ docker compose -f docker/compose.yaml --profile build-only build
 docker compose -f docker/compose.yaml up -d ctxbench-worker
 ```
 
-构建产物包括 Pi Agent、Worker、出口代理，以及固定上游 SWE-bench / AgentBench 版本的 `ctxbench/official-harness:0.1.0`。
+构建产物包括 Pi Agent、Worker、出口代理，以及固定上游 SWE-bench / CTXBench（原 AGENTBench）评分工具版本的 `ctxbench/official-harness:0.1.0`。
+
+也可以提前生成**独立于桌面安装包的离线镜像包**：
+
+```bash
+python3 scripts/images-release.py pack --version v0.1.0 --output artifacts/images-v0.1.0
+```
+
+GitHub Actions 的 **Offline Docker images** 支持手动构建下载；发布 Release 时会基于对应标签构建并上传独立镜像附件。包内包含 gzip 分片、SHA-256、镜像清单、中英文说明、自包含导入器和禁止联网构建/拉取的 Compose 文件。仅包含四个应用镜像，不包含用例镜像或数据。内网导入、发布权限、版本匹配和使用示例见[离线镜像发布说明](docs/offline-images.md)。
 
 Agent 容器没有 Docker socket，只接收白名单环境变量。可信评分监督进程可下载或构建环境；正式测试子容器断网并限制 CPU / 内存。官方测试选择及评分规则保留。
 
-新建 AgentBench 实验会在**任何知识库生成或求解调用之前**准备基线专属评分环境：原始实例镜像可能只有仓库，没有 Python 等运行依赖。准备命令在同一个联网 shell 内执行，保留虚拟环境激活；准备子容器没有宿主目录挂载、Docker socket 或注入的 Provider 密钥。完成后按 digest 冻结镜像，再在独立断网容器中执行标准答案自检。自检通过才允许后续 Agent 阶段；标准答案和隐藏测试不会写入可复用的准备镜像，也不会交给 Agent。
+新建 CTXBench 实验会在**任何知识库生成或求解调用之前**准备基线专属评分环境：原始实例镜像可能只有仓库，没有 Python 等运行依赖。准备命令在同一个联网 shell 内执行，保留虚拟环境激活；准备子容器没有宿主目录挂载、Docker socket 或注入的 Provider 密钥。完成后按 digest 冻结镜像，再在独立断网容器中执行标准答案自检。自检通过才允许后续 Agent 阶段；标准答案和隐藏测试不会写入可复用的准备镜像，也不会交给 Agent。
 
 正式测试同样保留 shell 状态。结果 JSON 缺失、为空或类型错误会明确算作评分器异常，执行诊断保存在评测专用 `repo-tests.json`、`instance-tests.json`。已知依赖兼容性限制在 [agentbench_environment.py](docker/official-harness/agentbench_environment.py) 中按基线版本声明，进入镜像身份与来源记录；它们不是上游自带的 lockfile。官方测试与基线本身不兼容时停止诊断，不擅自修改测试或标准答案。
 

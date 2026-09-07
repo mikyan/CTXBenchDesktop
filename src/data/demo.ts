@@ -85,7 +85,7 @@ export const demoRuns: BenchmarkRun[] = runSeeds.flatMap(
 export const demoExperiments: Experiment[] = [
   {
     id: "exp-ctx-001",
-    name: "AGENTBench · generated context",
+    name: "CTXBench (formerly AGENTBench) · generated context",
     benchmark: "ctxbench",
     dataset: "eth-sri/agentbench@138",
     status: "running",

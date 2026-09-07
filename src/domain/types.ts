@@ -175,6 +175,8 @@ export interface DashboardSnapshot {
 }
 
 export interface CreateExperimentRequest {
+  builderWorkflow?: AgentWorkflow;
+  solverWorkflow?: AgentWorkflow;
   budgetId?: string;
   name: string;
   benchmark: BenchmarkKind;
@@ -199,4 +201,5 @@ export interface DatasetRecord { id: string; name: string; benchmark: BenchmarkK
 export interface TokenBudgetRecord { id: string; provider: string; model: string; limitTokens: number; reportedTokens: number; chargedTokens: number; reservedTokens: number; unconfirmedTokens: number; remainingTokens: number; limitChanges?: { fromTokens: number; toTokens: number; reason: string; createdAt: string }[] }
 export interface TaskSummary { id: string; repository: string; baseCommit: string; prompt: string; image?: string }
 export interface OperationRecord { id: string; kind: string; status: "queued" | "running" | "paused" | "completed" | "failed" | "cancelled"; createdAt: string; updatedAt: string; failure?: string; taskId?: string; dataset?: string; resultId?: string }
-export interface RuntimeSettings { runner: string; dataDirectory: string; credentials: { name: string; configured: boolean }[]; datasetFiles: string[] }
+export interface AgentWorkflow { setupCommands: string[]; steps: { name: string; prompt: string | null }[] }
+export interface RuntimeSettings { runner: string; dataDirectory: string; credentials: { name: string; configured: boolean }[]; datasetFiles: string[]; defaultPrompts?: { builder: string } }

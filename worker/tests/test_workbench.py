@@ -36,6 +36,44 @@ class FixtureRunner:
 
 
 class WorkbenchTests(unittest.TestCase):
+    def test_workflow_roundtrip_and_task_blind_context_cache(self):
+        workflow = {'setupCommands': ['echo dependency-setup'], 'steps': [{'name': 'prepare', 'prompt': None}, {'name': 'refine', 'prompt': 'Refine the architecture context'}]}
+        spec = replace(self.spec, builder_workflow=workflow)
+        experiment = self.workbench.create_experiment(spec)
+        self.assertEqual(self.engine.database.get_spec(experiment['id']).builder_workflow, workflow)
+        self.assertEqual(experiment['builderWorkflow'], workflow)
+        task = self.workbench.catalog.task(self.dataset['id'], 'task/1')
+        first = self.workbench.generate(task, spec, 'fixture:1')
+        self.assertEqual(self.workbench.generate(task, spec, 'fixture:1')['id'], first['id'])
+        self.assertEqual(len(self.runner.calls), 1)
+        self.assertEqual(self.runner.calls[0].workflow, workflow)
+        self.assertNotIn('PRIVATE_TARGET_TASK', str(self.runner.calls[0].workflow))
+        self.assertNotIn('PRIVATE_TARGET_TASK', self.runner.calls[0].prompt)
+        second = self.workbench.generate(task, replace(spec, builder_workflow={**workflow, 'setupCommands': ['echo changed']}), 'fixture:1')
+        self.assertNotEqual(first['id'], second['id'])
+        self.assertEqual(len(self.runner.calls), 2)
+
+    def test_solver_workflow_is_identical_within_pairs_and_changes_pairing_hash(self):
+        workflow = {'steps': [{'name': 'plan', 'prompt': 'Plan {{default_prompt}}'}, {'name': 'solve', 'prompt': 'Implement the plan'}]}
+        spec = replace(self.spec, solver_workflow=workflow)
+        experiment = self.workbench.create_experiment(spec)
+        self.workbench.run_experiment(experiment['id'])
+        runs = self.engine.database.list_runs(experiment['id'])
+        self.assertEqual(len({run['pairingHash'] for run in runs}), 1)
+        solvers = [call for call in self.runner.calls if call.mode == 'solve']
+        self.assertEqual(len(solvers), 4)
+        self.assertTrue(all(call.workflow['steps'] == workflow['steps'] for call in solvers))
+        self.assertEqual(len({call.prompt for call in solvers}), 1)
+        other = self.workbench.create_experiment(replace(spec, solver_workflow={'steps': [{'prompt': 'Different instruction'}]}))
+        self.workbench.run_experiment(other['id'])
+        self.assertNotEqual(runs[0]['pairingHash'], self.engine.database.list_runs(other['id'])[0]['pairingHash'])
+
+    def test_workflow_credentials_are_rejected_before_persistence(self):
+        with patch.object(self.runner, 'env_allowlist', {'INTERNAL_TEST_KEY'}, create=True), patch.dict('os.environ', {'INTERNAL_TEST_KEY': 'fixture-private-value'}):
+            with self.assertRaisesRegex(ValueError, 'Do not embed'):
+                self.workbench.create_experiment(replace(self.spec, solver_workflow={'setupCommands': ['echo fixture-private-value']}))
+        self.assertFalse(self.engine.database.list_experiments())
+
     def test_dependency_setup_fails_before_any_paid_builder_or_solver(self):
         from worker.ctxbench_worker.runner import DockerRunner
         self.engine.runner = DockerRunner(self.root / 'repositories', self.root / 'runs', self.root / 'requests')

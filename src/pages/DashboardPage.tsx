@@ -79,7 +79,7 @@ export function DashboardPage({
         />
         <MetricCard
           label={t("Knowledge lift")}
-          value={pairCount ? signedPercent(metrics.knowledgeLift) : "—"}
+          value={pairCount ? signedPercent(metrics.knowledgeLift, 1, locale) : "—"}
           detail={t("context vs none")}
           trend={`${metrics.pairedWins}W / ${metrics.pairedLosses}L`}
           icon={<TrendingUp size={17} />}
@@ -120,7 +120,7 @@ export function DashboardPage({
           </div>
           <div className="impact-summary">
             <div>
-              <strong>{pairCount ? signedPercent(metrics.knowledgeLift) : "—"}</strong>
+              <strong>{pairCount ? signedPercent(metrics.knowledgeLift, 1, locale) : "—"}</strong>
               <span>{t("absolute pass-rate lift")}</span>
             </div>
             <div className="win-chip"><Sparkles size={14} /> {t("Context wins {wins} of {pairs} pairs", { wins: metrics.pairedWins, pairs: metrics.pairedWins + metrics.pairedLosses + metrics.pairedTies })}</div>

@@ -2,6 +2,7 @@
 from __future__ import annotations
 
 import json
+import hashlib
 import os
 import threading
 import uuid
@@ -23,6 +24,7 @@ from .safe_files import safe_file
 from .checkpoints import GradeCheckpoint, digest, stage_evidence, verify_stage
 from .preflight import estimate, storage_status
 from .budgets import TokenBudget, BudgetExhausted
+from .workflows import normalize_workflow, workflow_request
 
 GENERATION_PROMPT = "/skill:ctxbench-generate-context\n\nCapability: tree-only. Generate a frozen repository context artifact from this exact baseline checkout."
 
@@ -134,6 +136,8 @@ class Workbench:
         return experiment
 
     def validate_inputs(self, spec: ExperimentSpec) -> list:
+        self.validate_workflow(spec.builder_workflow, 'generate-context')
+        self.validate_workflow(spec.solver_workflow, 'solve')
         if spec.budget_id:
             self.budgets.validate(spec.budget_id, [spec.model, *spec.profiles.values(), *spec.judge_profiles])
         dataset = self.db.get_document("datasets", spec.dataset)
@@ -159,6 +163,14 @@ class Workbench:
         if isinstance(self.engine.runner, DockerRunner):
             selected_environment(spec.env_names, self.engine.runner.env_allowlist)
         return tasks
+
+    def validate_workflow(self, workflow: object, mode: str):
+        normalized = normalize_workflow(workflow)
+        if normalized and mode not in {'generate-context', 'solve'}:
+            raise ValueError('Custom workflows are only supported for context generation and solving.')
+        text = json.dumps(normalized)
+        if self.redact(text) != text:
+            raise ValueError('Do not embed runtime credentials in commands or prompts; reference environment variables instead.')
 
     def preflight(self, spec: ExperimentSpec) -> dict:
         tasks = self.validate_inputs(spec)
@@ -285,7 +297,8 @@ class Workbench:
         model = ModelConfig(**payload["model"])
         return ExperimentSpec("Preparation", "custom", payload["dataset"], ("none", "skill-generated"), 1,
             (payload["taskId"],), model, payload["agentImage"], ResourcePolicy(**payload["resources"]), 0,
-            profiles={"builder": model, "constraintMiner": model}, env_names=tuple(payload.get("envNames", [])), budget_id=payload.get('budgetId', ''))
+            profiles={"builder": model, "constraintMiner": model}, env_names=tuple(payload.get("envNames", [])), budget_id=payload.get('budgetId', ''),
+            builder_workflow=normalize_workflow(payload.get('workflow')))
 
     def redact(self, text: str) -> str:
         names = getattr(self.engine.runner, "env_allowlist", ())
@@ -297,6 +310,7 @@ class Workbench:
 
     def _agent(self, key: str, mode: str, workspace_factory, prompt: str, model: ModelConfig,
                spec: ExperimentSpec, image: str, *, context_paths=(), experiment_id=None) -> dict:
+        workflow = normalize_workflow(spec.builder_workflow if mode == 'generate-context' else spec.solver_workflow if mode == 'solve' else {})
         try:
             stage = self.db.get_document("stages", key)
             if stage["status"] == "completed":
@@ -308,6 +322,8 @@ class Workbench:
         except KeyError:
             pass
         self._check(experiment_id)
+        if workflow and isinstance(self.engine.runner, DockerRunner):
+            self.engine.runner.validate_workflow_image(image)
         run_id = f"{mode[:8]}-{uuid.uuid4().hex[:20]}"
         workspace = workspace_factory()
         expected_document = None
@@ -336,7 +352,7 @@ class Workbench:
             result = self.engine.runner.run(RunSpec(run_id, mode, image, str(workspace), str(output), prompt,
                 model, spec.resources, spec.env_names, tuple(context_paths),
                 str(self.engine.context_skill_path) if mode == "generate-context" and self.engine.context_skill_path else None,
-                {"capability": "tree-only"} if mode == "generate-context" else {}))
+                {"capability": "tree-only"} if mode == "generate-context" else {}, workflow=normalize_workflow(workflow)))
             metadata_path = safe_file(output, "result.json")
             metadata = json.loads(metadata_path.read_text(encoding="utf-8")) if metadata_path.exists() else {}
             if isinstance(self.engine.runner, DockerRunner) and (metadata.get("schemaVersion") != 1 or metadata.get("runId") != run_id):
@@ -344,10 +360,17 @@ class Workbench:
             if result.status != "completed" or metadata.get("status", "completed") != "completed":
                 self._check(experiment_id)
                 reason = ("Cumulative token budget exhausted" if metadata.get("budgetInterrupted") else
-                          "Agent timed out" if metadata.get("status") == "timed-out" else metadata.get("promptError") or result.failure or "Invalid agent completion")
+                          "Agent timed out" if metadata.get("status") == "timed-out" else metadata.get("workflowError") or metadata.get("promptError") or result.failure or "Invalid agent completion")
                 stage.update(status="failed", failure=self.redact(str(reason)), metadata=metadata)
                 self.db.put_document("stages", key, stage)
                 raise RuntimeError(f"{reason}; run {run_id}. Inspect its result.json and trajectory.")
+            if workflow and isinstance(self.engine.runner, DockerRunner):
+                expected_steps = workflow_request(workflow, prompt)['steps']
+                actual_steps = metadata.get('workflowSteps', [])
+                if (metadata.get('workflowProtocolVersion') != 1 or len(actual_steps) != len(expected_steps)
+                        or any(actual.get('status') != 'completed' or actual.get('promptHash') != hashlib.sha256(expected['prompt'].encode()).hexdigest()
+                               for actual, expected in zip(actual_steps, expected_steps))):
+                    raise ValueError('Agent did not confirm every configured workflow step; refusing a partial or ignored workflow.')
             # Do not checkpoint malformed model output as successful: retry must run that
             # stage again, while preserving other completed solve/grade/judge checkpoints.
             if mode == "solve":
@@ -430,8 +453,11 @@ class Workbench:
         builder = spec.profiles.get("builder", spec.model)
         skill = self.engine.context_skill_path
         skill_hash = fingerprint((skill / "SKILL.md").read_text(encoding="utf-8")) if skill else "mock-v1"
+        generation_inputs = {"prompt": GENERATION_PROMPT, "image": image, "resources": asdict(spec.resources), "envNames": spec.env_names}
+        if normalize_workflow(spec.builder_workflow):
+            generation_inputs['workflow'] = workflow_request(spec.builder_workflow, GENERATION_PROMPT)
         identity = ContextIdentity(task.repository, task.base_commit, "tree-only", skill_hash,
-            fingerprint({"prompt": GENERATION_PROMPT, "image": image, "resources": asdict(spec.resources), "envNames": spec.env_names}), builder)
+            fingerprint(generation_inputs), builder)
         key = identity.key()
         if not self.engine.artifacts.contains(key):
             def checkout():
@@ -581,9 +607,12 @@ class Workbench:
             return workspace
         pairing = {"task": task.solver_payload(), "model": asdict(spec.model), "resources": asdict(spec.resources),
                    "image": prepared["image"], "dataset": spec.dataset, "envNames": spec.env_names, "harness": prepared["harnessImage"], "graderImage": task.image}
+        workflow = workflow_request(spec.solver_workflow, task.prompt)
+        if workflow:
+            pairing['workflow'] = workflow
         self.db.update_run(run["id"], "running", {"repository": task.repository, "commit": task.base_commit,
             "startedAt": run.get("startedAt", utc_now()), "contextArtifactId": key,
-            "pairingHash": fingerprint(pairing), "promptHash": fingerprint(task.prompt), "agentImageDigest": prepared["image"],
+            "pairingHash": fingerprint(pairing), "promptHash": fingerprint(workflow['steps'] if workflow else task.prompt), "agentImageDigest": prepared["image"],
             "mock": spec.model.provider == "mock" or not isinstance(self.engine.runner, DockerRunner)})
         stage = self._agent(f"solve:{run['id']}", "solve", checkout, task.prompt, spec.model, spec, prepared["image"],
                             context_paths=context_paths, experiment_id=run["experimentId"])

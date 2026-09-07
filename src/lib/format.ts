@@ -1,7 +1,7 @@
 export const percent = (value: number, digits = 1): string => `${(value * 100).toFixed(digits)}%`;
 
-export const signedPercent = (value: number, digits = 1): string =>
-  `${value >= 0 ? "+" : ""}${(value * 100).toFixed(digits)} pp`;
+export const signedPercent = (value: number, digits = 1, locale = "en"): string =>
+  `${value >= 0 ? "+" : ""}${(value * 100).toFixed(digits)} ${locale.startsWith("zh") ? "个百分点" : "pp"}`;
 
 export const money = (value: number, locale = "en-US"): string =>
   new Intl.NumberFormat(locale, { style: "currency", currency: "USD" }).format(value);
