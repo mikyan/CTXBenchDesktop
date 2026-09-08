@@ -1,0 +1,20 @@
+worker/tests/test_dataset_files.py
+  s_160ecc294b79e0::t_1a22374e973af6 97-100,113-122
+  s_160ecc294b79e0::t_b0262f30686113 123
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "development:1.7.3",
+  "base_commit_sha": "bcae82cb3d7496d7adba0f2544187bf32ec5fc3b",
+  "prompts": {},
+  "sessions": {
+    "s_160ecc294b79e0": {
+      "agent_id": {
+        "tool": "codex",
+        "id": "01a06b47-944f-76f3-8380-74bb83cda689",
+        "model": "gpt-6-astra"
+      },
+      "human_author": "AI_BA <ai_ball@outlook.com>"
+    }
+  }
+}
