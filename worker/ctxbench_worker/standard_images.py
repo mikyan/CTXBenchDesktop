@@ -10,6 +10,9 @@ import time
 
 from .environments import image_reference
 from .preflight import storage_status
+from .image_sources import ImageSources
+from .catalog import fingerprint
+from .database import utc_now
 
 
 def swe_image(instance_id: str, *, solver: bool = False) -> str:
@@ -45,6 +48,25 @@ class DockerImages:
         attrs = image.attrs
         return {"installed": True, "imageId": image.id, "sizeBytes": attrs.get("Size"),
                 "compatible": attrs.get("Os") == "linux" and attrs.get("Architecture") == "amd64"}
+
+    def availability(self, reference):
+        import docker
+        import requests
+        try:
+            data = self.client.images.get_registry_data(reference)
+            return 'available' if data.has_platform('linux/amd64') else 'wrong-platform'
+        except docker.errors.APIError as error:
+            # The daemon sometimes wraps registry HTTP errors in its own 500.
+            # Classify known responses but never return raw server bodies/auth.
+            message = str(error).lower()
+            status = getattr(error, 'status_code', None)
+            if status in {401, 403} or any(word in message for word in ('unauthorized', 'authentication required', 'denied', 'forbidden')):
+                return 'auth-required'
+            if status == 404 or any(word in message for word in ('manifest unknown', 'name unknown')):
+                return 'not-found'
+            return 'unreachable'
+        except (docker.errors.DockerException, requests.exceptions.RequestException):
+            return 'unreachable'
 
     def pull(self, reference, check, progress):
         # The helper receives only a validated public image name, never Provider keys.
@@ -86,7 +108,7 @@ class DockerImages:
                 progress(message.rstrip()[:2000])
                 last_event = time.monotonic()
             if process.wait() != 0:
-                raise ValueError("Image download failed. Check the last layer message, Docker registry access, disk space and registry login in WSL; retry reuses completed images. Provider API keys do not authenticate Docker registries.")
+                raise ValueError("Image download failed. Check registry access and disk space. For private registries, pull the displayed image with docker login / docker pull in the selected WSL distribution, then refresh here. Host Docker credentials are not automatically shared with the evaluation service. Provider API keys do not authenticate Docker registries.")
         finally:
             done.set()
             if process.poll() is None:
@@ -129,23 +151,44 @@ class StandardImages:
             tasks.append({"id": key, "repository": task.repository, "images": needed})
         return record, tasks, references
 
+    def resolved_requirements(self, dataset, task_ids=None):
+        record, tasks, references = self.requirements(dataset, task_ids)
+        sources = ImageSources(self.wb.runtime.environment)
+        mapped = {}
+        for original, ids in references.items():
+            ref = sources.resolve(original)
+            item = mapped.setdefault(ref, {'reference': ref, 'taskIds': [], 'originals': [], 'pullAllowed': sources.may_pull(original)})
+            item['taskIds'] = list(dict.fromkeys(item['taskIds'] + ids))
+            item['originals'].append(original)
+        return record, [{**task, 'images': list(dict.fromkeys(sources.resolve(ref) for ref in task['images']))} for task in tasks], mapped
+
+    def check_key(self, reference):
+        return fingerprint({'environment': self.wb.runtime.environment, 'reference': reference})
+
     def plan(self, dataset):
-        record, tasks, references = self.requirements(dataset)
+        record, tasks, references = self.resolved_requirements(dataset)
         with self.store() as store:
-            images = [{"reference": ref, "taskIds": ids, **store.inspect(ref)} for ref, ids in references.items()]
+            images = []
+            for ref, item in references.items():
+                try:
+                    remote = self.wb.db.get_document('imageAvailability', self.check_key(ref))
+                except KeyError:
+                    remote = {'status': 'unchecked'}
+                images.append({**item, **store.inspect(ref), 'remote': remote})
         operations = [self.operator.status(op["id"]) for op in self.wb.db.list_documents("operations")
-                      if op["kind"] == "intranet:standard-images" and op["payload"].get("dataset") == dataset]
+                      if op["kind"] in {"intranet:standard-images", "intranet:image-check"} and op["payload"].get("dataset") == dataset
+                      and op['payload'].get('environment', {}).get('document', {}) == self.wb.runtime.environment]
         return {"dataset": dataset, "benchmark": record["benchmark"], "tasks": tasks, "images": images,
                 "storage": storage_status(self.wb.root), "operations": operations[-10:]}
 
     def validate(self, payload):
-        if set(payload) != {"dataset", "taskIds", "confirmed"} or payload.get("confirmed") is not True:
+        if not {'dataset', 'taskIds', 'confirmed'} <= set(payload) or set(payload) - {'dataset', 'taskIds', 'confirmed', 'profileId'} or payload.get("confirmed") is not True:
             raise ValueError("Confirm the selected project image downloads and disk-space warning first.")
         self.requirements(payload["dataset"], payload["taskIds"])
 
     def install(self, operation):
-        self.validate(operation["payload"])
-        _, tasks, references = self.requirements(operation["payload"]["dataset"], operation["payload"]["taskIds"])
+        self.validate({key: value for key, value in operation['payload'].items() if key != 'environment'})
+        _, tasks, references = self.resolved_requirements(operation["payload"]["dataset"], operation["payload"]["taskIds"])
         images = []
         with self.store() as store:
             for index, reference in enumerate(references):
@@ -158,6 +201,8 @@ class StandardImages:
                     raise ValueError(f"Local image has the wrong platform (requires linux/amd64): {reference}. Remove or retag that conflicting image explicitly before retrying; it has not been overwritten.")
                 cached = local["installed"]
                 if not cached:
+                    if not references[reference]['pullAllowed']:
+                        raise ValueError(f'No permitted registry mapping for missing image: {reference}. Add a mapping or import it locally. No public registry fallback was attempted.')
                     store.pull(reference, lambda: self.wb._check(None), emit)
                     local = store.inspect(reference)
                 self.wb._check(None)
@@ -168,6 +213,28 @@ class StandardImages:
                 self.operator.progress(operation, f"Available images: {index + 1}/{len(references)}", int((index + 1) / len(references) * 100))
         return {"dataset": operation["payload"]["dataset"], "taskCount": len(tasks), "images": images,
                 "scope": "project-images-only", "modelCalls": 0}
+
+    def check(self, operation):
+        """Explicit, cancellable metadata-only check; a 404 never changes a dataset."""
+        self.validate({key: value for key, value in operation['payload'].items() if key != 'environment'})
+        _, tasks, references = self.resolved_requirements(operation['payload']['dataset'], operation['payload']['taskIds'])
+        results = []
+        with self.store() as store:
+            for index, (ref, item) in enumerate(references.items()):
+                self.wb._check(None)
+                self.operator.progress(operation, f'Checking image {index + 1}/{len(references)}: {ref}', int(index / len(references) * 100))
+                local = store.inspect(ref)
+                if local['installed']:
+                    status = 'local' if local['compatible'] else 'wrong-platform'
+                else:
+                    status = store.availability(ref) if item['pullAllowed'] else 'unmapped'
+                self.wb._check(None)
+                receipt = {'id': self.check_key(ref), 'reference': ref, 'status': status, 'checkedAt': utc_now()}
+                self.wb.db.put_document('imageAvailability', receipt['id'], receipt)
+                results.append(receipt)
+                self.operator.progress(operation, f'{status}: {ref}', int((index + 1) / len(references) * 100))
+        return {'dataset': operation['payload']['dataset'], 'taskCount': len(tasks), 'images': results, 'modelCalls': 0,
+                'scope': 'image-availability-only'}
 
 
 if __name__ == "__main__":

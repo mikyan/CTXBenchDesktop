@@ -15,22 +15,23 @@ import { SectionNav } from "./SectionNav";
 import { FormError } from "./Dialogs";
 import { ProjectEnvironmentField, requireProjectEnvironment } from "./ProjectEnvironmentField";
 
-export function ExperimentComposer({ creating, onClose, onCreate, artifacts, initialDataset = "" }: {
-  creating: boolean; onClose: () => void; onCreate: (request: CreateExperimentRequest) => Promise<void>; artifacts: KnowledgeArtifact[]; initialDataset?: string;
+export function ExperimentComposer({ creating, onClose, onCreate, artifacts, initialDataset = "", imageSelection }: {
+  creating: boolean; onClose: () => void; onCreate: (request: CreateExperimentRequest) => Promise<void>; artifacts: KnowledgeArtifact[]; initialDataset?: string; imageSelection?: import("../lib/standard-images").ImageSelection;
 }) {
   const { t } = useI18n();
   const [step, setStep] = useState<"tasks" | "execution" | "review">("tasks");
   const stepHeading = useRef<HTMLHeadingElement>(null);
   const [datasets, setDatasets] = useState<DatasetRecord[]>([]); const [dataset, setDataset] = useState(initialDataset);
-  const [companyProfileId, setCompanyProfileId] = useState("");
+  const initialCompany = imageSelection?.profile?.document;
+  const [companyProfileId, setCompanyProfileId] = useState(imageSelection?.profile?.id ?? "");
   const [tasks, setTasks] = useState<TaskSummary[]>([]); const [selected, setSelected] = useState<string[]>([]);
   const [query, setQuery] = useState(""); const [name, setName] = useState("");
   const [arm, setArm] = useState<Exclude<ContextArm, "none">>("skill-generated");
   const [repeats, setRepeats] = useState(1); const [seed, setSeed] = useState(42);
-  const [profiles, setProfiles] = useState({ builder: defaultProfile(), solver: defaultProfile(), constraintMiner: defaultProfile(), constraintJudge: defaultProfile() });
+  const [profiles, setProfiles] = useState(() => { const model = { ...defaultProfile(), ...(initialCompany ? { provider: initialCompany.provider, model: initialCompany.model } : {}) }; return { builder: model, solver: model, constraintMiner: model, constraintJudge: model }; });
   const [judges, setJudges] = useState<FrozenModelConfig[]>([]);
-  const [image, setImage] = useState("ctxbench/agent-pi:0.1.0"); const [env, setEnv] = useState("");
-  const [agentArgs, setAgentArgs] = useState<string[]>([]);
+  const [image, setImage] = useState(initialCompany?.agentImage ?? "ctxbench/agent-pi:0.1.0"); const [env, setEnv] = useState(initialCompany?.envNames.join("\n") ?? "");
+  const [agentArgs, setAgentArgs] = useState<string[]>(initialCompany?.agentArgs ?? []);
   const [projectEnvironment, setProjectEnvironment] = useState(true);
   const [cpu, setCpu] = useState(4); const [memory, setMemory] = useState(8); const [timeout, setTimeoutMinutes] = useState(45);
   const [network, setNetwork] = useState<CreateExperimentRequest["resources"]["network"]>("api-only");
@@ -40,8 +41,8 @@ export function ExperimentComposer({ creating, onClose, onCreate, artifacts, ini
   const [availableConstraints, setAvailableConstraints] = useState<{ id: string; repository: string; commit: string; count: number; historyVersion?: number }[]>([]);
   const [checking, setChecking] = useState(false);
   const [budgets, setBudgets] = useState<TokenBudgetRecord[]>([]); const [budgetId, setBudgetId] = useState("");
-  const modelEdited = useRef(false);
-  const environmentEdited = useRef(false);
+  const modelEdited = useRef(Boolean(initialCompany));
+  const environmentEdited = useRef(Boolean(initialCompany));
   const [builderWorkflow, setBuilderWorkflow] = useState(defaultWorkflow);
   const [solverWorkflow, setSolverWorkflow] = useState(defaultWorkflow);
   const [generationPrompt, setGenerationPrompt] = useState<string>();
@@ -56,7 +57,7 @@ export function ExperimentComposer({ creating, onClose, onCreate, artifacts, ini
       if (mimo) { if (!environmentEdited.current) setEnv(mimo.name); if (!modelEdited.current) { const profile = { ...defaultProfile(), provider: "xiaomi-token-plan-cn", model: "mimo-v2.5" }; setProfiles({ solver: profile, builder: profile, constraintMiner: profile, constraintJudge: profile }); } }
     }).catch(() => {});
   }, []);
-  useEffect(() => { let current = true; setTasks([]); setSelected([]); setPackages({}); if (dataset) workerRequest<TaskSummary[]>(`/datasets/${dataset}/tasks`).then((tasks) => { if (current) setTasks(tasks); }).catch((error) => setError(String(error))); return () => { current = false; }; }, [dataset]);
+  useEffect(() => { let current = true; setTasks([]); setSelected([]); setPackages({}); if (dataset) workerRequest<TaskSummary[]>(`/datasets/${dataset}/tasks`).then((tasks) => { if (current) { setTasks(tasks); if (dataset === initialDataset && imageSelection) setSelected(imageSelection.taskIds.filter((id) => tasks.some((task) => task.id === id))); } }).catch((error) => setError(String(error))); return () => { current = false; }; }, [dataset, initialDataset, imageSelection]);
   const visible = tasks.filter((task) => `${task.id} ${task.repository}`.toLowerCase().includes(query.toLowerCase()));
   const selectedPackages = (values: Record<string, string>) => Object.fromEntries(selected.filter((id) => values[id]).map((id) => [id, values[id]]));
   const request: CreateExperimentRequest = { name, benchmark: datasets.find((item) => item.id === dataset)?.benchmark ?? "custom", dataset, taskIds: selected, arms: ["none", arm], repeats, seed, profiles, model: profiles.solver,

@@ -28,7 +28,7 @@ class IntranetWorkbench:
         self.profiles = EnvironmentProfiles(self.db, workbench.redact)
         from .standard_images import StandardImages
         self.standard_images = StandardImages(self)
-        for kind in ("probe", "image-build", "bundle-export", "bundle-import", "bundle-inspect", "standard-images"):
+        for kind in ("probe", "image-build", "bundle-export", "bundle-import", "bundle-inspect", "standard-images", "image-check"):
             workbench.operation_handlers["intranet:" + kind] = self.execute
 
     def material(self, value):
@@ -48,7 +48,7 @@ class IntranetWorkbench:
                     self.db.put_document("intranetGrades", record["id"], record)
 
     def enqueue(self, kind, payload):
-        if kind not in {"probe", "image-build", "bundle-export", "bundle-import", "bundle-inspect", "standard-images"}:
+        if kind not in {"probe", "image-build", "bundle-export", "bundle-import", "bundle-inspect", "standard-images", "image-check"}:
             raise ValueError("Unknown intranet operation.")
         self.material(payload)
         allowed = {
@@ -57,13 +57,14 @@ class IntranetWorkbench:
             "bundle-export": {"dataset", "images", "contextIds", "profileIds", "profileId"},
             "bundle-import": {"filename", "expectedSha256", "trusted"},
             "bundle-inspect": {"filename"},
-            "standard-images": {"dataset", "taskIds", "confirmed"},
+            "standard-images": {"dataset", "taskIds", "confirmed", "profileId"},
+            "image-check": {"dataset", "taskIds", "confirmed", "profileId"},
         }
         if not isinstance(payload, dict) or set(payload) - allowed[kind]:
             raise ValueError("Unsupported operator operation fields.")
-        if kind == "standard-images":
+        if kind in {"standard-images", "image-check"}:
             self.standard_images.validate(payload)
-            if any(op["kind"] == "intranet:standard-images" and op["status"] in {"queued", "running", "paused"}
+            if any(op["kind"] in {"intranet:standard-images", "intranet:image-check"} and op["status"] in {"queued", "running", "paused"}
                    and op["payload"]["dataset"] == payload["dataset"] for op in self.db.list_documents("operations")):
                 raise ValueError("An image installation for this dataset is already queued, running or paused. Open its progress to cancel or resume it.")
         if kind == "probe":
@@ -126,6 +127,8 @@ class IntranetWorkbench:
                     result = self.build(operation, attempt)
                 elif kind == "standard-images":
                     result = self.standard_images.install(operation)
+                elif kind == "image-check":
+                    result = self.standard_images.check(operation)
                 else:
                     from .portable import PortableResources
                     bundles = PortableResources(self)
@@ -295,8 +298,9 @@ def register_intranet_routes(app, service):
         return service.profiles.list()
 
     @app.get("/v1/datasets/{key}/project-images")
-    def standard_image_plan(key: str):
-        return service.standard_images.plan(key)
+    def standard_image_plan(key: str, profileId: str = ''):
+        with service.runtime.using_environment(service.profiles.get(profileId) if profileId else {}):
+            return service.standard_images.plan(key)
 
     @app.get("/v1/intranet/images/{key}")
     def image_recipe(key: str):

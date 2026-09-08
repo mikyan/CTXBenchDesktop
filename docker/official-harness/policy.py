@@ -20,6 +20,11 @@ def record_image(image: str):
 
 def configure():
     from docker.models.containers import ContainerCollection
+    if os.environ.get('CTXBENCH_LOCAL_IMAGES_ONLY') == '1':
+        from docker import APIClient
+        def blocked_pull(*args, **kwargs):
+            raise RuntimeError('Nested evaluator image downloads are disabled. Restore the frozen image through the application first.')
+        APIClient.pull = blocked_pull
     original_create = ContainerCollection.create
     cpus = float(os.environ.get("CTXBENCH_GRADER_CPUS", "4"))
     memory = os.environ.get("CTXBENCH_GRADER_MEMORY", "8g")
@@ -39,7 +44,7 @@ def configure():
 
     def start(self):
         name = f"ctxbench-grade-{uuid.uuid4().hex[:12]}"
-        command = [self.config.executable, "run", "-d", "--network=none", "--cpus", str(cpus),
+        command = [self.config.executable, "run", "-d", "--pull=never", "--network=none", "--cpus", str(cpus),
                    "--memory", memory, "--pids-limit", "1024", "--cap-drop=ALL",
                    "--security-opt=no-new-privileges:true", "--label", f"io.ctxbench.grade-scope={scope}",
                    "--name", name, "-w", self.config.cwd, *self.config.run_args,

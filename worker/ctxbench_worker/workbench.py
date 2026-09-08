@@ -290,10 +290,11 @@ class Workbench:
                     payload = operation["payload"]
                     task = self.catalog.task(payload["dataset"], payload["taskId"])
                     spec = self._preparation_spec(payload)
-                    image = self.runtime.resolve_image(spec.agent_image) if isinstance(self.engine.runner, DockerRunner) else spec.agent_image
-                    if operation['kind'] == 'context' and spec.project_environment and isinstance(self.engine.runner, DockerRunner):
-                        image = self.prepare_project_agent(task, spec, image)['imageId']
-                    result = self.generate(task, spec, image) if operation["kind"] == "context" else self.mine(task, spec, image)
+                    with self.runtime.using_environment(spec.company_environment):
+                        image = self.runtime.resolve_image(spec.agent_image) if isinstance(self.engine.runner, DockerRunner) else spec.agent_image
+                        if operation['kind'] == 'context' and spec.project_environment and isinstance(self.engine.runner, DockerRunner):
+                            image = self.prepare_project_agent(task, spec, image)['imageId']
+                        result = self.generate(task, spec, image) if operation["kind"] == "context" else self.mine(task, spec, image)
                 operation.update(status="completed", result=result)
             except Interrupted as error:
                 operation.update(status=("failed" if operation["kind"].startswith("intranet:") and self._stop.is_set() else "queued" if self._stop.is_set() else "paused"), failure=str(error))
@@ -323,7 +324,7 @@ class Workbench:
             (payload["taskId"],), model, payload["agentImage"], ResourcePolicy(**payload["resources"]), 0,
             profiles={"builder": model, "constraintMiner": model}, env_names=tuple(payload.get("envNames", [])), budget_id=payload.get('budgetId', ''),
             builder_workflow=normalize_workflow(payload.get('workflow')), agent_args=normalize_agent_args(payload.get('agentArgs')),
-            project_environment=payload.get('projectEnvironment', False))
+            project_environment=payload.get('projectEnvironment', False), company_environment=payload.get('environment', {}))
 
     def prepare_project_agent(self, task, spec, agent_image, grader_image=None, experiment_id=None):
         """One preparation path for independent builders and paired experiments."""
@@ -606,6 +607,31 @@ class Workbench:
                         "environmentVersion": 1}
             self.db.put_document("prepared", experiment_id, prepared)
         task_index = self.catalog.index(spec.dataset)
+        from .image_sources import ImageSources
+        from .standard_images import swe_image
+        company_images = ImageSources(self.runtime.environment).restricted and isinstance(self.engine.runner, DockerRunner)
+        if company_images:
+            if spec.benchmark != 'custom':
+                self.runtime.require_image_source_harness(prepared['harnessImage'])
+            # Check every selected source before any paid builder/miner/solver.
+            # Preserve IDs across retries even when a company mutable tag changes.
+            pins = prepared.setdefault('sourceImages', {})
+            self.runtime.pin_images(pins)
+            for task_id in spec.task_ids:
+                task = task_index[task_id]
+                references = [project_image(task)] if task.image or task.source != 'custom' else []
+                if task.source == 'custom' and not task.image:
+                    raise ValueError('Company image mapping requires a prebuilt custom test image. Adapt it first; arbitrary Dockerfile builds can bypass registry mappings.')
+                if task.source == 'swebench':
+                    references.append(swe_image(task.id))
+                for reference in dict.fromkeys(references):
+                    self._check(experiment_id)
+                    pins[reference] = self.runtime.resolve_image(reference)
+                    self.runtime.pin_images(pins)
+                    self.db.put_document('prepared', experiment_id, prepared)
+                if task.source == 'swebench':
+                    prepared['graderImages'][task_id] = pins[swe_image(task.id)]
+            self.db.put_document('prepared', experiment_id, prepared)
         for task_id in spec.task_ids:
             self._check(experiment_id)
             task = task_index[task_id]
@@ -628,7 +654,9 @@ class Workbench:
                 if 'agentImages' not in prepared:
                     raise ValueError('This experiment was prepared without project Agent environments. Create a new experiment; frozen plans cannot be silently upgraded.')
                 if task_id not in prepared['agentImages']:
-                    result = self.prepare_project_agent(task, spec, prepared['image'], prepared['graderImages'].get(task_id), experiment_id)
+                    # SWE's matplotlib solver variant is distinct from its grader.
+                    source_image = None if task.source == 'swebench' else prepared['graderImages'].get(task_id)
+                    result = self.prepare_project_agent(task, spec, prepared['image'], source_image, experiment_id)
                     prepared['agentImages'][task_id] = result['imageId']
                     if task.source == 'custom':
                         prepared['graderImages'][task_id] = result['imageId']
@@ -715,7 +743,8 @@ class Workbench:
         self._check(run["experimentId"])
         grade = checkpoint.load()
         if grade is None:
-            environment_options = {'environment_image': task.image} if task.source == 'agentbench' and prepared.get('environmentVersion') == 1 else {}
+            environment_options = {'environment_image': task.image} if (task.source == 'agentbench' and prepared.get('environmentVersion') == 1
+                or task.source == 'swebench' and task.id in prepared.get('graderImages', {})) else {}
             grade = self.runtime.grade(task, Path(dataset["path"]), output / "graded.patch", grade_dir, spec.resources, prepared["harnessImage"], **environment_options)
             checkpoint.save(grade)
         if not isinstance(grade.get("resolved"), bool):

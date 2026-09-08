@@ -9,6 +9,7 @@ from typing import Any
 
 import pyarrow.parquet as parquet
 from grade_validation import configure_test_execution, require_agentbench_result
+from swe_image import swe_environment
 
 
 def load_rows(dataset: Path) -> list[dict[str, Any]]:
@@ -129,7 +130,7 @@ def grade_agentbench(dataset: Path, instance_id: str, patch_path: Path, output: 
     print(json.dumps(summary, indent=2))
 
 
-def grade_swebench(dataset: Path, instance_id: str, patch_path: Path, output: Path) -> None:
+def grade_swebench(dataset: Path, instance_id: str, patch_path: Path, output: Path, environment_image: str | None = None) -> None:
     from swebench.harness.run_evaluation import main as run_evaluation
 
     row = load_row(dataset, instance_id)
@@ -153,22 +154,23 @@ def grade_swebench(dataset: Path, instance_id: str, patch_path: Path, output: Pa
     os.chdir(output)
     run_id = f"ctxbench-{hashlib.sha256(str(output.resolve()).encode()).hexdigest()[:12]}"
     try:
-        result_path = run_evaluation(
-            dataset_name=str(local_dataset),
-            split="test",
-            instance_ids=[instance_id],
-            predictions_path=str(predictions),
-            max_workers=1,
-            open_file_limit=4096,
-            run_id=run_id,
-            timeout=1800,
-            namespace="swebench",
-            cache_level="instance",
-            clean=False,
-            force_rebuild=False,
-            rewrite_reports=False,
-            modal=False,
-        )
+        with swe_environment(instance_id, environment_image) as namespace:
+            result_path = run_evaluation(
+                dataset_name=str(local_dataset),
+                split="test",
+                instance_ids=[instance_id],
+                predictions_path=str(predictions),
+                max_workers=1,
+                open_file_limit=4096,
+                run_id=run_id,
+                timeout=1800,
+                namespace=namespace,
+                cache_level="instance",
+                clean=False,
+                force_rebuild=False,
+                rewrite_reports=False,
+                modal=False,
+            )
         result_file = Path(result_path).resolve()
         result = json.loads(result_file.read_text(encoding="utf-8"))
     finally:
@@ -207,12 +209,12 @@ def parse_args() -> argparse.Namespace:
         grade_parser.add_argument("--instance-id", required=True)
         grade_parser.add_argument("--patch", type=Path, required=True)
         grade_parser.add_argument("--output", type=Path, required=True)
-        if name == 'grade-agentbench':
-            grade_parser.add_argument('--environment-image', required=True)
+        grade_parser.add_argument('--environment-image', required=name == 'grade-agentbench')
     prepare_parser = commands.add_parser('prepare-agentbench')
     prepare_parser.add_argument('--dataset', type=Path, required=True)
     prepare_parser.add_argument('--instance-id', required=True)
     prepare_parser.add_argument('--output', type=Path, required=True)
+    prepare_parser.add_argument('--source-image')
     return parser.parse_args()
 
 
@@ -234,7 +236,7 @@ def main() -> None:
     elif args.command == 'prepare-agentbench':
         from agentbench_environment import prepare_environment
         row = load_row(args.dataset, args.instance_id)
-        manifest = prepare_environment(row, args.output)
+        manifest = prepare_environment(row, args.output, args.source_image)
         # A baseline environment is not ready merely because pip returned zero.
         # Validate the official gold patch in an offline evaluator-only child
         # before the Worker may start any builder or solver. Never bake it in.
@@ -253,7 +255,7 @@ def main() -> None:
         (args.output / 'environment.json').write_text(json.dumps(manifest, indent=2), encoding='utf-8')
         print(json.dumps(manifest, indent=2))
     else:
-        grade_swebench(args.dataset, args.instance_id, args.patch, args.output)
+        grade_swebench(args.dataset, args.instance_id, args.patch, args.output, args.environment_image)
 
 
 if __name__ == "__main__":

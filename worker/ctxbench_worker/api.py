@@ -447,6 +447,8 @@ def create_app(
         if type(value.get('projectEnvironment', True)) is not bool:
             raise ValueError('Project environment selection must be a boolean.')
         payload['projectEnvironment'] = value.get('projectEnvironment', True)
+        if value.get('companyProfileId'):
+            payload['environment'] = intranet.profiles.get(value['companyProfileId'])
         return workbench.enqueue(kind, payload)
 
     @app.get("/v1/operations/{operation_id}")

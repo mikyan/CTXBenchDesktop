@@ -66,15 +66,19 @@ def parse_environment(log):
     return environment
 
 
-def prepare_environment(row, output: Path):
+def prepare_environment(row, output: Path, source_image=None):
     import docker
     client = docker.from_env()
     container = None
     output.mkdir(parents=True, exist_ok=True)
     try:
         try:
-            source = client.images.get(row['docker_image'])
+            if source_image and not re.fullmatch(r'sha256:[0-9a-f]{64}', source_image):
+                raise ValueError('Prepared source must be a frozen local image ID.')
+            source = client.images.get(source_image or row['docker_image'])
         except docker.errors.ImageNotFound:
+            if source_image or os.environ.get('CTXBENCH_LOCAL_IMAGES_ONLY') == '1':
+                raise ValueError('The frozen source image is missing locally; registry fallback is disabled.') from None
             source = client.images.pull(row['docker_image'])
         source.tag('ctxbench/frozen', source.id.replace(':', '-'))
         identity = setup_identity(row, source.id)

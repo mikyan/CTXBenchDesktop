@@ -49,9 +49,9 @@ Settings has six task-oriented categories: Runtime & diagnostics, Model credenti
 
 The redesign is included in v0.1.5. Older v0.1.4 downloads retain their previous navigation. This is a presentation change, not a change to paired experiment, credential, context discovery, or evaluator-isolation rules.
 
-## 后续开发版：导入和异常恢复
+## v0.1.6：导入和异常恢复
 
-这些改进尚未包含在已发布的 v0.1.5，需要后续同步更新桌面和评测服务镜像：
+以下改进从 v0.1.6 提供，需要同步更新桌面和评测服务镜像；v0.1.5 不包含这些改进：
 
 - “本地评测服务”替代日常界面中的“工作节点”；Worker 只在技术说明、日志和容器名中保留。
 - 运行环境与应用镜像页面都显示镜像更新安全检查。列出所选 Docker 中运行的服务、Agent／知识库生成和评分容器；未知状态不等于空闲。停止需要确认已暂停并等待任务结束，不自动删除容器或数据卷。
@@ -62,7 +62,7 @@ The redesign is included in v0.1.5. Older v0.1.4 downloads retain their previous
 
 验证：前端单元／构建、原生单元、Worker 单元、脚本回归，以及 `scripts/maintenance-ui-smoke.mjs` 的中英文页面点击检查。`scripts/dataset-file-import-smoke.py` 在独立 WSL Docker 测试目录中实际传送、解析并确认了固定快照的 CTXBench 138 项和 SWE-bench Verified 500 项；没有调用 Agent、没有修改生产数据目录。该检查验证导入，不代表全套 benchmark 已执行。
 
-### 用例创建与确认弹窗（待发布）
+### 用例创建与确认弹窗（v0.1.6）
 
 - 长表单固定标题与关闭按钮，内容单独滚动。放弃编辑、覆盖草稿、删除用例、停止服务、取消实验／准备任务均采用居中的原生确认框，默认焦点放在保留操作上。Esc 只退出最上层确认框，恢复原焦点；Tab 不穿透到底层表单。
 - 异步处理期间禁用关闭按钮并说明原因。提交、导入和日志读取失败时将错误移入视线；成功、进度和普通说明仍保留在对应区域，避免过多弹窗。

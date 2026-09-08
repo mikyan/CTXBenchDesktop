@@ -15,6 +15,7 @@ files.push('docs/desktop-setup.md');
 files.push('docs/standard-datasets.md');
 files.push('docs/intranet-workbench.md', 'scripts/container-intranet-smoke.py');
 files.push('docs/workspace-navigation.md', 'docs/ctx-live-acceptance.md', 'scripts/ctx-live-acceptance.py');
+files.push('docs/company-image-registry.md', 'docs/project-environments.md', 'docs/standard-images-verification.md');
 for (const folder of ["docker/agent-pi", "docker/official-harness", "docker/worker", "docker/egress-proxy", "worker/ctxbench_worker", "skills/ctxbench-generate-context", "schemas"]) {
   for (const entry of readdirSync(path.join(root, folder), { withFileTypes: true })) {
     if (entry.isFile() && !entry.name.startsWith(".") && !entry.name.endsWith(".pyc")) files.push(`${folder}/${entry.name}`);

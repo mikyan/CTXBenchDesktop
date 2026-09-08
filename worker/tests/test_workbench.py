@@ -78,6 +78,53 @@ class FixtureRunner:
 
 
 class WorkbenchTests(unittest.TestCase):
+    def test_company_missing_later_task_image_stops_all_paid_preparation(self):
+        from worker.tests.test_intranet import profile
+        dataset = self.workbench.catalog.register('Company CTX', 'ctxbench', [
+            {'instance_id': f'project-{i}', 'base_repo': 'org/project', 'base_sha': 'a' * 40,
+             'docker_image': f'upstream/project-{i}:v1', 'problem_description': 'PRIVATE_TASK', 'clean_pr_patch': 'PRIVATE_GOLD'}
+            for i in range(2)])
+        environment = {'document': {**profile(), 'offline': False,
+            'imageMappings': [{'source': 'upstream/', 'target': 'registry.example/project/'}]}}
+        spec = replace(self.spec, benchmark='ctxbench', dataset=dataset['id'], task_ids=('project-0', 'project-1'),
+                       prepare_only=True, company_environment=environment)
+        experiment = self.workbench.create_experiment(spec)
+        def resolve(reference):
+            if reference == 'upstream/project-1:v1': raise ValueError('company image missing')
+            return 'sha256:' + 'a' * 64
+        with patch('worker.ctxbench_worker.workbench.DockerRunner', FixtureRunner), patch.object(self.workbench, '_check'), \
+             patch.object(self.workbench.runtime, 'resolve_image', side_effect=resolve), \
+             patch.object(self.workbench.runtime, 'require_image_source_harness'), \
+             patch.object(self.workbench, 'generate') as generate, self.workbench.runtime.using_environment(environment):
+            with self.assertRaisesRegex(ValueError, 'company image missing'):
+                self.workbench.run_experiment(experiment['id'])
+        generate.assert_not_called()
+        self.assertFalse(self.runner.calls)
+        prepared = self.engine.database.get_document('prepared', experiment['id'])
+        self.assertEqual(prepared['sourceImages'], {'upstream/project-0:v1': 'sha256:' + 'a' * 64})
+        self.assertTrue(all(run['status'] not in {'completed', 'failed'} for run in self.engine.database.list_runs(experiment['id'])))
+
+    def test_independent_preparation_restores_its_own_company_profile(self):
+        from worker.tests.test_intranet import profile
+        environment = {'document': {**profile(), 'offline': False,
+            'imageMappings': [{'source': 'fixture:', 'target': 'registry.example/fixture:'}]}}
+        observed = []
+        def resolve(reference):
+            observed.append(self.workbench.runtime.environment)
+            return 'adapter'
+        with patch('worker.ctxbench_worker.workbench.DockerRunner', FixtureRunner), \
+             patch('worker.ctxbench_worker.workbench.ProjectEnvironments.recover_exports'), \
+             patch.object(self.workbench, '_check'), patch.object(self.workbench.runtime, 'resolve_image', side_effect=resolve):
+            operation = self.workbench.enqueue('context', {'dataset': self.dataset['id'], 'taskId': 'task/1',
+                'model': asdict(self.spec.model), 'resources': asdict(self.spec.resources), 'agentImage': 'fixture:1', 'environment': environment})
+            self.workbench.start()
+            try:
+                self.wait_operation(operation['id'], 'completed')
+            finally:
+                self.workbench.stop()
+        self.assertEqual(observed, [environment['document']])
+        self.assertTrue(self.runner.assert_builder)
+
     def test_project_environment_is_shared_by_builder_solver_pairs_and_restarts(self):
         # Use the recording fixture runner while exercising Docker coordination.
         with patch('worker.ctxbench_worker.workbench.DockerRunner', FixtureRunner), \

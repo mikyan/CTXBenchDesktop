@@ -1,6 +1,6 @@
 # CTXBench Desktop
 
-v0.1.5 reorganizes the workspace and settings: [navigation and configuration guide](docs/workspace-navigation.md). See the [real CTXBench acceptance record](docs/ctx-live-acceptance.md) for results and limits; older v0.1.4 installers retain their previous navigation.
+v0.1.6 adds local dataset file import, reusable project environments, on-demand project image installation and optional company registry mappings. See the [release notes](docs/releases/v0.1.6.md), [navigation guide](docs/workspace-navigation.md) and [real CTXBench acceptance record](docs/ctx-live-acceptance.md) for verified coverage and limits.
 
 Looking for the two standard datasets? See [official snapshots and offline import](docs/standard-datasets.md): CTXBench (formerly AGENTBench), 138 tasks, and SWE-bench Verified, 500 tasks. Current source also links them from **Datasets → Import dataset**, with pinned revisions/checksums. Dataset contents are not currently mirrored in our Release assets and do not include baseline repositories or Docker images.
 
@@ -10,6 +10,7 @@ CTXBench Desktop is a local-first Windows desktop benchmark workbench for paired
 
 ## Implemented workbench
 
+- [Company Docker registries and partial image coverage](docs/company-image-registry.md): shared image-name mappings for installation/preparation/evaluation, metadata-only availability checks, explicit subset selection and immutable runtime images; no automatic Docker Hub fallback. Package-manager sources are separate.
 - [Intranet adaptation workbench](docs/intranet-workbench.md) (v0.1.4): frozen company profiles, Git mirror mapping, isolated image recipes, saved/editable dataset drafts, actual no-Agent baseline/reference self-tests, and verified portable **custom-dataset** resource ZIPs. Official SWE/CTX dynamic environment bundles are not yet supported. Update the Worker together with the desktop.
 - SWE-bench, CTXBench (formerly AGENTBench), and custom-manifest experiment types.
 - [Guided custom dataset creation](docs/custom-datasets.md): **Datasets → Create dataset**, with reusable defaults, multiple tasks, test templates, evaluator-only patches, definition validation and JSON export.
@@ -51,7 +52,7 @@ The source Worker defaults to a deterministic test adapter. Full benchmark execu
 See [desktop setup and troubleshooting](docs/desktop-setup.md) for guided offline/online installation, prerequisite checks, redacted logs and absolute-path manual commands. Worker startup uses local images only and verifies its health endpoint before reporting success.
 
 1. In **Settings → Runtime & diagnostics**, choose from the installed WSL distributions (detected with `wsl --list --verbose`, including WSL versions), or type an exact name such as `Ubuntu-24.04`. Your selection is remembered; without one, the app prefers a WSL 2 distribution, using the system default when suitable and excluding Docker Desktop's internal distributions from automatic selection. Refresh the list after installing/importing a distribution. Prepare images in **Settings → Application images**, then return to Runtime to start the worker. Configure API keys in **Settings → Model credentials** (memory-only until restart), or through deployment environment variables.
-2. In **Datasets → Import dataset**, import JSON/JSONL, or a parquet file already placed in the worker's `/var/lib/ctxbench/datasets` directory. Official sources: [CTXBench (formerly AGENTBench)](https://huggingface.co/datasets/eth-sri/agentbench) and [SWE-bench Verified](https://huggingface.co/datasets/princeton-nlp/SWE-bench_Verified). Dataset rows are content-hashed and frozen.
+2. In **Datasets → Import dataset**, select a local Parquet/JSON/JSONL file, check the preview and confirm import. No manual copy into WSL or Docker is needed. Official sources: [CTXBench (formerly AGENTBench)](https://huggingface.co/datasets/eth-sri/agentbench) and [SWE-bench Verified](https://huggingface.co/datasets/princeton-nlp/SWE-bench_Verified). Dataset rows are content-hashed and frozen. Then use **Install project images** on the dataset card for the tasks you want to run.
 3. Select actual imported tasks, Provider/model, role-specific token budgets, resources, repeats, and a context arm. Check **prepare all context first** to stop at `ready`; resume when ready to solve.
 4. For cross-model comparisons without regenerating context, select **Frozen package** and reuse a generated or manually imported package with exactly matching repository and baseline commit. JSON packages and documentation folders are supported. A manually supplied baseline declaration is an assertion by its author, not proof of how the document was generated.
 5. Optionally enable historical-PR constraint mining. Automatic packages are **silver** and use three independent judge sessions (separate models are optional). Failed judges are visible and retryable; they never become invented neutral votes.

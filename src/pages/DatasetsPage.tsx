@@ -13,7 +13,7 @@ import { IntranetWorkbench } from "../components/IntranetWorkbench";
 import { StandardImageInstaller } from "../components/StandardImageInstaller";
 
 const views = [{ id: "library", label: "Registered datasets" }, { id: "downloads", label: "Standard downloads" }, { id: "self-test", label: "Self-test" }] as const;
-export function DatasetsPage({ snapshot, onImport, onCreate, onExperiment }: { snapshot: DashboardSnapshot; onImport: (source?: BenchmarkKind) => void; onCreate: () => void; onExperiment: (dataset: string) => void }) {
+export function DatasetsPage({ snapshot, onImport, onCreate, onExperiment }: { snapshot: DashboardSnapshot; onImport: (source?: BenchmarkKind) => void; onCreate: () => void; onExperiment: (dataset: string, selection?: import("../lib/standard-images").ImageSelection) => void }) {
   const { t } = useI18n();
   const [view, setView] = useState<typeof views[number]["id"]>("library");
   const [installDataset, setInstallDataset] = useState<{ id: string; name: string }>();
@@ -46,6 +46,6 @@ export function DatasetsPage({ snapshot, onImport, onCreate, onExperiment }: { s
     </div>
     <div hidden={view !== "downloads"}><StandardDatasetDownloads benchmark="custom" onSelect={onImport} /></div>
     <div hidden={view !== "self-test"}><IntranetWorkbench section="Dataset self-test" /></div>
-    {installDataset && <StandardImageInstaller dataset={installDataset.id} name={installDataset.name} onClose={() => setInstallDataset(undefined)} />}
+    {installDataset && <StandardImageInstaller dataset={installDataset.id} name={installDataset.name} onClose={() => setInstallDataset(undefined)} onExperiment={(selection) => { onExperiment(installDataset.id, selection); setInstallDataset(undefined); }} />}
   </div>;
 }

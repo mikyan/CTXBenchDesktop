@@ -11,6 +11,7 @@ export function OperatorJobPanel({ initial, onCompleted, onStatusChange, control
   const [job, setJob] = useState(initial);
   const [error, setError] = useState("");
   const [revision, refresh] = useState(0); const [cancel, setCancel] = useState(false); const [busy, setBusy] = useState(false);
+  const checkingImages = job.kind === 'intranet:image-check';
   const complete = useRef(onCompleted); complete.current = onCompleted;
   const changed = useRef(onStatusChange); changed.current = onStatusChange;
   useEffect(() => { changed.current?.(job); }, [job]);
@@ -40,7 +41,7 @@ export function OperatorJobPanel({ initial, onCompleted, onStatusChange, control
   return <section ref={ref} className="operator-job" aria-label={t("Operation progress")}>
     <strong>{t(operatorKindLabel(job.kind))} · {t(job.status)}</strong>
     <p><code>{job.id}</code> · {t("Runs in the persistent local evaluation queue. Leaving this page does not stop it.")}</p>
-    {controls && <div className="form-actions">{["queued", "running", "paused"].includes(job.status) && <button type="button" className="button secondary" disabled={busy} onClick={() => setCancel(true)}>{t("Cancel installation")}</button>}{["failed", "cancelled", "paused"].includes(job.status) && <button type="button" className="button secondary" disabled={busy} onClick={() => void control(job.status === "paused" ? "resume" : "retry")}>{t("Retry / continue installation")}</button>}</div>}
+    {controls && <div className="form-actions">{["queued", "running", "paused"].includes(job.status) && <button type="button" className="button secondary" disabled={busy} onClick={() => setCancel(true)}>{t(checkingImages ? "Cancel image check" : "Cancel installation")}</button>}{["failed", "cancelled", "paused"].includes(job.status) && <button type="button" className="button secondary" disabled={busy} onClick={() => void control(job.status === "paused" ? "resume" : "retry")}>{t(checkingImages ? "Retry image check" : "Retry / continue installation")}</button>}</div>}
     {job.kind === "intranet:standard-images" && <p>{t("Progress counts completed images, not downloaded bytes. Layer download and extraction details appear below; installed images have not yet passed project tests.")}</p>}
     {!terminalOperatorJob(job.status) && <progress aria-label={t("Operation progress")} max={100} value={job.progress?.percent ?? 0} />}
     {error && <p role="alert">{t("Progress connection lost; reconnecting. The operation may still be running.")} {error}</p>}
@@ -55,6 +56,6 @@ export function OperatorJobPanel({ initial, onCompleted, onStatusChange, control
       </details>)}
     </>}
     {job.status === "completed" && <p>{t("Completed without model token usage.")}</p>}
-    {cancel && <ConfirmDialog title={t("Cancel installation?")} description={t("Stop this download operation? Completed images and Docker's cached layers are kept. You can retry later without downloading completed images again.")} confirmLabel={t("Cancel installation")} onCancel={() => setCancel(false)} onConfirm={() => void control("cancel")} />}
+    {cancel && <ConfirmDialog title={t(checkingImages ? "Cancel image check?" : "Cancel installation?")} description={t(checkingImages ? "Stop checking registry metadata? Completed checks are kept. An in-flight registry request may take up to 20 seconds to finish." : "Stop this download operation? Completed images and Docker's cached layers are kept. You can retry later without downloading completed images again.")} confirmLabel={t(checkingImages ? "Cancel image check" : "Cancel installation")} onCancel={() => setCancel(false)} onConfirm={() => void control("cancel")} />}
   </section>;
 }

@@ -6,10 +6,26 @@ import { I18nContext } from "../i18n.context";
 import { translate } from "../i18n";
 import { StandardImageInstaller } from "../components/StandardImageInstaller";
 import { standardImagesChinese } from "../i18n.standard-images";
-import { selectedProjectImages, standardImageError, type StandardImagePlan } from "./standard-images";
+import { availableImageTasks, imageAvailable, imageStatus, selectedProjectImages, standardImageError, type ProjectImage, type StandardImagePlan } from "./standard-images";
 import { externalLinks } from "./external-links";
 
 describe("standard project image installation", () => {
+  it("never selects unknown, missing, private, unreachable or stale remote images as available", () => {
+    const image: ProjectImage = { reference: 'registry.example/project:v1', taskIds: ['one'], installed: false, compatible: true, imageId: null, sizeBytes: null, pullAllowed: true };
+    for (const status of ['unchecked', 'not-found', 'auth-required', 'unreachable', 'local', 'wrong-platform']) {
+      expect(imageAvailable({ ...image, remote: { status, checkedAt: new Date().toISOString() } })).toBe(false);
+    }
+    const available = { ...image, remote: { status: 'available', checkedAt: new Date().toISOString() } };
+    expect(imageAvailable(available)).toBe(true);
+    expect(imageAvailable({ ...available, pullAllowed: false })).toBe(false);
+    expect(imageAvailable({ ...image, remote: { status: 'available', checkedAt: new Date(Date.now() - 16 * 60_000).toISOString() } })).toBe(false);
+    expect(imageAvailable({ ...image, installed: true })).toBe(true);
+    expect(imageAvailable({ ...image, installed: true, compatible: false })).toBe(false);
+    expect(imageStatus({ ...image, remote: { status: 'auth-required' } })).toBe('Registry login required');
+    const plan = { tasks: [{ id: 'one', images: [image.reference] }, { id: 'two', images: ['missing'] }], images: [available] } as StandardImagePlan;
+    expect(availableImageTasks(plan)).toEqual(['one']);
+    expect(plan.tasks).toHaveLength(2);
+  });
   it("selects a deduplicated image set for the selected tasks only", () => {
     const plan = { images: [{ reference: "shared", taskIds: ["a", "b"] }, { reference: "other", taskIds: ["c"] }] } as StandardImagePlan;
     expect(selectedProjectImages(plan, ["a", "b"]).map((row) => row.reference)).toEqual(["shared"]);

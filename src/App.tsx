@@ -24,11 +24,12 @@ export default function App() {
   const [loadingError, setLoadingError] = useState<string>();
   const [modalOpen, setModalOpen] = useState(false);
   const [initialDataset, setInitialDataset] = useState("");
+  const [imageSelection, setImageSelection] = useState<import("./lib/standard-images").ImageSelection>();
   const [experimentRevision, setExperimentRevision] = useState(0);
   const [initialBenchmark, setInitialBenchmark] = useState<BenchmarkKind | "">("");
   const [importSource, setImportSource] = useState<BenchmarkKind>("ctxbench");
   const contentRef = useRef<HTMLDivElement>(null);
-  const openExperiment = (dataset = "") => { setInitialDataset(dataset); setModalOpen(true); };
+  const openExperiment = (dataset = "", selection?: import("./lib/standard-images").ImageSelection) => { setInitialDataset(dataset); setImageSelection(selection); setModalOpen(true); };
   useEffect(() => { contentRef.current?.scrollTo({ top: 0 }); }, [page]);
   const [creating, setCreating] = useState(false);
   const [diagnosing, setDiagnosing] = useState(false);
@@ -128,7 +129,7 @@ export default function App() {
           {page === "infrastructure" && <InfrastructurePage initialSection={settingsSection} diagnostics={diagnostics} onDiagnose={handleDiagnose} diagnosing={diagnosing} onExperiments={() => setPage("experiments")} onKnowledge={() => setPage("knowledge")} />}
         </div>
       </main>
-      {modalOpen && <ExperimentComposer initialDataset={initialDataset} creating={creating} onClose={() => setModalOpen(false)} onCreate={handleCreate} artifacts={snapshot.artifacts} />}
+      {modalOpen && <ExperimentComposer initialDataset={initialDataset} imageSelection={imageSelection} creating={creating} onClose={() => setModalOpen(false)} onCreate={handleCreate} artifacts={snapshot.artifacts} />}
       {dialog === "dataset" && <DatasetDialog initialBenchmark={importSource} onClose={() => setDialog(undefined)} onComplete={() => void refresh()} onSettings={(section) => { setDialog(undefined); setSettingsSection(section); setPage("infrastructure"); }} />}
       {dialog === "dataset-create" && <DatasetWizard onClose={() => setDialog(undefined)} onComplete={() => void refresh()} />}
       {dialog && dialog !== "dataset" && dialog !== "dataset-create" && <PreparationDialog kind={dialog} onClose={() => setDialog(undefined)} onComplete={() => void refresh()} />}

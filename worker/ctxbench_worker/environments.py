@@ -38,9 +38,11 @@ def image_reference(value):
 def validate_profile(value, redact=lambda text: text):
     fields = {"format", "version", "name", "agentImage", "harnessImage", "provider", "model",
               "envNames", "agentArgs", "offline", "gitMirrors", "providerDomains"}
-    if not isinstance(value, dict) or set(value) != fields or value.get("format") != "ctxbench-company-profile" or value.get("version") != 1:
+    if not isinstance(value, dict) or not fields <= set(value) or set(value) - fields - {"imageMappings"} or value.get("format") != "ctxbench-company-profile" or value.get("version") != 1:
         raise ValueError("Unsupported company profile format or fields.")
     public_material(value, redact)
+    from .image_sources import validate_mappings
+    validate_mappings(value.get("imageMappings", []))
     for key in ("name", "provider", "model"):
         if not isinstance(value[key], str) or not 1 <= len(value[key].strip()) <= 160:
             raise ValueError("Company name, provider and model are required (maximum 160 characters).")

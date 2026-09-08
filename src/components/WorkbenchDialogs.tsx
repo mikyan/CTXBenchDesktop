@@ -13,6 +13,7 @@ import { DatasetFileImport } from "./DatasetFileImport";
 import { titleCase } from "../lib/format";
 import { Modal, FormError } from "./Dialogs";
 import { ProjectEnvironmentField, requireProjectEnvironment } from "./ProjectEnvironmentField";
+import { CompanyProfilePicker } from "./CompanyProfilePicker";
 export { Modal } from "./Dialogs";
 
 export function defaultProfile(): FrozenModelConfig { return { provider: "mock", model: "deterministic", thinking: "high", maxTokens: 5000000 }; }
@@ -30,6 +31,7 @@ export function PreparationDialog({ kind, onClose, onComplete }: { kind: "contex
   const [datasets, setDatasets] = useState<DatasetRecord[]>([]); const [dataset, setDataset] = useState("");
   const [tasks, setTasks] = useState<TaskSummary[]>([]); const [taskId, setTaskId] = useState("");
   const [profile, setProfile] = useState(defaultProfile()); const [env, setEnv] = useState("");
+  const [companyProfileId, setCompanyProfileId] = useState("");
   const [workflow, setWorkflow] = useState(defaultWorkflow);
   const [agentArgs, setAgentArgs] = useState<string[]>([]);
   const [generationPrompt, setGenerationPrompt] = useState<string>();
@@ -46,12 +48,13 @@ export function PreparationDialog({ kind, onClose, onComplete }: { kind: "contex
     if (envError) throw new Error(t(envError));
     if (kind === 'context') await requireProjectEnvironment(projectEnvironment, t);
     if (kind === "manual") await workerRequest("/context/import", "POST", { dataset, taskId, baseCommit: packageCommit, repository: task.repository, files, contextPaths: Object.keys(files) });
-    else await workerRequest(`/prepare/${kind}`, "POST", { dataset, taskId, model: profile, envNames: parseEnvironmentNames(env), agentImage: image, agentArgs, resources: { cpus: 4, memoryGb: 8, timeoutMinutes: 60, network }, ...(kind === "context" ? { workflow, projectEnvironment } : {}) });
+    else await workerRequest(`/prepare/${kind}`, "POST", { dataset, taskId, model: profile, envNames: parseEnvironmentNames(env), agentImage: image, agentArgs, companyProfileId, resources: { cpus: 4, memoryGb: 8, timeoutMinutes: 60, network }, ...(kind === "context" ? { workflow, projectEnvironment } : {}) });
     onComplete(); onClose();
   } catch (error) { setError(String(error)); } finally { setBusy(false); } };
   return <Modal title={t(kind === "manual" ? "Import package" : kind === "context" ? "Generate context" : "Mine constraints")} busy={busy} warnOnClose onClose={onClose}>
     <label>{t("Dataset or manifest")}<select value={dataset} onChange={(e) => setDataset(e.target.value)}><option value="">{t("Select an imported dataset")}</option>{datasets.map((item) => <option value={item.id} key={item.id}>{datasetLabel(item, t)} · {item.count}</option>)}</select></label>
     <label>{t("Task")}<select value={taskId} onChange={(e) => setTaskId(e.target.value)}><option value="">{t("Select task")}</option>{tasks.map((task) => <option key={task.id}>{task.id}</option>)}</select></label>
+    {kind !== 'manual' && <CompanyProfilePicker value={companyProfileId} onChange={(record) => { setCompanyProfileId(record?.id ?? ''); if (record) { const p = record.document; setProfile({ ...profile, provider: p.provider, model: p.model }); setEnv(p.envNames.join('\n')); setImage(p.agentImage); setAgentArgs(p.agentArgs); } }} />}
     {kind === "manual" && <label>{t("Or select a documentation folder")}<input type="file" multiple {...{ webkitdirectory: "" }} onChange={(event) => {
       const selected = Array.from(event.target.files ?? []).filter((file) => /\.(md|txt|rst)$/i.test(file.name));
       if (selected.reduce((total, file) => total + file.size, 0) > 20 * 1024 * 1024) { setError("Context packages are limited to 20 MiB."); return; }

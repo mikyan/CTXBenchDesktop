@@ -54,6 +54,15 @@ def main():
             assert row["instance_id"] not in result.get("error_ids", []), result.get("error_ids")
             assert summary["resolved"], "Official reference patch must resolve the cached task"
             assert client.images.get(reference).id == image_id
+            # Exercise the company-registry handoff using a frozen local ID. The
+            # namespace adapter must not ask Docker Hub for a missing alias.
+            mapped_output = root / 'mapped-reference-grade'
+            os.environ['CTXBENCH_LOCAL_IMAGES_ONLY'] = '1'
+            harness.grade_swebench(dataset, row['instance_id'], patch, mapped_output, image_id)
+            mapped = json.loads((mapped_output / 'summary.json').read_text())
+            assert mapped['resolved'], 'Mapped frozen image must pass the same official reference tests'
+            assert client.images.get(reference).id == image_id
+            assert not client.images.list(name='ctxbench-eval-*'), 'Temporary evaluator aliases must be removed'
             print(json.dumps({"pin": PIN, "instance": row["instance_id"], "referenceResolved": True, "imagePreserved": image_id, "modelCalls": 0}))
         finally:
             client.api.__class__.pull = original_pull

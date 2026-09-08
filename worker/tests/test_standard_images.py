@@ -106,6 +106,49 @@ class StandardImageTests(unittest.TestCase):
             self.service.plan(record["id"])
         self.assertEqual(self.store.pulls, [])
 
+    def test_company_check_is_metadata_only_profile_scoped_and_keeps_missing_tasks(self):
+        from worker.tests.test_intranet import profile
+        record = self.op.profiles.save({**profile(), 'offline': False,
+            'imageMappings': [{'source': 'org/project:', 'target': 'registry.example/ctx/project:'}]})
+        self.store.availability = Mock(return_value='not-found')
+        payload = {**self.payload, 'profileId': record['id']}
+        operation = self.op.enqueue('image-check', payload)
+        result = self.op.execute(operation)
+        self.assertEqual(result['modelCalls'], 0)
+        self.store.availability.assert_called_once_with('registry.example/ctx/project:v1')
+        self.assertEqual(self.store.pulls, [])
+        with self.wb.runtime.using_environment(record):
+            plan = self.service.plan(self.dataset)
+        self.assertEqual(len(plan['tasks']), 3)
+        self.assertEqual(plan['images'][0]['reference'], 'registry.example/ctx/project:v1')
+        self.assertEqual(plan['images'][0]['remote']['status'], 'not-found')
+        self.assertEqual(plan['images'][0]['originals'], ['org/project:v1'])
+        self.assertEqual(self.service.plan(self.dataset)['images'][0]['remote']['status'], 'unchecked')
+        # Completing the metadata check does not change the original dataset.
+        self.assertEqual(self.wb.catalog.task(self.dataset, 'repo-0').image, 'org/project:v1')
+
+    def test_company_installer_uses_frozen_profile_and_no_unmapped_pull(self):
+        from worker.tests.test_intranet import profile
+        saved = self.op.profiles.save({**profile(), 'offline': False,
+            'imageMappings': [{'source': 'org/project:', 'target': 'registry.example/ctx/project:'}]})
+        operation = self.op.enqueue('standard-images', {**self.payload, 'profileId': saved['id']})
+        self.op.execute(operation)
+        self.assertEqual(self.store.pulls, ['registry.example/ctx/project:v1'])
+        self.assertEqual(operation['payload']['environment'], saved)
+        self.store.pulls.clear()
+        with self.wb.runtime.using_environment({'imageMappings': [{'source': 'other/', 'target': 'registry.example/other/'}]}):
+            with self.assertRaisesRegex(ValueError, 'No permitted registry mapping'):
+                self.service.install(operation)
+        self.assertEqual(self.store.pulls, [])
+
+    def test_company_check_can_cancel_before_next_registry_call(self):
+        self.store.availability = Mock(side_effect=lambda ref: self.wb.control_operation(operation['id'], 'cancel'))
+        operation = self.op.enqueue('image-check', self.payload)
+        self.wb._scope.operation_id = operation['id']
+        with self.assertRaises(Interrupted):
+            self.op.execute(operation)
+        self.assertFalse(self.wb.db.list_documents('imageAvailability'))
+
     def test_wrong_architecture_does_not_overwrite_local_image(self):
         self.store.images["org/project:v1"] = "arm64"
         operation = self.op.enqueue("standard-images", self.payload)
@@ -154,5 +197,5 @@ class StandardImageTests(unittest.TestCase):
         dockerfile = (root / "docker/official-harness/Dockerfile").read_text()
         self.assertIn("SWEBENCH_COMMIT=726c5461e2ef52d83cf1ea2107870a8bb3328d57", dockerfile)
         source = (root / "docker/official-harness/harness.py").read_text()
-        self.assertIn('namespace="swebench"', source)
+        self.assertIn('namespace=namespace', source)
         self.assertIn('cache_level="instance"', source)

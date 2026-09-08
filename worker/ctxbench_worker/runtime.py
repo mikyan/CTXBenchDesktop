@@ -18,6 +18,7 @@ from .datasets import TaskRecord
 from .models import ResourcePolicy
 from .artifacts import safe_relative_path
 from .safe_files import safe_file
+from .image_sources import ImageSources
 
 
 def git(workspace: Path, *arguments: str, data: bytes | None = None) -> bytes:
@@ -77,11 +78,28 @@ class Runtime:
     @contextmanager
     def using_environment(self, value):
         previous = self.environment
+        previous_pins = getattr(self._environment, "image_pins", {})
+        self._environment.image_pins = {}
         self._environment.value = value.get("document", value) if value else {}
         try:
             yield
         finally:
             self._environment.value = previous
+            self._environment.image_pins = previous_pins
+
+    def pin_images(self, pins):
+        self._environment.image_pins = dict(pins)
+
+    def require_image_source_harness(self, image):
+        if not ImageSources(self.environment).restricted:
+            return
+        import docker
+        client = docker.from_env()
+        try:
+            if client.images.get(image).labels.get('io.ctxbench.image-sources') != '1':
+                raise ValueError('Company image mapping requires an updated official harness image. Rebuild/import the matching application images before starting; no Agent has been called.')
+        finally:
+            client.close()
 
     def host_path(self, path: Path) -> str:
         return self.runner._mount_source(path)
@@ -112,7 +130,8 @@ class Runtime:
         try:
             container = client.containers.run(image, command, detach=True, volumes=volumes,
                 environment={"CTXBENCH_GRADER_CPUS": str(resources.cpus), "CTXBENCH_GRADER_MEMORY": f"{resources.memory_gb}g", "CTXBENCH_GRADE_SCOPE": scope,
-                             "CTXBENCH_GRADE_IMAGES_PATH": str(output / "child-images.json") if socket else ""},
+                             "CTXBENCH_GRADE_IMAGES_PATH": str(output / "child-images.json") if socket else "",
+                             "CTXBENCH_LOCAL_IMAGES_ONLY": "1" if ImageSources(self.environment).restricted else "0"},
                 network=network, nano_cpus=int(resources.cpus * 1e9), mem_limit=f"{resources.memory_gb}g",
                 pids_limit=1024, labels={"io.ctxbench.evaluator": "true", "io.ctxbench.grade-scope": scope},
                 **({} if socket else {"cap_drop": ["ALL"], "security_opt": ["no-new-privileges:true"]}))
@@ -136,6 +155,9 @@ class Runtime:
 
     def resolve_image(self, name: str) -> str:
         import docker
+        sources = ImageSources(self.environment)
+        original = name
+        name = getattr(self._environment, 'image_pins', {}).get(original, sources.resolve(original))
         client = docker.from_env()
         try:
             try:
@@ -154,6 +176,9 @@ class Runtime:
                     return image.id
                 if self.environment.get("offline"):
                     raise ValueError(f"Offline preparation: local image is missing: {name}. Import it first.")
+                if name.startswith('sha256:'):
+                    raise ValueError('A frozen local image is missing. Restore that exact image; mutable tags will not be downloaded as replacements.')
+                sources.require_pull(original)
                 image = client.images.pull(name)
             # Containerd-backed Docker can discard the last reference when a mutable tag
             # is rebuilt. Keep an explicit immutable tag for every experiment image.
@@ -168,7 +193,7 @@ class Runtime:
             return self.resolve_image(task.image)
         if not task.build:
             raise ValueError("Custom task requires an image or baseline build recipe.")
-        if self.environment.get("offline"):
+        if self.environment.get("offline") or ImageSources(self.environment).restricted:
             raise ValueError("Offline preparation requires a prebuilt local test image; adapt the image first.")
         dockerfile = safe_relative_path(str(task.build.get("dockerfile", "Dockerfile")))
         workspace = self.checkout(task, "image-build")
@@ -195,8 +220,12 @@ class Runtime:
     def prepare_agentbench_image(self, task: TaskRecord, dataset: Path, harness: str, resources: ResourcePolicy,
                                 *, scope: str = 'standalone') -> str:
         output = self.environment_output(task, dataset.stem, harness, scope)
+        source_args = []
+        if ImageSources(self.environment).restricted:
+            self.require_image_source_harness(harness)
+            source_args = ['--source-image', self.resolve_image(task.image)]
         self.command(harness, ['prepare-agentbench', '--dataset', str(dataset), '--instance-id', task.id,
-                             '--output', str(output)],
+                             '--output', str(output), *source_args],
             volumes={self.host_path(self.root): {'bind': str(self.root), 'mode': 'rw'}},
             output=output, resources=resources, socket=True, network='bridge')
         manifest = json.loads((output / 'environment.json').read_text(encoding='utf-8'))
@@ -272,7 +301,7 @@ class Runtime:
         if task.source in {"swebench", "agentbench"}:
             # Legacy experiments may also have digest-pinned original images;
             # only an explicit prepared environment enables the new protocol.
-            environment_args = ['--environment-image', environment_image] if task.source == 'agentbench' and environment_image else []
+            environment_args = ['--environment-image', environment_image] if environment_image else []
             self.command(harness_image, [f"grade-{task.source}", "--dataset", str(dataset_path),
                 "--instance-id", task.id, "--patch", str(patch), "--output", str(output), *environment_args],
                 volumes={self.host_path(self.root): {"bind": str(self.root), "mode": "rw"}},

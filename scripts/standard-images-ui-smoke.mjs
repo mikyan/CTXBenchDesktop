@@ -14,17 +14,24 @@ try {
     const page = await browser.newPage({ viewport: { width: 1200, height: 800 } });
     const errors = []; page.on("pageerror", (error) => errors.push(error.message));
     await page.addInitScript(() => {
-      window.fixture = { requests: [], job: null, oldService: false };
+      window.fixture = { requests: [], job: null, oldService: false, checked: false, installed: false };
+      const companyProfile = { id: 'company-v1', createdAt: '2026-09-08', document: { format: 'ctxbench-company-profile', version: 1, name: 'Company fixture', provider: 'private', model: 'fixture', agentImage: 'ctxbench/agent-pi:0.1.0', harnessImage: 'ctxbench/official-harness:0.1.0', envNames: [], agentArgs: [], offline: false, gitMirrors: [], providerDomains: [], imageMappings: [{ source: 'upstream/', target: 'registry.example/company/' }] } };
       window.__TAURI_INTERNALS__ = { invoke: async (command, args) => {
         if (command !== "worker_request") throw Error(`Unexpected native command ${command}`);
         window.fixture.requests.push(args);
         if (window.fixture.oldService) throw Error("Not Found");
-        if (args.path.endsWith("/project-images")) return {
+        if (args.path === '/intranet/profiles') return [companyProfile];
+        if (args.path.includes("/project-images")) {
+          const company = args.path.includes('profileId=company-v1');
+          const prefix = company ? 'registry.example/company/' : 'upstream/';
+          return {
           dataset: "fixture", benchmark: "ctxbench", storage: { freeBytes: 50 * 1024 ** 3, ready: true },
-          tasks: ["task-one", "task-two", "task-three"].map((id, i) => ({ id, repository: "https://git.example/org/project", images: [i < 2 ? "upstream/shared:v1" : "upstream/other:v1"] })),
-          images: [{ reference: "upstream/shared:v1", taskIds: ["task-one", "task-two"], installed: false, compatible: true }, { reference: "upstream/other:v1", taskIds: ["task-three"], installed: true, compatible: true }],
-          operations: window.fixture.job ? [window.fixture.job] : [],
-        };
+          tasks: ["task-one", "task-two", "task-three"].map((id, i) => ({ id, repository: "https://git.example/org/project", images: [prefix + (i < 2 ? 'shared:v1' : 'other:v1')] })),
+          images: [{ reference: prefix + 'shared:v1', taskIds: ['task-one', 'task-two'], installed: company && window.fixture.installed, compatible: true, pullAllowed: true, remote: { status: window.fixture.checked ? 'available' : 'unchecked', checkedAt: new Date().toISOString() } }, { reference: prefix + 'other:v1', taskIds: ['task-three'], installed: !company, compatible: true, pullAllowed: true, remote: { status: window.fixture.checked ? 'not-found' : 'unchecked', checkedAt: new Date().toISOString() } }],
+          operations: window.fixture.job && Boolean(window.fixture.job.company) === company ? [window.fixture.job] : [],
+        }; }
+        if (args.path === '/intranet/operations/image-check') { window.fixture.checked = true; return window.fixture.job = { id: 'check-1', kind: 'intranet:image-check', status: 'completed', company: true }; }
+        if (args.path === '/intranet/operations/check-1') return window.fixture.job;
         if (args.path === "/intranet/operations/standard-images") return window.fixture.job = { id: "install-1", kind: "intranet:standard-images", status: "queued" };
         if (args.path === "/operations/install-1/cancel") return window.fixture.job = { ...window.fixture.job, status: "cancelled" };
         if (args.path === "/operations/install-1/retry") return window.fixture.job = { ...window.fixture.job, status: "running", failure: undefined };
@@ -40,7 +47,7 @@ try {
         import {I18nContext} from '/src/i18n.context.ts'; import {translate} from '/src/i18n.tsx';
         import '/src/styles.css'; import '/src/ux.css';
         const locale = new URLSearchParams(location.search).get('locale'); window.uiT = (key) => translate(locale,key);
-        function Fixture() { const [open,setOpen] = useState(true); return open ? React.createElement(StandardImageInstaller,{dataset:'fixture',name:'CTXBench',onClose:()=>setOpen(false)}) : React.createElement('button',{onClick:()=>setOpen(true)},'Reopen'); }
+        function Fixture() { const [open,setOpen] = useState(true); return open ? React.createElement(StandardImageInstaller,{dataset:'fixture',name:'CTXBench',onClose:()=>setOpen(false),onExperiment:(selection)=>{window.fixture.selection=selection;setOpen(false)}}) : React.createElement('button',{onClick:()=>setOpen(true)},'Reopen'); }
         createRoot(document.getElementById('root')).render(React.createElement(I18nContext.Provider,{value:{locale,setLocale:()=>{},t:(key,values)=>translate(locale,key,values)}},React.createElement(Fixture)));
       </script></body></html>`);
       await route.fulfill({ contentType: "text/html", body: html });
@@ -78,10 +85,26 @@ try {
     const requestsAfterCompletion = await page.evaluate(() => window.fixture.requests.length);
     await page.waitForTimeout(2200);
     assert.equal(await page.evaluate(() => window.fixture.requests.length), requestsAfterCompletion, "Completed jobs stop polling and do not create a refresh loop");
+    await page.getByRole('combobox', { name: await t('Company environment profile') }).selectOption('company-v1');
+    await page.getByText('registry.example/company/shared:v1', { exact: true }).waitFor();
+    await click('Check matching tasks in registry');
+    await page.getByText(await t('Image not found in registry'), { exact: true }).first().waitFor();
+    await click('Select only tasks with available images');
+    assert.equal(await page.getByRole('checkbox', { checked: true }).count(), 2);
+    assert.equal(await page.getByRole('checkbox', { name: /task-three/ }).isChecked(), false);
+    assert.equal(await (await button('Create experiment with selected tasks')).isEnabled(), false);
+    assert.equal((await page.evaluate(() => window.fixture.requests.find((row) => row.path === '/intranet/operations/image-check').body)).profileId, 'company-v1');
+    await page.evaluate(() => { window.fixture.installed = true; });
+    await click('Refresh image status');
+    await page.waitForFunction(() => document.querySelector('.workbench-form[aria-busy="false"]'));
+    await page.screenshot({ path: resolve(folder, `${locale}-company.png`) });
+    await click('Create experiment with selected tasks');
+    assert.deepEqual(await page.evaluate(() => window.fixture.selection.taskIds), ['task-one', 'task-two']);
+    assert.equal(await page.evaluate(() => window.fixture.selection.profile.id), 'company-v1');
+    await page.getByRole('button', { name: 'Reopen' }).click();
     await click("Close"); await page.evaluate(() => { window.fixture.oldService = true; });
     await page.getByRole("button", { name: "Reopen" }).click();
-    await page.getByRole("alert").waitFor();
-    assert((await page.getByRole("alert").innerText()).includes(await t("Project image installation requires the matching newer local evaluation service image. Update Application images in Settings first.")));
+    await page.getByText(await t("Project image installation requires the matching newer local evaluation service image. Update Application images in Settings first."), { exact: true }).waitFor();
     assert.deepEqual(errors, []);
     console.log(`${locale}: task selection, consent, cancellation, retry, restore, completion, upgrade guidance passed`);
     await page.close();

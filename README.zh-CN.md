@@ -1,6 +1,6 @@
 # CTXBench Desktop
 
-v0.1.5 已重构导航与设置分层，详见[工作台使用指南](docs/workspace-navigation.md)及[真实 CTXBench 验收记录](docs/ctx-live-acceptance.md)。旧版 v0.1.4 安装包仍使用原来的导航入口。
+v0.1.6 新增本地评测集文件导入、可复用项目构建环境、项目镜像按需安装与可选公司仓库映射。详见[版本说明](docs/releases/v0.1.6.md)、[工作台使用指南](docs/workspace-navigation.md)及[真实 CTXBench 验收记录](docs/ctx-live-acceptance.md)，注意区分导入验证、容器验证与模型全集跑分。
 
 [English](README.md) | [简体中文](README.zh-CN.md)
 
@@ -21,6 +21,7 @@ CTXBench Desktop 是本地优先的 Windows 桌面代码 Agent 评测工作台�
 
 ## 当前工作台能力
 
+- [公司镜像仓库与部分用例下载](docs/company-image-registry.md)：安装、知识库准备、评测共用镜像地址映射；可先检查仓库、只选镜像可用的用例、安装后直接创建子集实验，不自动退回 Docker Hub。npm／pip／Maven 源仍需单独适配。
 - [内网适配工作台](docs/intranet-workbench.md)（v0.1.4）：公司环境方案与 Git 镜像映射、独立镜像构建配方、草稿保存与已有用例复制编辑、无模型消耗的真实容器自检，以及**自定义评测集**完整资源 ZIP。暂不包含 SWE／CTX 官方动态环境的完整迁移；桌面端和 Worker 需一起更新。
 - 预装 Pi 的 Agent 容器、Provider / 模型选择、按角色设置 Token 额度，以及显式白名单环境变量注入。
 - 持久化 WSL Docker Worker：数据集导入 → 准备知识库及环境 → 求解 → 功能评分 → 约束评审。

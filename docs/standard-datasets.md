@@ -24,7 +24,7 @@ These are the two full upstream snapshots linked by CTXBench Desktop v0.1.4+, no
 
 ## 下载与内网导入
 
-以下是当前开发版新增的本地文件导入流程，需要同步更新桌面和本地评测服务镜像。已发布的 v0.1.5 尚未包含这项改进；旧服务会提示先升级，不要求用户退回手动复制。
+以下本地文件导入流程从 v0.1.6 提供，需要同步更新桌面和本地评测服务镜像。v0.1.5 不包含这项改进；旧服务会提示先升级，不要求用户退回手动复制。
 
 1. 在联网电脑点击对应的 **下载固定版本 Parquet**。下载的是文件，不是网页或 Git LFS 指针。
 2. 内网使用时，把文件传到内网 Windows 电脑的“下载”或任何普通文件夹。**不用复制到 WSL／Docker，不需要 sudo，不需要改名或转换格式。**
@@ -35,7 +35,7 @@ These are the two full upstream snapshots linked by CTXBench Desktop v0.1.4+, no
 
 导入成功仅代表任务定义可用，不代表代码仓库、依赖和测试环境已准备，也不会执行 Agent 或调用模型。下一步可在该评测集卡片点击 **安装项目镜像**，预先下载所选用例对应的镜像；内网还需要另行准备基线代码与额外依赖。
 
-### 项目镜像下载（当前开发版）
+### 项目镜像下载（v0.1.6）
 
 两个标准评测集都提供镜像或镜像引用，但不是“一份数据文件加一个通用镜像”：
 
@@ -49,11 +49,13 @@ These are the two full upstream snapshots linked by CTXBench Desktop v0.1.4+, no
 - 安装前弹窗确认；展示总镜像数、已安装数、待下载数和存储提示。总传输量未知，**不会拿 WSL 虚拟盘剩余空间冒充 Windows 宿主盘空间**。建议从少量用例开始，全量可能占用数百 GB。
 - 持久队列显示镜像数量进度和 Docker 层下载/解压日志；无输出时显示等待提示，支持取消、重试及关闭窗口后重新查看。取消保留已完成镜像与缓存层，不执行清理命令。
 - “已安装”只表示 linux/amd64 镜像存在，不代表依赖验证或测试已通过。此入口不会执行代码、克隆基线、生成知识库、运行 Agent 或调用模型。启动实验时才继续准备依赖、组合 Pi 项目环境并进行评测。
-- 老版本服务没有此入口时明确提示更新配套镜像，不显示虚假的已安装状态。需同时更新桌面、评测服务和官方评分器镜像；尚未发布到 v0.1.5。
+- 老版本服务没有此入口时明确提示更新配套镜像，不显示虚假的已安装状态。需同时更新到 v0.1.6 的桌面、评测服务和官方评分器镜像。
+
+Docker Hub 可访问时直接按需下载；如需公司仓库，参见[可选公司镜像映射与覆盖检查](company-image-registry.md)。
 
 **内网**：可以导出清单，在联网机器安装并用 `docker save` 导出相应项目镜像，在目标 WSL 中 `docker load` 后保留清单标签，软件即可识别；或由公司配置 Docker 镜像加速/代理。项目镜像包不包含完整 Git 基线、所有额外依赖和应用镜像，因此不能把它称为“官方评测集完整离线包”。当前整套可搬运资源包仍只支持已封闭依赖的自定义评测集。
 
-### Official project images (development build)
+### Official project images (v0.1.6)
 
 After importing the downloaded file, open **Datasets → Registered datasets → Install project images**. Select tasks, review deduplicated local/missing image references, then explicitly confirm installation. Only the first task is selected by default. Local tags are reused without updates; the downloader is cancellable and logs real Docker layer events. Overall percentage counts completed images, not transferred bytes. No model, repository checkout or evaluator command runs during installation.
 

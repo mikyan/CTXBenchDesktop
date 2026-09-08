@@ -6,6 +6,7 @@ export const companyProfileSchema = z.object({
   envNames: z.array(z.string()), agentArgs: z.array(z.string()), offline: z.boolean(),
   gitMirrors: z.array(z.object({ repository: z.string(), mirror: z.string() }).strict()),
   providerDomains: z.array(z.string()),
+  imageMappings: z.array(z.object({ source: z.string(), target: z.string() }).strict()).optional(),
 }).strict();
 export type CompanyProfile = z.infer<typeof companyProfileSchema>;
 export interface CompanyProfileRecord { id: string; createdAt: string; document: CompanyProfile }
@@ -33,6 +34,7 @@ export function terminalOperatorJob(status: string) { return ["completed", "fail
 export function operatorKindLabel(kind: string) {
   return ({ "intranet:probe": "Dataset self-test", "intranet:image-build": "Image adaptation",
     "intranet:standard-images": "Project image installation",
+    "intranet:image-check": "Registry availability check",
     "intranet:bundle-export": "Resource bundle export", "intranet:bundle-import": "Resource bundle import", "intranet:bundle-inspect": "Resource bundle verification" } as Record<string, string>)[kind] ?? kind;
 }
 export async function buildFiles(files: FileList | File[]): Promise<{ path: string; base64: string }[]> {
