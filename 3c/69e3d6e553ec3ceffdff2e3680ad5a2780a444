@@ -1,0 +1,134 @@
+worker/ctxbench_worker/image_sources.py
+  s_160ecc294b79e0::t_b267d2b5788377 1-63
+docs/standard-datasets.md
+  s_160ecc294b79e0::t_1b642557e3fcc8 27,38,52-54,58
+worker/ctxbench_worker/api.py
+  s_160ecc294b79e0::t_56dc6d8a8ed6a8 450-451
+src/pages/DatasetsPage.tsx
+  s_160ecc294b79e0::t_b69f0c252bd7f5 16,49
+worker/ctxbench_worker/environments.py
+  s_160ecc294b79e0::t_b267d2b5788377 41,44-45
+worker/tests/test_standard_images.py
+  s_160ecc294b79e0::t_c10f9c21e50bf7 109-151
+  s_160ecc294b79e0::t_2ae747d40befed 200
+src/components/OperatorJobPanel.tsx
+  s_160ecc294b79e0::t_407b263ebab533 14,44,59
+worker/ctxbench_worker/runtime.py
+  s_160ecc294b79e0::t_b267d2b5788377 21,81-82,88-96,99-100,133-134,158-160,179-181,196,223-226,228,304
+  s_160ecc294b79e0::t_c2af6c75000b02 97-98,101-102
+worker/tests/test_image_sources.py
+  s_160ecc294b79e0::t_c10f9c21e50bf7 1-94,106-122,124-144
+  s_160ecc294b79e0::t_3d7b0f113a72cb 123
+  s_160ecc294b79e0::t_37b004eb39d89d 95-105
+src/lib/standard-images.test.tsx
+  s_160ecc294b79e0::t_c10f9c21e50bf7 9,13-28
+scripts/company-registry-smoke.py
+  s_160ecc294b79e0::t_5c350148e9e4cd 1-72
+README.zh-CN.md
+  s_160ecc294b79e0::t_1b642557e3fcc8 3
+  s_160ecc294b79e0::t_4c68b2a16eb76a 24
+package.json
+  s_160ecc294b79e0::t_1b642557e3fcc8 4
+docker/official-harness/swe_image.py
+  s_160ecc294b79e0::t_c2af6c75000b02 17-18,28-29
+  s_160ecc294b79e0::t_e600dbe9e11e20 1-16,19-27
+src/components/StandardImageInstaller.tsx
+  s_160ecc294b79e0::t_2ae747d40befed 56
+  s_160ecc294b79e0::t_407b263ebab533 58
+  s_160ecc294b79e0::t_ba037267bcc7d9 4-5,8,10,16-17,20,26,30,39,44-45,57,65-68
+src/components/CompanyProfilePicker.tsx
+  s_160ecc294b79e0::t_56dc6d8a8ed6a8 14
+docker/official-harness/policy.py
+  s_160ecc294b79e0::t_e600dbe9e11e20 23-27,47
+README.md
+  s_160ecc294b79e0::t_1b642557e3fcc8 3,55
+  s_160ecc294b79e0::t_4c68b2a16eb76a 13
+docs/workspace-navigation.md
+  s_160ecc294b79e0::t_1b642557e3fcc8 52,54,65
+docker/official-harness/harness.py
+  s_160ecc294b79e0::t_2ae747d40befed 159-173
+  s_160ecc294b79e0::t_e600dbe9e11e20 12,133,157-158,212,217,239,258
+worker/tests/test_workbench.py
+  s_160ecc294b79e0::t_37b004eb39d89d 81-127
+docs/releases/v0.1.6.md
+  s_160ecc294b79e0::t_1b642557e3fcc8 1-47
+scripts/standard-images-ui-smoke.mjs
+  s_160ecc294b79e0::t_3e9b93a42f9640 17-18,23-27,29-34,50,88-104,107
+worker/ctxbench_worker/workbench.py
+  s_160ecc294b79e0::t_56dc6d8a8ed6a8 293-297,327,610-634,657-659,746-747
+src-tauri/Cargo.toml
+  s_160ecc294b79e0::t_1b642557e3fcc8 3
+docker/official-harness/agentbench_environment.py
+  s_160ecc294b79e0::t_e600dbe9e11e20 69,76-78,80-81
+worker/ctxbench_worker/standard_images.py
+  s_160ecc294b79e0::t_ad847eae2abade 13-15,52-70,111,154-167,169,171-177,179-180,185,190-191,204-205,217-237
+  s_e0acd8710ab6e3::t_d9b4f3e6935cc5 238
+scripts/stage-deployment.mjs
+  s_160ecc294b79e0::t_1b642557e3fcc8 18
+src/lib/intranet.ts
+  s_160ecc294b79e0::t_56dc6d8a8ed6a8 9,37
+scripts/swe-harness-compatibility-smoke.py
+  s_160ecc294b79e0::t_3e9b93a42f9640 57-65
+src/components/WorkbenchDialogs.tsx
+  s_160ecc294b79e0::t_b69f0c252bd7f5 16,34,51,57
+src/i18n.standard-images.ts
+  s_160ecc294b79e0::t_407b263ebab533 2-5
+  s_160ecc294b79e0::t_c5a60a46c2ab12 6-28
+src/components/IntranetWorkbench.tsx
+  s_160ecc294b79e0::t_56dc6d8a8ed6a8 58-64
+scripts/ctx-image-source-smoke.py
+  s_160ecc294b79e0::t_5c350148e9e4cd 1-56
+src/components/ExperimentComposer.tsx
+  s_160ecc294b79e0::t_b69f0c252bd7f5 18-19,25-26,31,33-34,44-45,60
+src/lib/standard-images.ts
+  s_160ecc294b79e0::t_ba037267bcc7d9 7-8,20-38
+  s_160ecc294b79e0::t_b69f0c252bd7f5 1-2
+src-tauri/tauri.conf.json
+  s_160ecc294b79e0::t_1b642557e3fcc8 4
+docker/official-harness/Dockerfile
+  s_160ecc294b79e0::t_e600dbe9e11e20 2,21
+src/App.tsx
+  s_160ecc294b79e0::t_b69f0c252bd7f5 27,32,132
+docs/company-image-registry.md
+  s_160ecc294b79e0::t_1b642557e3fcc8 7
+  s_160ecc294b79e0::t_4c68b2a16eb76a 1-4,8-73,75-88
+  s_160ecc294b79e0::t_648193e6aad725 5-6,74
+worker/ctxbench_worker/intranet.py
+  s_160ecc294b79e0::t_ad847eae2abade 31,51,60-61,65,67,130-131,301-303
+package-lock.json
+  s_93c984b7787ad2::t_65eb00ce5ba858 3,9
+src-tauri/Cargo.lock
+  s_93c984b7787ad2::t_8a5c47556bd599 725
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "development:1.7.3",
+  "base_commit_sha": "3c69e3d6e553ec3ceffdff2e3680ad5a2780a444",
+  "prompts": {},
+  "sessions": {
+    "s_160ecc294b79e0": {
+      "agent_id": {
+        "tool": "codex",
+        "id": "01a06b47-944f-76f3-8380-74bb83cda689",
+        "model": "gpt-6-astra"
+      },
+      "human_author": "AI_BA <ai_ball@outlook.com>"
+    },
+    "s_93c984b7787ad2": {
+      "agent_id": {
+        "tool": "codex",
+        "id": "01a06b4f-963e-70a0-83ed-c8febc51fb4a",
+        "model": "unknown"
+      },
+      "human_author": "AI_BA <ai_ball@outlook.com>"
+    },
+    "s_e0acd8710ab6e3": {
+      "agent_id": {
+        "tool": "codex",
+        "id": "01a07f2d-a143-7d70-94a2-8c0bf0a1bcc4",
+        "model": "gpt-5.6-sol"
+      },
+      "human_author": "AI_BA <ai_ball@outlook.com>"
+    }
+  }
+}
