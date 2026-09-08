@@ -94,7 +94,10 @@ class DatasetFileTests(unittest.TestCase):
         def convert(runtime, path):
             paths.append(path)
             self.assertTrue(path.is_file())
-            self.assertTrue(path.is_relative_to(self.root / 'datasets'))
+            # GitHub Windows runners expose TEMP through an 8.3 alias while
+            # Database resolves its root to the long path. Compare identities,
+            # not the spelling of those two names for the same directory.
+            self.assertTrue(path.resolve().is_relative_to(self.root.resolve() / 'datasets'))
             return manifest()['rows']
         data = b'PAR1fixturePAR1'
         with patch.object(Runtime, 'import_parquet', convert):
@@ -106,6 +109,17 @@ class DatasetFileTests(unittest.TestCase):
         self.assertEqual(failed.status_code, 422)
         self.assertNotIn('private reference patch', failed.text)
         self.assertEqual(list((self.root / 'datasets').iterdir()), [])
+
+    @unittest.skipUnless(os.name == 'nt', 'Windows 8.3 directory aliases only')
+    def test_parquet_private_path_accepts_windows_short_directory_alias(self):
+        import ctypes
+        alias = ctypes.create_unicode_buffer(32768)
+        size = ctypes.windll.kernel32.GetShortPathNameW(str(self.root), alias, len(alias))
+        if not size or size >= len(alias) or Path(alias.value) == self.root:
+            self.skipTest('This filesystem does not provide an 8.3 alias for the temporary directory')
+        self.assertEqual(Path(alias.value).resolve(), self.root.resolve())
+        self.root = Path(alias.value)
+        self.test_parquet_conversion_uses_private_temporary_path_and_always_cleans_it()
 
     def test_preview_expiry_and_memory_limit_are_bounded(self):
         workbench = Workbench(self.engine, None)
