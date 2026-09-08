@@ -26,6 +26,8 @@ from .preflight import estimate, storage_status
 from .budgets import TokenBudget, BudgetExhausted
 from .workflows import normalize_workflow, workflow_request
 from .agent_args import normalize_agent_args, verify_agent_args_receipt
+from .project_environment import ProjectEnvironments
+from .standard_images import project_image
 
 GENERATION_PROMPT = "/skill:ctxbench-generate-context\n\nCapability: tree-only. Generate a frozen repository context artifact from this exact baseline checkout."
 
@@ -74,6 +76,7 @@ class Workbench:
                 if stage['status'] != 'completed':
                     self.engine.runner.cancel(stage['runId'])
         if isinstance(self.engine.runner, DockerRunner):
+            ProjectEnvironments(self.runtime, self.redact).recover_exports()
             for prepared in self.db.list_documents('prepared'):
                 self._cancel_environment_preparations(prepared['id'])
             for run in self.db.list_runs(compact=True):
@@ -288,6 +291,8 @@ class Workbench:
                     task = self.catalog.task(payload["dataset"], payload["taskId"])
                     spec = self._preparation_spec(payload)
                     image = self.runtime.resolve_image(spec.agent_image) if isinstance(self.engine.runner, DockerRunner) else spec.agent_image
+                    if operation['kind'] == 'context' and spec.project_environment and isinstance(self.engine.runner, DockerRunner):
+                        image = self.prepare_project_agent(task, spec, image)['imageId']
                     result = self.generate(task, spec, image) if operation["kind"] == "context" else self.mine(task, spec, image)
                 operation.update(status="completed", result=result)
             except Interrupted as error:
@@ -305,6 +310,8 @@ class Workbench:
                 # A caller may resume/retry while the old invocation is unwinding.
                 # Never overwrite the newer durable control request with stale state.
                 if current.get("controlRevision", 0) == operation.get("controlRevision", 0):
+                    if current.get('progress'):
+                        operation['progress'] = current['progress']
                     operation["updatedAt"] = utc_now()
                     self.db.put_document("operations", operation["id"], operation)
 
@@ -315,7 +322,45 @@ class Workbench:
         return ExperimentSpec("Preparation", "custom", payload["dataset"], ("none", "skill-generated"), 1,
             (payload["taskId"],), model, payload["agentImage"], ResourcePolicy(**payload["resources"]), 0,
             profiles={"builder": model, "constraintMiner": model}, env_names=tuple(payload.get("envNames", [])), budget_id=payload.get('budgetId', ''),
-            builder_workflow=normalize_workflow(payload.get('workflow')), agent_args=normalize_agent_args(payload.get('agentArgs')))
+            builder_workflow=normalize_workflow(payload.get('workflow')), agent_args=normalize_agent_args(payload.get('agentArgs')),
+            project_environment=payload.get('projectEnvironment', False))
+
+    def prepare_project_agent(self, task, spec, agent_image, grader_image=None, experiment_id=None):
+        """One preparation path for independent builders and paired experiments."""
+        scope = experiment_id or getattr(self._scope, 'operation_id', None)
+        def progress(message, status='preparing'):
+            record = {'message': self.redact(message), 'status': status, 'taskId': task.id, 'updatedAt': utc_now()}
+            if scope:
+                self.db.put_document('environmentProgress', scope, record)
+            operation_id = getattr(self._scope, 'operation_id', None)
+            if operation_id:
+                with self._lock:
+                    operation = self.db.get_document('operations', operation_id)
+                    operation['progress'] = record
+                    self.db.put_document('operations', operation_id, operation)
+        try:
+            self._check(experiment_id)
+            progress('Preparing project dependencies before knowledge generation or coding. No model is being called.')
+            if grader_image:
+                source = grader_image
+            elif task.source == 'custom':
+                source = self.runtime.prepare_test_image(task)
+            elif task.source == 'agentbench':
+                dataset = self.catalog.verify(spec.dataset)
+                harness = self.runtime.resolve_image(self.runtime.environment.get('harnessImage', 'ctxbench/official-harness:0.1.0'))
+                source = self.runtime.prepare_agentbench_image(task, Path(dataset['path']), harness, spec.resources, scope=scope or 'project')
+            else:
+                source = self.runtime.resolve_image(project_image(task))
+            self._check(experiment_id)
+            result = ProjectEnvironments(self.runtime, self.redact).prepare(task, source, agent_image,
+                check=lambda: self._check(experiment_id), progress=progress)
+            self.db.put_document('projectEnvironments', result['key'], {**result, 'repository': task.repository,
+                'baseCommit': task.base_commit, 'agentAdapter': agent_image, 'createdAt': utc_now()})
+            progress('Project build environment is ready. Its frozen image will be reused by both comparison arms.', 'ready')
+            return result
+        except Exception:
+            progress('Project environment preparation did not finish. No Agent is started for this task; inspect the error and retry.', 'failed')
+            raise
 
     def redact(self, text: str) -> str:
         names = getattr(self.engine.runner, "env_allowlist", ())
@@ -557,7 +602,7 @@ class Workbench:
         except KeyError:
             image = self.runtime.resolve_image(spec.agent_image) if isinstance(self.engine.runner, DockerRunner) else spec.agent_image
             harness = self.runtime.resolve_image(self.runtime.environment.get("harnessImage", "ctxbench/official-harness:0.1.0")) if isinstance(self.engine.runner, DockerRunner) and spec.benchmark != "custom" else "custom"
-            prepared = {"id": experiment_id, "image": image, "harnessImage": harness, "contexts": {}, "constraints": {}, "graderImages": {},
+            prepared = {"id": experiment_id, "image": image, "harnessImage": harness, "contexts": {}, "constraints": {}, "graderImages": {}, "agentImages": {},
                         "environmentVersion": 1}
             self.db.put_document("prepared", experiment_id, prepared)
         task_index = self.catalog.index(spec.dataset)
@@ -579,8 +624,18 @@ class Workbench:
                 prepared.setdefault("graderImages", {})
                 if task_id not in prepared["graderImages"]:
                     prepared["graderImages"][task_id] = self.runtime.prepare_test_image(task)
+            if spec.project_environment and isinstance(self.engine.runner, DockerRunner):
+                if 'agentImages' not in prepared:
+                    raise ValueError('This experiment was prepared without project Agent environments. Create a new experiment; frozen plans cannot be silently upgraded.')
+                if task_id not in prepared['agentImages']:
+                    result = self.prepare_project_agent(task, spec, prepared['image'], prepared['graderImages'].get(task_id), experiment_id)
+                    prepared['agentImages'][task_id] = result['imageId']
+                    if task.source == 'custom':
+                        prepared['graderImages'][task_id] = result['imageId']
+                    prepared.setdefault('projectEnvironmentKeys', {})[task_id] = result['key']
+                    self.db.put_document('prepared', experiment_id, prepared)
             if "skill-generated" in spec.arms and task_id not in prepared["contexts"]:
-                prepared["contexts"][task_id] = self.generate(task, spec, prepared["image"], experiment_id)["id"]
+                prepared["contexts"][task_id] = self.generate(task, spec, prepared.get('agentImages', {}).get(task_id, prepared["image"]), experiment_id)["id"]
             if spec.evaluate_constraints and task_id not in prepared["constraints"]:
                 package_key = spec.constraint_packages.get(task_id)
                 prepared["constraints"][task_id] = (self._validate_constraints(package_key, task) if package_key else self.mine(task, spec, prepared["image"], experiment_id))["id"]
@@ -613,6 +668,9 @@ class Workbench:
 
     def _run(self, run: dict, spec: ExperimentSpec, prepared: dict):
         task = self.catalog.task(spec.dataset, run["taskId"])
+        agent_image = prepared.get('agentImages', {}).get(task.id, prepared['image'])
+        if spec.project_environment and isinstance(self.engine.runner, DockerRunner) and task.id not in prepared.get('agentImages', {}):
+            raise ValueError('The frozen project Agent environment is missing; preparation must finish before coding.')
         if task.id in prepared.get("graderImages", {}):
             task = replace(task, image=prepared["graderImages"][task.id])
         key = (prepared["contexts"].get(task.id) if run["arm"] == "skill-generated" else
@@ -628,7 +686,7 @@ class Workbench:
             seal(workspace)
             return workspace
         pairing = {"task": task.solver_payload(), "model": asdict(spec.model), "resources": asdict(spec.resources),
-                   "image": prepared["image"], "dataset": spec.dataset, "envNames": spec.env_names, "harness": prepared["harnessImage"], "graderImage": task.image}
+                   "image": agent_image, "dataset": spec.dataset, "envNames": spec.env_names, "harness": prepared["harnessImage"], "graderImage": task.image}
         if spec.agent_args:
             pairing['agentArgs'] = spec.agent_args
         workflow = workflow_request(spec.solver_workflow, task.prompt)
@@ -636,9 +694,10 @@ class Workbench:
             pairing['workflow'] = workflow
         self.db.update_run(run["id"], "running", {"repository": task.repository, "commit": task.base_commit,
             "startedAt": run.get("startedAt", utc_now()), "contextArtifactId": key,
-            "pairingHash": fingerprint(pairing), "promptHash": fingerprint(workflow['steps'] if workflow else task.prompt), "agentImageDigest": prepared["image"],
+            "pairingHash": fingerprint(pairing), "promptHash": fingerprint(workflow['steps'] if workflow else task.prompt), "agentImageDigest": agent_image,
+            "projectEnvironmentKey": prepared.get('projectEnvironmentKeys', {}).get(task.id),
             "mock": spec.model.provider == "mock" or not isinstance(self.engine.runner, DockerRunner), "agentArgs": list(spec.agent_args)})
-        stage = self._agent(f"solve:{run['id']}", "solve", checkout, task.prompt, spec.model, spec, prepared["image"],
+        stage = self._agent(f"solve:{run['id']}", "solve", checkout, task.prompt, spec.model, spec, agent_image,
                             context_paths=context_paths, experiment_id=run["experimentId"])
         output = Path(stage["output"])
         safe_file(output, "graded.patch").read_bytes()
@@ -727,10 +786,16 @@ class Workbench:
                     "satisfied": satisfied, "violated": violated, "neutral": neutral})
         operations = self.db.list_documents("operations")
         # Model requests, dataset gold patches and credentials are never part of a dashboard snapshot.
-        return {"experiments": self.db.list_experiments(), "runs": runs, "artifacts": artifacts,
+        experiments = self.db.list_experiments()
+        for experiment in experiments:
+            try:
+                experiment['environmentPreparation'] = self.db.get_document('environmentProgress', experiment['id'])
+            except KeyError:
+                pass
+        return {"experiments": experiments, "runs": runs, "artifacts": artifacts,
             "tokenBudgets": [self.budgets.snapshot(item['id']) for item in self.db.list_documents('tokenBudgets')],
             "constraints": constraints, "datasets": self.catalog.list(), "operations": [
-                {**{key: item[key] for key in ("id", "kind", "status", "createdAt", "updatedAt", "failure") if key in item},
+                {**{key: item[key] for key in ("id", "kind", "status", "createdAt", "updatedAt", "failure", "progress") if key in item},
                  "taskId": item["payload"].get("taskId"), "dataset": item["payload"].get("dataset"),
                  "resultId": item.get("result", {}).get("id")} for item in operations],
             "activity": [{"id": item["id"], "kind": "system", "message": item["kind"],

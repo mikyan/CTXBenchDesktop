@@ -155,6 +155,11 @@ class PortableResources:
                 put(f"contexts/{key}/files/{name}", data)
             manifest["contexts"].append(key)
         refs = {task.image for task in tasks.values()}
+        # Include prepared Agent environments automatically, not just the four app images.
+        for prepared in self.wb.db.list_documents('projectEnvironments'):
+            if (prepared['repository'], prepared['baseCommit']) in baseline_ids:
+                refs.add('ctxbench/project-agent:' + prepared['key'])
+                refs.add(prepared['agentAdapter'])
         extra = value.get("images", [])
         if not isinstance(extra, list) or len(extra) > 100:
             raise ValueError("Select at most 100 additional local images.")

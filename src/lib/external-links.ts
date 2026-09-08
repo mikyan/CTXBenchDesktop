@@ -10,6 +10,8 @@ export const externalLinks = {
   ctxbenchDownload: standardDatasets[0].downloadUrl,
   swebenchDataset: standardDatasets[1].homepage,
   swebenchDownload: standardDatasets[1].downloadUrl,
+  swebenchImages: "https://www.swebench.com/SWE-bench/reference/harness/",
+  ctxbenchImages: "https://github.com/eth-sri/agentbench/blob/main/src/agentbench/README.md",
 } as const;
 
 export type ExternalDestination = keyof typeof externalLinks;

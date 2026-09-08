@@ -336,6 +336,7 @@ class Database:
                 for role, profile in spec.get("profiles", {}).items()
             },
             "agentImage": spec["agent_image"],
+            "projectEnvironment": spec.get("project_environment", False),
             "agentArgs": spec.get("agent_args", []),
             "companyEnvironment": spec.get("company_environment", {}),
             "resources": {

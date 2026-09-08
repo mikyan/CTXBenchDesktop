@@ -41,9 +41,10 @@ describe("standard dataset download guidance", () => {
         expect(html).toContain(dataset.filename);
       }
       expect(html).toContain(translate(locale, "How to import the downloaded file offline"));
-      expect(html).toContain(translate(locale, "Unavailable until the Worker is connected"));
+      expect(html).toContain(translate(locale, "Click Check selected file. When the task count appears, click Confirm dataset import. The app handles file transfer; no Docker or WSL copy is needed."));
+      expect(html).not.toContain("/var/lib/ctxbench/datasets");
       expect(html.match(/aria-pressed="true"/g)).toHaveLength(1);
-      expect(html).toContain(translate(locale, "Dataset files include evaluator-only reference patches and test material. Never provide the full dataset to the coding agent or knowledge builder. Baseline repositories, task images and prepared grading images still need separate preparation."));
+      expect(html).toContain(translate(locale, "What this download includes (not an error)"));
     }
   });
 
@@ -62,7 +63,8 @@ describe("standard dataset download guidance", () => {
     expect(html).not.toContain('aria-pressed="true"');
     const dialog = renderToStaticMarkup(createElement(I18nProvider, { children: createElement(DatasetDialog, { onClose: () => {}, onComplete: () => {} }) }));
     expect(dialog).toContain("Download standard datasets");
-    expect(dialog).toContain('accept=".json,.jsonl"');
+    expect(dialog).toContain('accept=".parquet,.json,.jsonl"');
+    expect(dialog).not.toContain('File in worker datasets directory');
   });
 
   it("provides Chinese translations for new download and import feedback", () => {

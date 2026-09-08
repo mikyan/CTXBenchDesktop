@@ -59,6 +59,7 @@ class FixtureRunner:
     def __init__(self):
         self.calls = []
         self.fail_grade = False
+        self.env_allowlist = ()
 
     def run(self, spec):
         self.calls.append(spec)
@@ -72,11 +73,78 @@ class FixtureRunner:
         else:
             (output / "graded.patch").write_text("patch", encoding="utf-8")
             (output / "context_mutation.patch").write_text("", encoding="utf-8")
-        (output / "result.json").write_text(json.dumps({"status": "completed", "sessionStats": {"inputTokens": 17, "outputTokens": 3, "cost": .01}}))
+        (output / "result.json").write_text(json.dumps({"schemaVersion": 1, "runId":spec.run_id, "status": "completed", "sessionStats": {"inputTokens": 17, "outputTokens": 3, "cost": .01}}))
         return RunResult(spec.run_id, "completed", 0, 1, spec.output_dir)
 
 
 class WorkbenchTests(unittest.TestCase):
+    def test_project_environment_is_shared_by_builder_solver_pairs_and_restarts(self):
+        # Use the recording fixture runner while exercising Docker coordination.
+        with patch('worker.ctxbench_worker.workbench.DockerRunner', FixtureRunner), \
+             patch.object(self.workbench, '_check'), \
+             patch.object(self.workbench.runtime, 'resolve_image', return_value='adapter'), \
+             patch.object(self.workbench.runtime, 'prepare_test_image', return_value='dependencies'), \
+             patch('worker.ctxbench_worker.workbench.ProjectEnvironments.prepare', return_value={
+                 'imageId':'prepared-project', 'key':'environment-key', 'cached':False, 'sourceImage':'dependencies', 'projectRoot':'/testbed'}) as prepare:
+            experiment = self.workbench.create_experiment(replace(self.spec, prepare_only=True, project_environment=True))
+            self.workbench.run_experiment(experiment['id'])
+            self.assertEqual(len(self.runner.calls), 1)
+            self.assertEqual(self.runner.calls[0].image, 'prepared-project')
+            self.assertTrue(self.runner.assert_builder)
+            restored = Workbench(self.engine, None)
+            restored.runtime.grade = self.workbench.runtime.grade
+            with patch.object(restored, '_check'):
+                restored.run_experiment(experiment['id'], start=True)
+            prepare.assert_called_once()
+            self.assertEqual(len(self.runner.calls), 5)
+            self.assertEqual({call.image for call in self.runner.calls}, {'prepared-project'})
+            runs = self.engine.database.list_runs(experiment['id'])
+            self.assertEqual(len({run['pairingHash'] for run in runs}), 1)
+            self.assertEqual({run['projectEnvironmentKey'] for run in runs}, {'environment-key'})
+            self.assertEqual(len({call.prompt for call in self.runner.calls if call.mode=='solve'}), 1)
+            prepared = self.engine.database.get_document('prepared', experiment['id'])
+            self.assertEqual(prepared['agentImages'], prepared['graderImages'])
+
+    def test_project_composition_failure_prevents_model_calls_and_reports_progress(self):
+        with patch('worker.ctxbench_worker.workbench.DockerRunner', FixtureRunner), \
+             patch.object(self.workbench, '_check'), \
+             patch.object(self.workbench.runtime, 'resolve_image', return_value='adapter'), \
+             patch.object(self.workbench.runtime, 'prepare_test_image', return_value='dependencies'), \
+             patch('worker.ctxbench_worker.workbench.ProjectEnvironments.prepare', side_effect=ValueError('Unsupported project runtime')):
+            experiment = self.workbench.create_experiment(replace(self.spec, project_environment=True))
+            with self.assertRaisesRegex(ValueError, 'Unsupported project runtime'):
+                self.workbench.run_experiment(experiment['id'])
+            self.assertFalse(self.runner.calls)
+            self.assertFalse(self.engine.database.list_documents('stages'))
+            self.assertEqual(self.engine.database.get_document('environmentProgress', experiment['id'])['status'], 'failed')
+
+    def test_independent_context_uses_same_preparation_and_persists_progress(self):
+        with patch('worker.ctxbench_worker.workbench.DockerRunner', FixtureRunner), \
+             patch('worker.ctxbench_worker.workbench.ProjectEnvironments.recover_exports'), \
+             patch.object(self.workbench, '_check'), \
+             patch.object(self.workbench.runtime, 'resolve_image', return_value='adapter'), \
+             patch.object(self.workbench.runtime, 'prepare_test_image', return_value='dependencies'), \
+             patch('worker.ctxbench_worker.workbench.ProjectEnvironments.prepare', return_value={
+                 'imageId':'prepared-project', 'key':'environment-key', 'cached':True, 'sourceImage':'dependencies', 'projectRoot':'/testbed'}) as prepare:
+            operation = self.workbench.enqueue('context', {'dataset':self.dataset['id'], 'taskId':'task/1',
+                'model':asdict(self.spec.model), 'resources':asdict(self.spec.resources), 'agentImage':'adapter', 'projectEnvironment':True})
+            self.workbench.start()
+            try:
+                finished = self.wait_operation(operation['id'], 'completed')
+            finally:
+                self.workbench.stop()
+            self.assertEqual(finished['progress']['status'], 'ready')
+            self.assertEqual(self.runner.calls[0].image, 'prepared-project')
+            prepare.assert_called_once()
+
+    def test_project_image_resolution_matches_official_export_convention(self):
+        task = replace(self.workbench.catalog.task(self.dataset['id'], 'task/1'), id='matplotlib__matplotlib-1', source='swebench', image=None)
+        with patch.object(self.workbench, '_check'), patch.object(self.workbench.runtime, 'resolve_image', return_value='resolved') as resolve, \
+             patch('worker.ctxbench_worker.workbench.ProjectEnvironments.prepare', return_value={
+                 'imageId':'project', 'key':'key', 'cached':True, 'sourceImage':'resolved', 'projectRoot':'/testbed'}):
+            self.workbench.prepare_project_agent(task, self.spec, 'adapter')
+        resolve.assert_called_once_with('tgloaguen/sweb.eval.x86_64.matplotlib_1776_matplotlib-1:latest')
+
     def test_startup_arguments_freeze_cache_pairing_and_recovery(self):
         args = ('--config', '/opt/company agent/settings.json', '中文')
         spec = replace(self.spec, agent_args=args, prepare_only=True)

@@ -10,6 +10,16 @@ import { translate } from "../i18n";
 const event = (lines: string[], elapsedMs = 1000, lastOutputMs: number | null = elapsedMs): BuildProgressEvent => ({ phase: "building", lines, elapsedMs, lastOutputMs });
 
 describe("Docker build progress", () => {
+  it("stops the indeterminate animation when a build fails before reporting steps", () => {
+    for (const locale of ["en", "zh-CN"] as const) {
+      const html = renderToStaticMarkup(createElement(I18nContext.Provider, {
+        value: { locale, setLocale: () => {}, t: (key, values) => translate(locale, key, values) },
+        children: createElement(ImageBuildProgress, { build: { ...newImageBuild("Ubuntu"), status: "failed" } }),
+      }));
+      expect(html.match(/<progress[^>]*>/)?.[0]).toContain('value="0"');
+      expect(html).toContain(translate(locale, "Image build failed"));
+    }
+  });
   it("counts discovered parallel vertices and cache hits without guessing total time", () => {
     let build = newImageBuild("Ubuntu", 1, 0);
     build = receiveBuildProgress(build, event(["#1 [worker 1/5] FROM python:3.12", "#2 [agent 1/8] FROM node:22", "#1 CACHED", "#3 [worker 2/5] RUN pip install package"]), 1000);

@@ -2,7 +2,7 @@ import { useEffect, useRef, useState, useSyncExternalStore } from "react";
 import { Check, CircleAlert, Copy, Download, FileCode, LoaderCircle, RefreshCw } from "lucide-react";
 import { useI18n } from "../i18n";
 import { controlWorker, getDeploymentInfo } from "../lib/desktop";
-import { diagnosticReport, prerequisiteLabels, setupCommands, setupMessage, type DeploymentInfo, type WorkerAction, type WorkerActionResult } from "../lib/infrastructure";
+import { activityState, diagnosticReport, prerequisiteLabels, recoveryActions, recoveryLabels, setupCommands, setupMessage, type RecoveryAction, type DeploymentInfo, type WorkerAction, type WorkerActionResult } from "../lib/infrastructure";
 import { WslDistributionPicker } from "./WslDistributionPicker";
 import { ExternalLink } from "./ExternalLink";
 import { imageBuildStore } from "../lib/image-build";
@@ -11,10 +11,13 @@ import { offlineImportStore } from "../lib/offline-import";
 import { OfflineImageImport, OfflineImportProgress } from "./OfflineImageImport";
 import { offlineExportStore } from "../lib/offline-export";
 import { OfflineImageExport, OfflineExportProgress } from "./OfflineImageExport";
+import { RuntimeSafety } from "./RuntimeSafety";
 
-export function InfrastructureSetup({ distribution, onDistribution, onDiagnose, onBusy, diagnosing, view = "all" }: {
+export function InfrastructureSetup({ distribution, onDistribution, onDiagnose, onBusy, diagnosing, view = "all", onSection, onExperiments, onKnowledge }: {
   distribution: string; onDistribution: (name: string) => void; onDiagnose: (distribution?: string) => void; onBusy: (busy: boolean) => void; diagnosing: boolean;
   view?: "runtime" | "images" | "all";
+  onSection?: (section: "runtime" | "images" | "credentials") => void;
+  onExperiments?: () => void; onKnowledge?: () => void;
 }) {
   const { t } = useI18n();
   const [mode, setMode] = useState<"offline" | "online">(() => imageBuildStore.getSnapshot()?.status === "running" ? "online" : "offline");
@@ -25,6 +28,7 @@ export function InfrastructureSetup({ distribution, onDistribution, onDiagnose, 
   const [refresh, setRefresh] = useState(0);
   const [localAction, setActive] = useState<WorkerAction>();
   const [localResult, setResult] = useState<WorkerActionResult>();
+  const [logResult, setLogResult] = useState<WorkerActionResult>();
   const build = useSyncExternalStore(imageBuildStore.subscribe, imageBuildStore.getSnapshot, imageBuildStore.getSnapshot);
   const imported = useSyncExternalStore(offlineImportStore.subscribe, offlineImportStore.getSnapshot, offlineImportStore.getSnapshot);
   const exported = useSyncExternalStore(offlineExportStore.subscribe, offlineExportStore.getSnapshot, offlineExportStore.getSnapshot);
@@ -38,6 +42,7 @@ export function InfrastructureSetup({ distribution, onDistribution, onDiagnose, 
   const alive = useRef(true);
   useEffect(() => { alive.current = true; return () => { alive.current = false; }; }, []);
   useEffect(() => { onBusy(Boolean(active)); }, [active, onBusy]);
+  useEffect(() => { setResult(undefined); setLogResult(undefined); setCopyMessage(""); }, [distribution]);
   useEffect(() => {
     if (!imported || imported.status === "running" || checkedImport.current === imported.id || imported.distribution !== distribution) return;
     checkedImport.current = imported.id;
@@ -52,13 +57,13 @@ export function InfrastructureSetup({ distribution, onDistribution, onDiagnose, 
   }, [build, distribution, onDiagnose]);
   useEffect(() => {
     let current = true;
-    setInfo(undefined); setResult(undefined); setCopyMessage("");
+    setInfo(undefined);
     if (!distribution.trim()) { setChecking(false); return; }
     setChecking(true);
     // Avoid launching WSL for every keystroke of a manually entered name.
     const timer = window.setTimeout(() => {
       void getDeploymentInfo(distribution).then((value) => { if (current) setInfo(value); })
-        .catch((error) => { if (current) setResult({ ok: false, code: "action", detail: error instanceof Error ? error.message : String(error) }); })
+        .catch((error) => { if (current) setResult({ ok: false, code: "activity_unknown", detail: error instanceof Error ? error.message : String(error) }); })
         .finally(() => { if (current) setChecking(false); });
     }, 600);
     return () => { current = false; window.clearTimeout(timer); };
@@ -67,17 +72,17 @@ export function InfrastructureSetup({ distribution, onDistribution, onDiagnose, 
   const action = async (value: WorkerAction) => {
     if (active) return;
     if (value === "build") { setResult(undefined); await imageBuildStore.start(distribution); return; }
-    setActive(value); setResult(undefined); onBusy(true);
+    setActive(value); if (value === "logs") setLogResult(undefined); else setResult(undefined); onBusy(true);
     try {
       const response = await controlWorker(value, distribution);
       if (!alive.current) return;
-      setResult(response);
+      if (value === "logs") setLogResult(response); else setResult(response);
       if (value !== "logs") {
         const updated = await getDeploymentInfo(distribution).catch(() => undefined);
         if (alive.current && updated) setInfo(updated);
         onDiagnose(distribution);
       }
-    } catch (error) { if (alive.current) setResult({ ok: false, code: "action", detail: error instanceof Error ? error.message : String(error) }); }
+    } catch (error) { if (alive.current) (value === "logs" ? setLogResult : setResult)({ ok: false, code: "action", detail: error instanceof Error ? error.message : String(error) }); }
     finally { if (alive.current) setActive(undefined); }
   };
   const copy = async (text: string) => {
@@ -87,6 +92,15 @@ export function InfrastructureSetup({ distribution, onDistribution, onDiagnose, 
   const commands = info ? setupCommands(info, shell) : {};
   const message = result && setupMessage(result.code);
   const disabled = Boolean(active) || diagnosing || checking || !distribution.trim();
+  const safety = activityState(info);
+  const prerequisiteFailure = info?.checks.find((check) => !check.ok);
+  const recheck = () => { setRefresh((value) => value + 1); onDiagnose(distribution); };
+  const recover = (target: RecoveryAction) => {
+    if (target === "check") recheck();
+    else if (target === "logs") void action("logs");
+    else if (target === "offline") { setMode("offline"); setImageOperation("install"); onSection?.("images"); }
+    else if (target !== "downloads") { if (target === "images") setImageOperation("install"); onSection?.(target); }
+  };
   return <section className="panel setup-panel" aria-labelledby="setup-heading">
     <div className="panel-header"><div><h2 id="setup-heading" tabIndex={-1}>{t(view === "images" ? "Application images" : "Install and start the worker")}</h2></div><Download size={22} aria-hidden="true" /></div>
     <div className="setup-content">
@@ -98,6 +112,8 @@ export function InfrastructureSetup({ distribution, onDistribution, onDiagnose, 
       </ol>
       </details>
       <WslDistributionPicker value={distribution} onChange={onDistribution} disabled={Boolean(active) || diagnosing} />
+      <RuntimeSafety info={info} distribution={distribution} checking={checking} disabled={disabled} onCheck={recheck} onStop={() => void action("stop")} onExperiments={onExperiments} onKnowledge={onKnowledge} />
+      {prerequisiteFailure && <div className="setup-feedback error" role="status"><h3>{t(setupMessage(prerequisiteFailure.id).title)}</h3><p>{t(setupMessage(prerequisiteFailure.id).help)}</p><div className="toolbar">{recoveryActions(prerequisiteFailure.id).filter((target) => onSection || !["runtime", "images", "credentials", "offline"].includes(target)).map((target) => target === "downloads" ? <ExternalLink key={target} destination="releases">{t(recoveryLabels[target])}</ExternalLink> : <button key={target} className="button secondary" disabled={disabled} onClick={() => recover(target)}>{t(recoveryLabels[target])}</button>)}</div></div>}
       <div hidden={view === "runtime"} className="settings-stack">
       <p>{t("Images belong to the selected WSL distribution. Choose one operation below.")}</p>
       <div className="segmented-actions" role="group" aria-label={t("Application images")}><button className="button secondary" aria-pressed={imageOperation === "install"} onClick={() => setImageOperation("install")}>{t("Install or build")}</button><button className="button secondary" aria-pressed={imageOperation === "export"} onClick={() => setImageOperation("export")}>{t("Export customized images")}</button></div>
@@ -106,26 +122,29 @@ export function InfrastructureSetup({ distribution, onDistribution, onDiagnose, 
         <label><input type="radio" name="setup-mode" checked={mode === "offline"} disabled={Boolean(active)} onChange={() => setMode("offline")} />{t("Internal network / offline images")}</label>
         <label><input type="radio" name="setup-mode" checked={mode === "online"} disabled={Boolean(active)} onChange={() => setMode("online")} />{t("Internet available / build images")}</label>
       </fieldset>
-      {mode === "offline" ? <OfflineImageImport distribution={distribution} disabled={disabled} state={imported} onBegin={() => setResult(undefined)} /> : <div className="setup-guidance">
+      {mode === "offline" ? <OfflineImageImport key={distribution} distribution={distribution} disabled={disabled} ready={safety.canReplace} state={imported?.distribution === distribution ? imported : undefined} onBegin={() => setResult(undefined)} /> : <div className="setup-guidance">
         <h3>{t("Online installation")}</h3><p>{t("Build images downloads base images and dependencies and may take several minutes. Check registry access and free disk space first. The build does not start experiments or call a Provider.")}</p>
-        <button className="button secondary" disabled={disabled} onClick={() => void action("build")}>{t("Build images")}</button>
+        {!safety.canReplace && <p>{t("Complete the image update safety check above before importing or building. File selection is still available.")}</p>}
+        <button className="button secondary" disabled={disabled || !safety.canReplace} onClick={() => void action("build")}>{t("Build images")}</button>
       </div>}
       </div><div hidden={imageOperation !== "export"}>
       <OfflineImageExport key={distribution} distribution={distribution} disabled={disabled} state={exported} onBegin={() => setResult(undefined)} />
       </div></div>
-      {build && recent === build && <ImageBuildProgress key={build.id} build={build} />}
-      {imported && recent === imported && <OfflineImportProgress key={imported.id} state={imported} />}
-      {exported && recent === exported && <OfflineExportProgress key={exported.id} state={exported} />}
-
       {result && message && <div className={`setup-feedback ${result.ok ? "success" : "error"}`} role={result.ok ? "status" : "alert"}>
         <h3>{t(message.title)}</h3><p>{t(message.help)}</p>
-        {result.detail && <details open={!result.ok || result.code === "logs"}><summary>{t("Technical details (redacted)")}</summary><pre>{t(result.detail)}</pre></details>}
+        <div className="toolbar">{recoveryActions(result.code).filter((target) => onSection || !["runtime", "images", "credentials", "offline"].includes(target)).map((target) => target === "downloads" ? <ExternalLink key={target} destination="releases">{t(recoveryLabels[target])}</ExternalLink> : <button key={target} className="button secondary" disabled={disabled} onClick={() => recover(target)}>{t(recoveryLabels[target])}</button>)}</div>
+        {result.detail && <details><summary>{t("Technical details (redacted)")}</summary><pre>{t(result.detail)}</pre></details>}
         <button className="button secondary" onClick={() => void copy(diagnosticReport(info, result))}><Copy size={16} />{t("Copy diagnostic report")}</button>
       </div>}
+      {build && recent === build && build.distribution === distribution && <ImageBuildProgress key={build.id} build={build} />}
+      {imported && recent === imported && imported.distribution === distribution && <OfflineImportProgress key={imported.id} state={imported} />}
+      {exported && recent === exported && exported.distribution === distribution && <OfflineExportProgress key={exported.id} state={exported} />}
+      {logResult && <div className={`setup-feedback ${logResult.ok ? "neutral" : "error"}`} role={logResult.ok ? "status" : "alert"}><h3>{t(setupMessage(logResult.code).title)}</h3><p>{t(setupMessage(logResult.code).help)}</p><pre className="image-build-log">{t(logResult.detail) || t("No container logs were returned.")}</pre></div>}
 
       <div hidden={view === "images"} className="settings-stack">
-      <div className="toolbar"><button className="button primary" disabled={disabled} onClick={() => void action("start")}>{t("Start worker")}</button><button className="button secondary" disabled={disabled} onClick={() => void action("logs")}>{t("Read container logs")}</button></div>
+      <div className="toolbar"><button className="button primary" disabled={disabled || !safety.known || safety.tasks.length > 0} onClick={() => void action("start")}>{t("Start worker")}</button><button className="button secondary" disabled={disabled} onClick={() => void action("logs")}>{t("Read container logs")}</button></div>
       <p>{t("Start worker uses local images only: no build, no pull. Stop worker does not delete stored data. Pause active experiments before stopping or replacing the worker.")}</p>
+      <details><summary>{t("Where are my datasets and results stored?")}</summary><p>{t("Files selected in the app are transferred automatically. The managed service directory is not a download folder; you do not need sudo or direct write permission to import a dataset.")}</p><p>{t("WSL storage location")}: <code>{info?.dataDirectory ?? t("Not available")}</code></p><p>{t("Advanced deployments may set CTXBENCH_HOST_DATA_DIR to another WSL directory. Changing it does not migrate existing data. Keep the old directory and complete a verified migration before switching.")}</p></details>
       <details className="prerequisite-details"><summary>{t("Deployment prerequisites")}{info && ` · ${info.checks.filter((check) => check.ok).length}/${info.checks.length}`}</summary>
       <div className="setup-check-header"><h3>{t("Deployment prerequisites")}</h3><button className="button secondary" disabled={disabled || checking} onClick={() => setRefresh((value) => value + 1)}><RefreshCw size={16} className={checking ? "spin" : ""} />{t("Check prerequisites")}</button></div>
       <p>{t("This check is read-only: it checks the deployment file, Compose, images and data directory without installing or starting containers.")}</p>
@@ -144,7 +163,6 @@ export function InfrastructureSetup({ distribution, onDistribution, onDiagnose, 
       </>}
       </details>
       {info?.checks.some((check) => !check.ok) && <p className="setup-callout">{t("Action needed")} · {info.checks.filter((check) => !check.ok).map((check) => t(prerequisiteLabels[check.id] ?? check.id)).join(" · ")}</p>}
-      <details className="danger-disclosure"><summary>{t("Stop worker safely")}</summary><p>{t("Keep active work paused before stopping. Stored datasets and results are retained.")}</p><button className="button tertiary" disabled={disabled} onClick={() => void action("stop")}>{t("Stop worker")}</button></details>
       </div>
       {active && active !== "build" && active !== "import" && active !== "export" && <div className="setup-callout" role="status"><LoaderCircle className="spin" size={18} /><span>{t(active === "start" ? "Starting containers and waiting for the worker health check…" : "Reading or updating containers…")}</span></div>}
       <details className="setup-manual"><summary><FileCode size={18} /> {t("Manual commands and troubleshooting")}</summary>
@@ -153,6 +171,10 @@ export function InfrastructureSetup({ distribution, onDistribution, onDiagnose, 
         {commands.start ? <>
           <CommandBlock label={t("Start worker")} command={commands.start} onCopy={copy} />
           <CommandBlock label={t("Current container status")} command={commands.status} onCopy={copy} />
+          <CommandBlock label={t("Active CTXBench containers across deployments")} command={commands.activity} onCopy={copy} />
+          <CommandBlock label={t("Stop worker after pausing and waiting for tasks")} command={commands.stop} onCopy={copy} />
+          {result?.code === "disk_space" && <CommandBlock label={t("Check WSL disk space (read-only)")} command={commands.space} onCopy={copy} />}
+          {result?.code === "port_in_use" && <CommandBlock label={t("Find containers publishing port 48173 (read-only)")} command={commands.port} onCopy={copy} />}
           {info?.checks.some((check) => check.id === "data_directory" && !check.ok) && commands.directory && <CommandBlock label={t("Create the missing WSL data directory (requires sudo)")} command={commands.directory} onCopy={copy} />}
           {mode === "online" && <CommandBlock label={t("Build images")} command={commands.build} onCopy={copy} />}
         </> : <p>{t("Choose a distribution and pass the deployment-file check to generate exact commands. No relative-path fallback will be shown.")}</p>}

@@ -38,7 +38,7 @@ export async function runPiStep({ request, prompt, env, cwd, timeoutMs, remainin
   let args = ["--mode", "rpc", "--no-session", "--no-extensions", "--no-skills", "--no-prompt-templates",
     "--no-approve", "--offline", "--provider", request.model.provider, "--model", request.model.model];
   if (request.model.provider === "mock") {
-    executable = "node"; args = ["/opt/ctxbench/mock-pi.mjs", request.mode];
+    executable = process.execPath; args = ["/opt/ctxbench/mock-pi.mjs", request.mode];
   } else if (request.mode === "generate-context") {
     args.push("--skill", "/home/ctxbench/.pi/agent/skills/ctxbench-generate-context/SKILL.md");
   }

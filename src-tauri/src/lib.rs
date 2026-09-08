@@ -4,6 +4,7 @@ use std::time::Duration;
 use tauri::Manager;
 mod wsl;
 mod deployment;
+mod dataset_upload;
 mod process_stream;
 mod image_export;
 #[cfg(test)]
@@ -385,7 +386,7 @@ pub fn run() {
             get_deployment_info,
             create_experiment
             ,worker_request, save_export, worker_control, select_offline_bundle, import_offline_images,
-            list_local_images, select_image_export_path, export_offline_images
+            list_local_images, select_image_export_path, export_offline_images, dataset_upload::preview_dataset_file
         ])
         .run(tauri::generate_context!())
         .expect("error while running CTXBench Desktop");

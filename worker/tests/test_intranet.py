@@ -256,6 +256,28 @@ class IntranetTests(unittest.TestCase):
             with self.assertRaises(ValueError):
                 resource.validate_archive(path)
 
+    def test_export_includes_matching_project_environment_and_its_pi_adapter(self):
+        dataset = self.wb.catalog.register('set', 'custom', [row()])
+        self.wb.db.put_document('projectEnvironments', 'd'*64, {'key':'d'*64, 'repository':row()['repository'],
+            'baseCommit':row()['baseCommit'], 'agentAdapter':'sha256:'+'e'*64})
+        self.wb.db.put_document('projectEnvironments', 'f'*64, {'key':'f'*64, 'repository':'unrelated',
+            'baseCommit':row()['baseCommit'], 'agentAdapter':'unrelated/agent'})
+        resource = PortableResources(self.service)
+        operation = self.service.enqueue('bundle-export', {'dataset':dataset['id']})
+        attempt = self.root / 'export-attempt'; attempt.mkdir()
+        client = Mock()
+        def image(ref):
+            return SimpleNamespace(id=ref if ref.startswith('sha256:') else 'sha256:'+hashlib.sha256(ref.encode()).hexdigest(), attrs={'Config':{}, 'Size':1}, save=lambda **kwargs: [b'IMAGE'])
+        client.images.get.side_effect = image
+        with patch('docker.from_env', return_value=client), patch.object(self.wb.runtime, 'baseline', return_value=(self.root, 'cutoff')), \
+             patch.object(resource, 'check_source'), patch('worker.ctxbench_worker.portable.write_pack', side_effect=lambda source, commit, target:target.write_bytes(b'PACK')):
+            result = resource.export(operation, attempt)
+        with zipfile.ZipFile(result['path']) as archive:
+            manifest = json.loads(archive.read('manifest.json'))
+        refs = {ref for image in manifest['images'] for ref in image['references']}
+        self.assertEqual(refs, {row()['image'], 'ctxbench/project-agent:'+'d'*64, 'sha256:'+'e'*64})
+        client.images.pull.assert_not_called()
+
     def test_bundle_import_requires_trust_before_docker_or_writes(self):
         resource, _ = self.bundle()
         with patch("docker.from_env") as docker_client, self.assertRaisesRegex(ValueError, "trusted source"):

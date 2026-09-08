@@ -32,6 +32,7 @@ export function namesFromLines(value: string) { return [...new Set(value.split(/
 export function terminalOperatorJob(status: string) { return ["completed", "failed", "cancelled", "paused"].includes(status); }
 export function operatorKindLabel(kind: string) {
   return ({ "intranet:probe": "Dataset self-test", "intranet:image-build": "Image adaptation",
+    "intranet:standard-images": "Project image installation",
     "intranet:bundle-export": "Resource bundle export", "intranet:bundle-import": "Resource bundle import", "intranet:bundle-inspect": "Resource bundle verification" } as Record<string, string>)[kind] ?? kind;
 }
 export async function buildFiles(files: FileList | File[]): Promise<{ path: string; base64: string }[]> {

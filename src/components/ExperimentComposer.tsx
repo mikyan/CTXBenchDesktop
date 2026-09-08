@@ -12,6 +12,8 @@ import { AgentArgsField } from "./AgentArgsField";
 import { agentArgsError } from "../lib/agent-args";
 import { CompanyProfilePicker } from "./CompanyProfilePicker";
 import { SectionNav } from "./SectionNav";
+import { FormError } from "./Dialogs";
+import { ProjectEnvironmentField, requireProjectEnvironment } from "./ProjectEnvironmentField";
 
 export function ExperimentComposer({ creating, onClose, onCreate, artifacts, initialDataset = "" }: {
   creating: boolean; onClose: () => void; onCreate: (request: CreateExperimentRequest) => Promise<void>; artifacts: KnowledgeArtifact[]; initialDataset?: string;
@@ -29,6 +31,7 @@ export function ExperimentComposer({ creating, onClose, onCreate, artifacts, ini
   const [judges, setJudges] = useState<FrozenModelConfig[]>([]);
   const [image, setImage] = useState("ctxbench/agent-pi:0.1.0"); const [env, setEnv] = useState("");
   const [agentArgs, setAgentArgs] = useState<string[]>([]);
+  const [projectEnvironment, setProjectEnvironment] = useState(true);
   const [cpu, setCpu] = useState(4); const [memory, setMemory] = useState(8); const [timeout, setTimeoutMinutes] = useState(45);
   const [network, setNetwork] = useState<CreateExperimentRequest["resources"]["network"]>("api-only");
   const [prepareOnly, setPrepareOnly] = useState(false); const [constraints, setConstraints] = useState(false);
@@ -57,7 +60,7 @@ export function ExperimentComposer({ creating, onClose, onCreate, artifacts, ini
   const visible = tasks.filter((task) => `${task.id} ${task.repository}`.toLowerCase().includes(query.toLowerCase()));
   const selectedPackages = (values: Record<string, string>) => Object.fromEntries(selected.filter((id) => values[id]).map((id) => [id, values[id]]));
   const request: CreateExperimentRequest = { name, benchmark: datasets.find((item) => item.id === dataset)?.benchmark ?? "custom", dataset, taskIds: selected, arms: ["none", arm], repeats, seed, profiles, model: profiles.solver,
-    agentImage: image, resources: { cpus: cpu, memoryGb: memory, timeoutMinutes: timeout, network }, envNames: parseEnvironmentNames(env), prepareOnly, evaluateConstraints: constraints, contextArtifacts: selectedPackages(packages), constraintPackages: selectedPackages(constraintPackages), judgeProfiles: judges, budgetId,
+    agentImage: image, projectEnvironment, resources: { cpus: cpu, memoryGb: memory, timeoutMinutes: timeout, network }, envNames: parseEnvironmentNames(env), prepareOnly, evaluateConstraints: constraints, contextArtifacts: selectedPackages(packages), constraintPackages: selectedPackages(constraintPackages), judgeProfiles: judges, budgetId,
     builderWorkflow: arm === "skill-generated" ? builderWorkflow : defaultWorkflow(), solverWorkflow, agentArgs, companyProfileId };
   const requestJson = JSON.stringify(request);
   const checked = preflight?.request === requestJson ? preflight.report : undefined;
@@ -65,7 +68,7 @@ export function ExperimentComposer({ creating, onClose, onCreate, artifacts, ini
     const envError = agentArgsError(agentArgs) ?? environmentNamesError(env) ?? workflowError(solverWorkflow) ?? (arm === "skill-generated" ? workflowError(builderWorkflow) : undefined);
     if (envError) { setError(t(envError)); return; }
     setChecking(true); setError("");
-    try { const report = await workerRequest<NonNullable<typeof preflight>["report"]>("/preflight", "POST", request); setPreflight({ request: requestJson, report }); }
+    try { await requireProjectEnvironment(projectEnvironment, t); const report = await workerRequest<NonNullable<typeof preflight>["report"]>("/preflight", "POST", request); setPreflight({ request: requestJson, report }); }
     catch (error) { setError(String(error)); }
     finally { setChecking(false); }
   };
@@ -75,7 +78,8 @@ export function ExperimentComposer({ creating, onClose, onCreate, artifacts, ini
     if (!dataset || !selected.length || !name.trim()) { setError(t("Choose a dataset, tasks, and experiment name.")); return; }
     setError("");
     if (selected.length > 20 && !checked) { setError(t("Review workload preflight before creating a large experiment.")); return; }
-    try { await onCreate(request); } catch (error) { setError(String(error)); }
+    setChecking(true);
+    try { await requireProjectEnvironment(projectEnvironment, t); await onCreate(request); } catch (error) { setError(String(error)); } finally { setChecking(false); }
   };
   const steps = [{ id: "tasks", label: "Tasks & comparison" }, { id: "execution", label: "Models & execution" }, { id: "review", label: "Review & create" }] as const;
   const go = (value: typeof step) => {
@@ -88,7 +92,7 @@ export function ExperimentComposer({ creating, onClose, onCreate, artifacts, ini
     setStep(value); setError("");
     window.requestAnimationFrame(() => { stepHeading.current?.focus(); stepHeading.current?.scrollIntoView({ block: "start" }); });
   };
-  return <Modal title={t("New experiment")} onClose={() => { if (!creating && !checking) onClose(); }}>
+  return <Modal title={t("New experiment")} busy={creating || checking} warnOnClose onClose={onClose}>
     <p>{t("Choose tasks and context, configure execution, then review the frozen experiment plan.")}</p>
     <SectionNav label="Experiment configuration" items={steps} value={step} onChange={go} />
     <h3 ref={stepHeading} tabIndex={-1} className="composer-step-title">{t(steps.find((item) => item.id === step)!.label)}</h3>
@@ -122,6 +126,7 @@ export function ExperimentComposer({ creating, onClose, onCreate, artifacts, ini
     <label className="check-line"><input type="checkbox" checked={constraints} onChange={(e) => setConstraints(e.target.checked)} />{t("Mine historical constraints and run three independent judges")}</label>
     {constraints && selected.map((id) => { const task = tasks.find((task) => task.id === id)!; return <label key={`constraints-${id}`}>{t("Frozen constraints")} · {id}<select value={constraintPackages[id] ?? ""} onChange={(event) => setConstraintPackages({ ...constraintPackages, [id]: event.target.value })}><option value="">{t("Mine or reuse matching miner cache")}</option>{availableConstraints.filter((item) => `https://github.com/${item.repository}.git` === task.repository && item.commit === task.baseCommit).map((item) => <option key={item.id} value={item.id}>{item.id.slice(0, 12)} · {item.count} · history v{item.historyVersion ?? 1}</option>)}</select></label>; })}
     {constraints && <><label className="check-line"><input type="checkbox" checked={judges.length === 3} onChange={(e) => setJudges(e.target.checked ? Array.from({ length: 3 }, () => ({ ...profiles.constraintJudge })) : [])} />{t("Configure each judge separately")}</label>{judges.map((judge, index) => <ProfileEditor key={index} title={`${t("Constraint judge")} ${index + 1}`} value={judge} onChange={(value) => setJudges(judges.map((item, i) => i === index ? value : item))} />)}<p>{t("Automatic mining is silver quality. Empty or inapplicable constraints are reported as neutral.")}</p></>}
+    <ProjectEnvironmentField value={projectEnvironment} onChange={setProjectEnvironment} />
     <details className="advanced-form"><summary>{t("Advanced workflows")}</summary><p>{t("Defaults use one Agent step. Expand only to add startup commands or separate prompts.")}</p>
     {arm === "skill-generated" && <WorkflowEditor title={t("Knowledge generation workflow")} value={builderWorkflow} onChange={setBuilderWorkflow} defaultPrompt={generationPrompt} />}
     <WorkflowEditor title={t("Solver workflow")} value={solverWorkflow} onChange={setSolverWorkflow} defaultPrompt={selected.length === 1 ? tasks.find((task) => task.id === selected[0])?.prompt : undefined} />
@@ -131,6 +136,7 @@ export function ExperimentComposer({ creating, onClose, onCreate, artifacts, ini
     </div><div hidden={step !== "review"} className="composer-step">
     <h3>{t("Review the plan before starting")}</h3><dl className="review-grid"><div><dt>{t("Experiment name")}</dt><dd>{name}</dd></div><div><dt>{t("Dataset or manifest")}</dt><dd>{datasets.find((item) => item.id === dataset)?.name}</dd></div><div><dt>{t("Tasks")}</dt><dd>{selected.length} × {repeats}</dd></div><div><dt>{t("Context arm")}</dt><dd>{t(arm === "skill-generated" ? "Skill generated" : arm === "manual" ? "Frozen package (generated or manual)" : "Developer historical")}</dd></div><div><dt>{t("Model")}</dt><dd>{profiles.solver.provider} / {profiles.solver.model}</dd></div><div><dt>{t("Agent image")}</dt><dd>{image}</dd></div></dl>
     <p>{t("Changing a field invalidates the previous preflight. The no-context baseline is always included.")}</p>
+    <p>{t("Agent build environment")}: {t(projectEnvironment ? "Prepared project environment" : "Agent image as-is")}</p>
     <label className="check-line"><input type="checkbox" checked={prepareOnly} onChange={(e) => setPrepareOnly(e.target.checked)} />{t("Prepare all context first; start solver runs later")}</label>
     <p>{t("{runs} runs · {keys} context keys", { runs: selected.length * repeats * 2, keys: new Set(tasks.filter((task) => selected.includes(task.id)).map((task) => `${task.repository}@${task.baseCommit}`)).size })}</p>
     <button className="button secondary" disabled={checking || creating || !selected.length || !name.trim()} onClick={() => void check()}>{t(checking ? "Checking…" : "Workload preflight")}</button>
@@ -143,7 +149,7 @@ export function ExperimentComposer({ creating, onClose, onCreate, artifacts, ini
       <small>{t("For WSL virtual disks, also check free space on the Windows host volume.")}</small>
     </section>}
     </div>
-    {error && <p className="form-error" role="alert">{error}</p>}
+    {error && <FormError>{error}</FormError>}
     <footer className="composer-footer">
       {step !== "tasks" && <button className="button secondary" disabled={creating || checking} onClick={() => go(step === "review" ? "execution" : "tasks")}>{t("Back")}</button>}
       <span>{selected.length} {t("Tasks")} · {selected.length * repeats * 2} {t("runs")}</span>

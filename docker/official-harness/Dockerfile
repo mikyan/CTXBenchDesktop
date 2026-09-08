@@ -1,7 +1,8 @@
 FROM python:3.11.14-slim-bookworm
 
 ARG AGENTBENCH_COMMIT=da299c4c6b14a9abad2ceef8c751f6c45c543656
-ARG SWEBENCH_COMMIT=02e7a74ffd0b707aab73d203fe87bdc7c76afc8e
+# v4.1.0 matches the pinned original Verified snapshot (v5 requires eval_script etc.).
+ARG SWEBENCH_COMMIT=726c5461e2ef52d83cf1ea2107870a8bb3328d57
 
 RUN apt-get update \
     && DEBIAN_FRONTEND=noninteractive apt-get install -y --no-install-recommends \

@@ -50,6 +50,8 @@ class ExperimentSpec:
     solver_workflow: dict[str, Any] = field(default_factory=dict)
     agent_args: tuple[str, ...] = ()
     company_environment: dict[str, Any] = field(default_factory=dict)
+    # Old persisted plans deliberately retain their original Agent environment.
+    project_environment: bool = False
 
 
 @dataclass(frozen=True)

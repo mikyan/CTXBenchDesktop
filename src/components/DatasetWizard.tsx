@@ -5,6 +5,7 @@ import { saveText, workerRequest } from "../lib/desktop";
 import { authoringSteps, datasetRows, draftIssues, duplicateTask, newDatasetDraft, newTask,
   type DatasetDraft, type TaskDraft } from "../lib/dataset-authoring";
 import { Modal } from "./WorkbenchDialogs";
+import { ConfirmDialog, FormError } from "./Dialogs";
 import { EnvironmentFields, TaskFields } from "./DatasetWizardFields";
 import { DatasetSelfTest } from "./DatasetSelfTest";
 import { DatasetDrafts } from "./DatasetDrafts";
@@ -20,6 +21,7 @@ export function DatasetWizard({ onClose, onComplete }: { onClose: () => void; on
   const [validated, setValidated] = useState("");
   const [created, setCreated] = useState<DatasetRecord>();
   const [discard, setDiscard] = useState(false);
+  const [remove, setRemove] = useState<number>();
   const heading = useRef<HTMLHeadingElement>(null);
   const validation = useRef<HTMLDivElement>(null);
   const issues = draftIssues(draft);
@@ -56,23 +58,24 @@ export function DatasetWizard({ onClose, onComplete }: { onClose: () => void; on
     catch { setError("Could not read the patch file."); }
     finally { setBusy(false); }
   };
-  return <Modal title={t("Create custom dataset")} onClose={close}>
+  return <Modal title={t("Create custom dataset")} busy={busy} onClose={close}>
     <div className="dataset-wizard" aria-busy={busy}>
-      {discard && !created && <div className="wizard-notice" role="alert"><p>{t("Discard this unsaved dataset? Nothing has been registered yet.")}</p><div className="wizard-actions"><button className="button secondary" onClick={() => setDiscard(false)}>{t("Keep editing")}</button><button className="button secondary" disabled={busy} onClick={onClose}>{t("Discard and close")}</button></div></div>}
+      {discard && !created && <ConfirmDialog title={t("Discard unsaved changes?")} description={t("Closing discards the current draft edits. Saved draft versions and exported files are kept; no dataset has been created yet.")} cancelLabel={t("Keep editing")} confirmLabel={t("Discard and close")} onCancel={() => setDiscard(false)} onConfirm={onClose} />}
+      {remove !== undefined && <ConfirmDialog title={t("Remove this task")} description={`${draft.tasks[remove].id} — ${t("Removing a task discards its prompt and test definition from this draft.")}`} confirmLabel={t("Confirm remove task")} onCancel={() => setRemove(undefined)} onConfirm={() => { update({ ...draft, tasks: draft.tasks.filter((_, index) => index !== remove) }); setSelected(Math.max(0, remove - 1)); setRemove(undefined); }} />}
       {created ? <section className="wizard-success" role="status">
         <h3>{t("Dataset created")}</h3><p>{created.name} · {t(created.count === 1 ? "1 task" : "{count} tasks", { count: created.count })}</p>
         <p>{t("Open New experiment and select this dataset. Model, context arms, workflows and repeats are configured there.")}</p>
         <p>{t("The definition is frozen by hash. Registration itself does not execute tests or call an Agent; any self-test is a separate operation.")}</p>
         <button className="button primary" onClick={onClose}>{t("Done")}</button>
       </section> : <>
-        <DatasetDrafts draft={draft} disabled={busy || discard} onBusy={setBusy} onLoad={(value) => { update(value); setSelected(0); go(0); }} />
+        <DatasetDrafts draft={draft} disabled={busy} onBusy={setBusy} onLoad={(value) => { update(value); setSelected(0); go(0); }} />
         <ol className="wizard-steps" aria-label={t("Dataset creation steps")}>
           {authoringSteps.map((label, index) => <li key={label} aria-current={index === step ? "step" : undefined}>
-            <button disabled={busy || discard || index > step} onClick={() => go(index)}><span>{index + 1}</span>{t(label)}</button>
+            <button disabled={busy || index > step} onClick={() => go(index)}><span>{index + 1}</span>{t(label)}</button>
           </li>)}
         </ol>
         <h3 ref={heading} tabIndex={-1}>{t(authoringSteps[step])}</h3>
-        <fieldset className="wizard-fields" disabled={busy || discard}>
+        <fieldset className="wizard-fields" disabled={busy}>
           {step === 0 && <>
             <p className="wizard-lead">{t("Build a reusable task set without writing JSON. Each task pairs a coding request with an executable test command.")}</p>
             <label>{t("Dataset name")}<input autoFocus value={draft.name} placeholder={t("Example: Team service regression suite")} onChange={(e) => update({ ...draft, name: e.target.value })} /></label>
@@ -96,7 +99,7 @@ export function DatasetWizard({ onClose, onComplete }: { onClose: () => void; on
               <button className="button secondary" disabled={draft.tasks.length >= 10_000} onClick={() => { update({ ...draft, tasks: duplicateTask(draft.tasks, selected) }); setSelected(draft.tasks.length); }}>{t("Duplicate task")}</button>
             </div>
             <TaskFields task={draft.tasks[selected]} defaults={draft.defaults} onChange={updateTask} onUpload={(file, field) => void uploadPatch(file, field)} />
-            <details><summary>{t("Remove this task")}</summary><p>{t("Removing a task discards its prompt and test definition from this draft.")}</p><button className="button secondary" disabled={draft.tasks.length === 1} onClick={() => { update({ ...draft, tasks: draft.tasks.filter((_, index) => index !== selected) }); setSelected(Math.max(0, selected - 1)); }}>{t("Confirm remove task")}</button></details>
+            <button className="button secondary" disabled={draft.tasks.length === 1} onClick={() => setRemove(selected)}>{t("Remove this task")}</button>
           </>}
           {step === 3 && <>
             <p className="wizard-lead">{draft.name} · {t(draft.tasks.length === 1 ? "1 task" : "{count} tasks", { count: draft.tasks.length })} · {t("Custom")}</p>
@@ -106,17 +109,17 @@ export function DatasetWizard({ onClose, onComplete }: { onClose: () => void; on
             })}</tbody></table></div>
             <p className="wizard-notice">{t("Validation checks only the definition: required fields, unique IDs, pinned commits and environment format. It does not clone repositories, pull images, apply patches or run tests. Verify baseline FAIL / correct-fix PASS before trusting scores.")}</p>
             <p>{t("Do not include credentials in prompts, patches, image URLs or build arguments. This dataset is frozen on creation and can be reused by multiple experiments.")}</p>
-            <DatasetSelfTest payload={payload} disabled={busy || discard} />
+            <DatasetSelfTest payload={payload} disabled={busy} />
             <details><summary>{t("Preview export JSON · contains evaluator-only material")}</summary><pre>{payload ? JSON.stringify(JSON.parse(payload).rows, null, 2) : t("Fix the highlighted fields before continuing.")}</pre></details>
             <div className="wizard-actions"><button className="button secondary" onClick={() => void execute("validate")}>{t("Validate definition")}</button><button className="button secondary" onClick={() => void execute("export")}>{t("Export task JSON")}</button></div>
             {validated === payload && !!payload && <p className="wizard-valid" role="status">{t("Definition valid. Execution results, if requested, are shown separately in self-test.")}</p>}
           </>}
         </fieldset>
         {showIssues && issues.length > 0 && <div ref={validation} tabIndex={-1} className="form-error" role="alert"><p>{t("Fix the highlighted fields before continuing.")}</p><ul>{issues.filter((issue) => issue.step <= step).map((issue, index) => <li key={index}><button className="text-button" onClick={() => { go(issue.step); if (issue.task !== undefined) setSelected(issue.task); setShowIssues(true); }}>{issue.task !== undefined ? `${t("Task")} ${issue.task + 1}: ` : ""}{t(issue.message)}</button></li>)}</ul></div>}
-        {error && <p className="form-error" role="alert">{t(error)}</p>}
-        <footer className="wizard-footer"><button className="button secondary" disabled={busy || discard} onClick={step ? () => go(step - 1) : close}>{t(step ? "Back" : "Cancel")}</button>
+        {error && <FormError>{t(error)}</FormError>}
+        <footer className="wizard-footer"><button className="button secondary" disabled={busy} onClick={step ? () => go(step - 1) : close}>{t(step ? "Back" : "Cancel")}</button>
           <span aria-live="polite">{busy ? t("Working…") : t("Step {step} of 4", { step: step + 1 })}</span>
-          {step < 3 ? <button className="button primary" disabled={busy || discard} onClick={next}>{t("Next step")}</button> : <button className="button primary" disabled={busy || discard || !!issues.length} onClick={() => void execute("create")}>{t("Create dataset")}</button>}
+          {step < 3 ? <button className="button primary" disabled={busy} onClick={next}>{t("Next step")}</button> : <button className="button primary" disabled={busy || !!issues.length} onClick={() => void execute("create")}>{t("Create dataset")}</button>}
         </footer>
       </>}
     </div>

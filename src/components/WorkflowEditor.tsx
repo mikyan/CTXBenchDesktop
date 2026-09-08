@@ -1,11 +1,14 @@
 import type { AgentWorkflow } from "../domain/types";
 import { useI18n } from "../i18n";
 import { moveWorkflowStep, workflowError } from "../lib/workflow";
+import { useState } from "react";
+import { ConfirmDialog } from "./Dialogs";
 
 export function WorkflowEditor({ title, value, onChange, defaultPrompt }: {
   title: string; value: AgentWorkflow; onChange: (value: AgentWorkflow) => void; defaultPrompt?: string;
 }) {
   const { t } = useI18n();
+  const [pending, setPending] = useState<{ title: string; next: AgentWorkflow }>();
   const error = workflowError(value);
   const updateStep = (index: number, changes: Partial<AgentWorkflow["steps"][number]>) =>
     onChange({ ...value, steps: value.steps.map((step, i) => i === index ? { ...step, ...changes } : step) });
@@ -18,7 +21,7 @@ export function WorkflowEditor({ title, value, onChange, defaultPrompt }: {
         <label>{t("Command {index}", { index: index + 1 })}<textarea rows={3} value={command} spellCheck={false}
           placeholder={'python3 -m venv "$HOME/bench-env"\nsource "$HOME/bench-env/bin/activate"\npython -m pip install -r requirements.txt'}
           onChange={(event) => onChange({ ...value, setupCommands: value.setupCommands.map((item, i) => i === index ? event.target.value : item) })} /></label>
-        <button type="button" className="button tertiary" onClick={() => onChange({ ...value, setupCommands: value.setupCommands.filter((_, i) => i !== index) })}>{t("Remove command")}</button>
+        <button type="button" className="button tertiary" onClick={() => { const next = { ...value, setupCommands: value.setupCommands.filter((_, i) => i !== index) }; if (command.trim()) setPending({ title: "Remove this startup command?", next }); else onChange(next); }}>{t("Remove command")}</button>
       </div>)}
       <button type="button" className="button secondary" disabled={value.setupCommands.length >= 20} onClick={() => onChange({ ...value, setupCommands: [...value.setupCommands, ""] })}>{t("Add command")}</button>
       <small>{t("Commands obey the selected container network policy. API-only does not automatically allow package registries. Never paste credentials here; reference saved environment variables.")}</small>
@@ -27,7 +30,7 @@ export function WorkflowEditor({ title, value, onChange, defaultPrompt }: {
       <legend>{t("Step {index}", { index: index + 1 })}</legend>
       <label>{t("Step name (optional)")}<input value={step.name} maxLength={120} onChange={(event) => updateStep(index, { name: event.target.value })} /></label>
       <label className="check-line"><input type="checkbox" checked={step.prompt === null}
-        onChange={(event) => updateStep(index, { prompt: event.target.checked ? null : "{{default_prompt}}" })} />{t("Use default prompt")}</label>
+        onChange={(event) => { if (event.target.checked && step.prompt?.trim() && step.prompt !== "{{default_prompt}}") setPending({ title: "Replace the custom prompt with the default?", next: { ...value, steps: value.steps.map((item, i) => i === index ? { ...item, prompt: null } : item) } }); else updateStep(index, { prompt: event.target.checked ? null : "{{default_prompt}}" }); }} />{t("Use default prompt")}</label>
       <label>{t(step.prompt === null ? "Default prompt preview" : "Step prompt")}
         <textarea rows={5} value={step.prompt ?? defaultPrompt ?? t("The worker resolves the default prompt for the selected task at execution time.")}
           readOnly={step.prompt === null} spellCheck={false} onChange={(event) => updateStep(index, { prompt: event.target.value })} />
@@ -36,11 +39,12 @@ export function WorkflowEditor({ title, value, onChange, defaultPrompt }: {
       <div className="toolbar">
         <button type="button" className="button tertiary" disabled={index === 0} onClick={() => onChange(moveWorkflowStep(value, index, -1))}>{t("Move up")}</button>
         <button type="button" className="button tertiary" disabled={index === value.steps.length - 1} onClick={() => onChange(moveWorkflowStep(value, index, 1))}>{t("Move down")}</button>
-        <button type="button" className="button tertiary" disabled={value.steps.length === 1} onClick={() => onChange({ ...value, steps: value.steps.filter((_, i) => i !== index) })}>{t("Remove step")}</button>
+        <button type="button" className="button tertiary" disabled={value.steps.length === 1} onClick={() => { const next = { ...value, steps: value.steps.filter((_, i) => i !== index) }; if (step.name.trim() || step.prompt?.trim()) setPending({ title: "Remove this prompt step?", next }); else onChange(next); }}>{t("Remove step")}</button>
       </div>
     </fieldset>)}
     <button type="button" className="button secondary" disabled={value.steps.length >= 50} onClick={() => onChange({ ...value, steps: [...value.steps, { name: "", prompt: "" }] })}>{t("Add prompt step")}</button>
     <p>{t("Both comparison arms use the same solver workflow. Startup commands never run in the hidden-test grader. A failed or interrupted workflow retries from a clean container, not from a partially completed step.")}</p>
     {error && <p className="form-error" role="alert">{t(error)}</p>}
+    {pending && <ConfirmDialog title={t(pending.title)} description={t("The affected command or prompt will be removed from this form. Existing experiments and saved workflows are unchanged.")} cancelLabel={t("Keep editing")} confirmLabel={t("Confirm change")} onCancel={() => setPending(undefined)} onConfirm={() => { onChange(pending.next); setPending(undefined); }} />}
   </details>;
 }

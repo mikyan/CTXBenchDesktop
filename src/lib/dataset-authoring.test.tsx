@@ -95,7 +95,7 @@ describe("dataset authoring", () => {
     for (const locale of ["en", "zh-CN"] as const) {
       const render = (children: React.ReactNode) => renderToStaticMarkup(createElement(I18nContext.Provider, { value: { locale, t: (key, args) => translate(locale, key, args), setLocale: () => {} }, children }));
       expect(render(createElement(DatasetWizard, { onClose: () => {}, onComplete: () => {} }))).toContain(translate(locale, "Create custom dataset"));
-      expect(render(createElement(EnvironmentFields, { value: draft.defaults, onChange: () => {} }))).toContain(translate(locale, "Test image (not the Agent image)"));
+      expect(render(createElement(EnvironmentFields, { value: draft.defaults, onChange: () => {} }))).toContain(translate(locale, "Test image reference"));
       const html = render(createElement(TaskFields, { task: draft.tasks[0], defaults: draft.defaults, onChange: () => {}, onUpload: () => {} }));
       expect(html).toContain(translate(locale, "Hidden test patch"));
       expect(html).toContain(translate(locale, "Task prompt · agent-visible"));

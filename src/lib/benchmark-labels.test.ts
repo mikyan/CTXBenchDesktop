@@ -14,7 +14,8 @@ describe("benchmark display names", () => {
       children: createElement(DatasetDialog, { onClose: () => {}, onComplete: () => {} }),
     }));
     expect(html).toContain('<option value="ctxbench" selected="">CTXBench (formerly AGENTBench)</option>');
-    expect(html).toContain('value="agentbench.parquet"');
+    expect(html).toContain('accept=".parquet,.json,.jsonl"');
+    expect(html).not.toContain('value="agentbench.parquet"');
     expect(html).not.toContain("CTXBench / AGENTBench");
   });
 

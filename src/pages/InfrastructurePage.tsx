@@ -10,7 +10,7 @@ import { useI18n } from "../i18n";
 import { savedDistribution, saveDistribution } from "../lib/wsl";
 import { settingsSections, type SettingsSection } from "../lib/navigation";
 
-export function InfrastructurePage({ diagnostics, onDiagnose, diagnosing, initialSection = "runtime" }: { diagnostics: DiagnosticItem[]; onDiagnose: (distribution?: string) => void; diagnosing: boolean; initialSection?: SettingsSection }) {
+export function InfrastructurePage({ diagnostics, onDiagnose, diagnosing, initialSection = "runtime", onExperiments, onKnowledge }: { diagnostics: DiagnosticItem[]; onDiagnose: (distribution?: string) => void; diagnosing: boolean; initialSection?: SettingsSection; onExperiments?: () => void; onKnowledge?: () => void }) {
   const { t } = useI18n();
   const [section, setSection] = useState<SettingsSection>(initialSection);
   const [credentialBusy, setCredentialBusy] = useState(false); const [deploymentBusy, setDeploymentBusy] = useState(false);
@@ -40,7 +40,7 @@ export function InfrastructurePage({ diagnostics, onDiagnose, diagnosing, initia
           </section>
         </div>
         <div hidden={section !== "runtime" && section !== "images"}>
-          <InfrastructureSetup view={section === "images" ? "images" : "runtime"} distribution={distribution} onDistribution={changeDistribution} diagnosing={diagnosing || credentialBusy} onBusy={setDeploymentBusy} onDiagnose={diagnose} />
+          <InfrastructureSetup view={section === "images" ? "images" : "runtime"} distribution={distribution} onDistribution={changeDistribution} diagnosing={diagnosing || credentialBusy} onBusy={setDeploymentBusy} onDiagnose={diagnose} onSection={setSection} onExperiments={onExperiments} onKnowledge={onKnowledge} />
         </div>
         <div hidden={section !== "credentials"}><RuntimeCredentials disabled={deploymentBusy} refreshKey={refreshKey} onBusy={setCredentialBusy} onRuntime={() => setSection("runtime")} /></div>
         <div hidden={!["profiles", "adaptation", "resources"].includes(section)}><IntranetWorkbench distribution={distribution} section={companySection} /></div>

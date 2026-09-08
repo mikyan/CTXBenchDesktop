@@ -533,7 +533,7 @@ def _import_bundle(folder, progress, expected_version, require_stopped):
     if daemon.get("OSType") != "linux" or daemon.get("Architecture") not in ("x86_64", "amd64"):
         raise ValueError("This bundle requires a Linux amd64 Docker daemon (the selected WSL distribution).")
     if require_stopped:
-        for label in ("com.docker.compose.service=ctxbench-worker", "io.ctxbench.run"):
+        for label in ("com.docker.compose.service=ctxbench-worker", "io.ctxbench.run", "io.ctxbench.evaluator"):
             if command("docker", "ps", "--filter", f"label={label}", "--format", "{{.ID}}", capture=True).strip():
                 raise ValueError("Active CTXBench containers detected. Pause experiments and stop the worker before importing.")
     for item in manifest["images"]:

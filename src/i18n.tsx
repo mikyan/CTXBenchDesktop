@@ -2,6 +2,10 @@ import { useCallback, useContext, useEffect, useMemo, useState } from "react";
 import type { ReactNode } from "react";
 import { workbenchChinese } from "./i18n.workbench";
 import { datasetWizardChinese } from "./i18n.dataset-wizard";
+import { datasetImportChinese } from "./i18n.dataset-import";
+import { dialogsChinese } from "./i18n.dialogs";
+import { projectEnvironmentChinese } from "./i18n.project-environments";
+import { standardImagesChinese } from "./i18n.standard-images";
 import { wslChinese } from "./i18n.wsl";
 import { infrastructureChinese } from "./i18n.infrastructure";
 import { intranetChinese } from "./i18n.intranet";
@@ -17,6 +21,10 @@ const STORAGE_KEY = "ctxbench.locale";
 const zhCN: Record<string, string> = {
   ...workbenchChinese,
   ...datasetWizardChinese,
+  ...datasetImportChinese,
+  ...dialogsChinese,
+  ...projectEnvironmentChinese,
+  ...standardImagesChinese,
   ...wslChinese,
   ...infrastructureChinese,
   ...intranetChinese,
@@ -32,7 +40,7 @@ const zhCN: Record<string, string> = {
   "Search": "搜索",
   "Search runs, repos, tasks": "搜索运行、仓库或任务",
   "Mock adapter": "模拟适配器",
-  "WSL worker": "WSL 工作节点",
+  "WSL worker": "WSL 本地评测服务",
   "Help": "帮助",
   "Notifications": "通知",
   "Local operator": "本地操作员",
@@ -133,14 +141,14 @@ const zhCN: Record<string, string> = {
   "SWE-SHIELD LAYER": "SWE-SHIELD 层",
   "Design compliance": "设计约束合规",
   "Three-judge majority on applicable design constraints. Functional tests remain a separate axis.": "对适用设计约束采用三评审多数判定；功能测试仍作为独立评估维度。",
-  "WORKER STREAM": "工作节点动态",
+  "WORKER STREAM": "本地评测服务动态",
   "Activity": "活动",
   "LIVE": "实时",
   "Paired run completed": "配对运行已完成",
   "Constraint verdict recorded": "约束判定已记录",
   "Context reused": "知识上下文已复用",
   "Grader completed offline": "离线评分已完成",
-  "Worker checkpoint saved": "工作节点检查点已保存",
+  "Worker checkpoint saved": "本地评测服务检查点已保存",
 
   "EXPERIMENTS": "实验",
   "Runs and comparisons": "运行与对比",
@@ -216,7 +224,7 @@ const zhCN: Record<string, string> = {
 
   "LOCAL INFRASTRUCTURE": "本地基础设施",
   "WSL & container runtime": "WSL 与容器运行时",
-  "Everything runs locally. The desktop app controls an isolated worker inside WSL2.": "所有组件均在本地运行，桌面端负责控制 WSL2 内的隔离工作节点。",
+  "Everything runs locally. The desktop app controls an isolated worker inside WSL2.": "所有组件均在本地运行，桌面端负责控制 WSL2 内的隔离本地评测服务。",
   "Checking…": "检查中…",
   "Run diagnostics": "运行诊断",
   "READINESS": "就绪状态",
@@ -234,7 +242,7 @@ const zhCN: Record<string, string> = {
   "Grader": "评分器",
   "Offline + clean base": "离线 + 干净基线",
   "NEXT ACTION": "下一步",
-  "Start the worker": "启动工作节点",
+  "Start the worker": "启动本地评测服务",
   "Docker Engine is not available in the selected Ubuntu distribution. Install it explicitly, start the daemon, then run:": "所选 Ubuntu 发行版中 Docker Engine 不可用。请先安装并启动守护进程，然后运行：",
   "Copy command": "复制命令",
   "Binds to localhost only": "仅绑定到 localhost",
@@ -254,7 +262,7 @@ const zhCN: Record<string, string> = {
   "WSL 2": "WSL 2",
   "Distribution": "发行版",
   "Docker Engine": "Docker Engine",
-  "CTXBench worker": "CTXBench 工作节点",
+  "CTXBench worker": "CTXBench 本地评测服务",
   "Artifact store": "产物存储",
   "Docker is not installed in Ubuntu.": "Ubuntu 中尚未安装 Docker。",
   "Install Docker Engine inside WSL, then start the daemon.": "请在 WSL 中安装 Docker Engine，然后启动守护进程。",

@@ -22,6 +22,8 @@ from .preflight import storage_status
 from .workflows import normalize_workflow
 from .agent_args import normalize_agent_args
 from .intranet import IntranetWorkbench, register_intranet_routes
+from .dataset_files import DatasetFiles, MAX_DATASET_BYTES
+from starlette.concurrency import run_in_threadpool
 from dataclasses import replace
 
 
@@ -61,6 +63,7 @@ class ExperimentInput(BaseModel):
     model: ModelConfigInput
     profiles: EvaluationProfilesInput
     agentImage: str = "ctxbench/agent-pi:0.1.0"
+    projectEnvironment: bool = True
     resources: ResourcePolicyInput
     seed: int
     envNames: list[str] = Field(default_factory=list)
@@ -137,6 +140,7 @@ def _spec(value: ExperimentInput) -> ExperimentSpec:
         task_ids=tuple(value.taskIds),
         model=_model(value.model),
         agent_image=value.agentImage,
+        project_environment=value.projectEnvironment,
         resources=_resources(value.resources),
         seed=value.seed,
         profiles={
@@ -391,6 +395,25 @@ def create_app(
                     check(child)
         check(value)
 
+    dataset_files = DatasetFiles(workbench, protect_dataset_credentials)
+
+    @app.post("/v1/datasets/files/preview")
+    async def preview_dataset_file(request: Request, filename: str, name: str, benchmark: str):
+        data = bytearray()
+        async for chunk in request.stream():
+            if len(data) + len(chunk) > MAX_DATASET_BYTES:
+                raise HTTPException(status_code=413, detail="Choose a nonempty dataset file no larger than 32 MiB.")
+            data.extend(chunk)
+        return await run_in_threadpool(dataset_files.preview, bytes(data), filename, name, benchmark)
+
+    @app.post("/v1/datasets/files/{token}/confirm", status_code=201)
+    def confirm_dataset_file(token: str):
+        return dataset_files.confirm(token)
+
+    @app.post("/v1/datasets/files/{token}/discard")
+    def discard_dataset_file(token: str):
+        return dataset_files.discard(token)
+
     @app.post("/v1/datasets/validate")
     def validate_dataset(value: dict):
         protect_dataset_credentials(value)
@@ -421,6 +444,9 @@ def create_app(
         workbench.validate_workflow(workflow, 'generate-context' if kind == 'context' else 'mine-constraints')
         payload['workflow'] = workflow
         payload['agentArgs'] = list(workbench.validate_agent_args(value.get('agentArgs'), payload['agentImage']))
+        if type(value.get('projectEnvironment', True)) is not bool:
+            raise ValueError('Project environment selection must be a boolean.')
+        payload['projectEnvironment'] = value.get('projectEnvironment', True)
         return workbench.enqueue(kind, payload)
 
     @app.get("/v1/operations/{operation_id}")
@@ -441,7 +467,7 @@ def create_app(
     def runtime_settings():
         names = runtime_names | set(getattr(selected_engine.runner, "env_allowlist", DEFAULT_SECRET_ALLOWLIST))
         return {"runner": type(selected_engine.runner).__name__, "dataDirectory": str(data_root),
-                'defaultPrompts': {'builder': GENERATION_PROMPT},
+                'defaultPrompts': {'builder': GENERATION_PROMPT}, 'projectEnvironmentVersion': 1,
                 'storage': storage_status(data_root),
                 "credentials": [{"name": name, "configured": bool(os.environ.get(name))} for name in sorted(names)],
                 "datasetFiles": sorted(path.name for path in (data_root / "datasets").glob("*") if path.suffix in {".parquet", ".jsonl"})}

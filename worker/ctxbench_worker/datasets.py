@@ -124,7 +124,7 @@ def import_swebench(rows: Iterable[Mapping[str, Any]]) -> list[TaskRecord]:
                 repository=f"https://github.com/{repository}.git",
                 base_commit=str(row["base_commit"]),
                 prompt=str(row["problem_statement"]),
-                image=str(row["image_name"]) if row.get("image_name") else None,
+                image=str(row.get("image") or row.get("image_name")) if row.get("image") or row.get("image_name") else None,
                 build=None,
                 test_command=("python", "-m", "swebench.harness.run_evaluation"),
                 hidden_test_patch=str(row["test_patch"]) if row.get("test_patch") else None,

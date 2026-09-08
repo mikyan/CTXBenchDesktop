@@ -48,3 +48,25 @@
 Settings has six task-oriented categories: Runtime & diagnostics, Model credentials, Application images, Company profiles, Image adaptation, and Resource migration. Datasets is now a primary destination with library/download/self-test views. Experiment plans, results, and budgets have separate views; creation has Tasks → Execution → Review steps. Advanced configuration is collapsed, not removed. Section switches preserve in-memory input, but leaving a main page does not persist unsaved forms.
 
 The redesign is included in v0.1.5. Older v0.1.4 downloads retain their previous navigation. This is a presentation change, not a change to paired experiment, credential, context discovery, or evaluator-isolation rules.
+
+## 后续开发版：导入和异常恢复
+
+这些改进尚未包含在已发布的 v0.1.5，需要后续同步更新桌面和评测服务镜像：
+
+- “本地评测服务”替代日常界面中的“工作节点”；Worker 只在技术说明、日志和容器名中保留。
+- 运行环境与应用镜像页面都显示镜像更新安全检查。列出所选 Docker 中运行的服务、Agent／知识库生成和评分容器；未知状态不等于空闲。停止需要确认已暂停并等待任务结束，不自动删除容器或数据卷。
+- 导入／构建前在原生层再次检查容器；离线导入器完成文件校验后还会复查。其他部署的服务也会阻塞镜像替换，本部署停止按钮不会强停其他部署。
+- 失败消息带刷新、日志、运行环境、离线安装或版本下载等处理入口。查看日志不会覆盖原始失败；构建失败后的进度条不再继续转动。
+- 评测集导入改为本地 Parquet／JSON／JSONL 文件选择、检查、确认、成功结果四个状态，取消了手动填写服务路径。上限 32 MiB，预览不返回参考补丁或隐藏测试，登记前保持只读。
+- 数据目录说明明确 `/var/lib/ctxbench` 为服务管理目录，日常导入不需要用户拥有其写权限。`CTXBENCH_HOST_DATA_DIR` 是高级挂载配置，不是自动迁移功能。
+
+验证：前端单元／构建、原生单元、Worker 单元、脚本回归，以及 `scripts/maintenance-ui-smoke.mjs` 的中英文页面点击检查。`scripts/dataset-file-import-smoke.py` 在独立 WSL Docker 测试目录中实际传送、解析并确认了固定快照的 CTXBench 138 项和 SWE-bench Verified 500 项；没有调用 Agent、没有修改生产数据目录。该检查验证导入，不代表全套 benchmark 已执行。
+
+### 用例创建与确认弹窗（待发布）
+
+- 长表单固定标题与关闭按钮，内容单独滚动。放弃编辑、覆盖草稿、删除用例、停止服务、取消实验／准备任务均采用居中的原生确认框，默认焦点放在保留操作上。Esc 只退出最上层确认框，恢复原焦点；Tab 不穿透到底层表单。
+- 异步处理期间禁用关闭按钮并说明原因。提交、导入和日志读取失败时将错误移入视线；成功、进度和普通说明仍保留在对应区域，避免过多弹窗。
+- 删除非空编排命令、删除有内容的提示词步骤、用默认提示词覆盖自定义内容，需要确认；不改动已冻结的实验。
+- 自定义测试镜像支持当前 WSL 的本地列表、刷新、手工填写，以及四类基础镜像的用途和复用条件说明。不是安装状态即兼容，不自动选择不合适的测试环境；标准库 Python 模板改用 `python3`。
+
+交互回归：`scripts/authoring-ui-smoke.mjs` 使用隔离的 Edge 页面与模拟服务响应，覆盖中英文、长表单、焦点／Esc、保存期间关闭、三种草稿覆盖入口、镜像列表失败与手填、创建成功、编排内容保护、实验／准备任务取消。`scripts/maintenance-ui-smoke.mjs` 继续覆盖维护确认和文件导入。不会启动真实 Agent、提交真实评测集或修改生产数据。

@@ -76,7 +76,7 @@ def export_task(benchmark: str, dataset: Path, instance_id: str, output: Path) -
     else:
         instance = row["instance_id"].replace("__", "_1776_").lower()
         owner = "tgloaguen" if "matplotlib" in instance else "swebench"
-        environment_image = row.get("image") or f"{owner}/sweb.eval.x86_64.{instance}:latest"
+        environment_image = row.get("image") or row.get("image_name") or f"{owner}/sweb.eval.x86_64.{instance}:latest"
         solver = {
             "instanceId": row["instance_id"],
             "repository": f"https://github.com/{row['repo']}.git",
@@ -162,6 +162,10 @@ def grade_swebench(dataset: Path, instance_id: str, patch_path: Path, output: Pa
             open_file_limit=4096,
             run_id=run_id,
             timeout=1800,
+            namespace="swebench",
+            cache_level="instance",
+            clean=False,
+            force_rebuild=False,
             rewrite_reports=False,
             modal=False,
         )

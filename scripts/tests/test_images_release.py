@@ -126,12 +126,32 @@ class BundleTests(unittest.TestCase):
 
     def test_running_worker_blocks_zip_import_before_tag_or_load(self):
         manifest = self.make_bundle()
-        for running in (["running-worker"], ["", "running-agent"]):
+        for running in (["running-worker"], ["", "running-agent"], ["", "", "running-grader"]):
             with self.subTest(running=running), patch.object(release, "command", side_effect=[json.dumps({"OSType": "linux", "Architecture": "amd64"}), *running]) as command, patch.object(release.subprocess, "Popen") as start:
                 with self.assertRaisesRegex(ValueError, "Active CTXBench"):
                     release.import_bundle(self.folder / release.single_file_name(manifest["version"]), require_stopped=True)
                 self.assertTrue(all(call.args[1] in ("info", "ps") for call in command.call_args_list))
                 start.assert_not_called()
+
+    def test_activity_is_rechecked_after_verification_and_queries_only_running_labels(self):
+        manifest = self.make_bundle()
+        verified = False
+        original = release._verify
+        def verify(*args):
+            nonlocal verified
+            value = original(*args)
+            verified = True
+            return value
+        def docker(*args, **kwargs):
+            if args[1] == "info": return json.dumps({"OSType": "linux", "Architecture": "amd64"})
+            self.assertTrue(verified)
+            self.assertEqual(args[1:3], ("ps", "--filter"))
+            self.assertNotIn("-a", args)
+            return "grading-started-during-verification" if args[3] == "label=io.ctxbench.evaluator" else ""
+        with patch.object(release, "_verify", side_effect=verify), patch.object(release, "command", side_effect=docker), patch.object(release.subprocess, "Popen") as start:
+            with self.assertRaisesRegex(ValueError, "Active CTXBench"):
+                release.import_bundle(self.folder / release.single_file_name(manifest["version"]), require_stopped=True)
+            start.assert_not_called()
 
     def test_zip_import_streams_bytes_and_stage_progress(self):
         manifest = self.make_bundle()

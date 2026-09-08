@@ -25,7 +25,7 @@ export function ImageBuildProgress({ build }: { build: ImageBuild }) {
   const running = build.status === "running";
   const timing = buildTiming(build, now);
   // Do not show 100% until Compose actually exits successfully (export can take time).
-  const determinate = build.status === "completed" || (steps.length > 0 && completed < steps.length);
+  const determinate = !running || (steps.length > 0 && completed < steps.length);
   const value = build.status === "completed" ? 1 : completed;
   const max = build.status === "completed" ? 1 : Math.max(1, steps.length);
   const summary = build.status === "completed" ? "Image build completed" : build.status === "failed" ? "Image build failed" : phaseLabels[build.phase];

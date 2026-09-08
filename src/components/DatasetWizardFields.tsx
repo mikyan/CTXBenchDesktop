@@ -1,5 +1,6 @@
 import { useI18n } from "../i18n";
 import { testTemplates, type EnvironmentDraft, type TaskDraft } from "../lib/dataset-authoring";
+import { TestImagePicker } from "./TestImagePicker";
 
 export function TaskFields({ task, defaults, onChange, onUpload }: {
   task: TaskDraft; defaults: EnvironmentDraft; onChange: (changes: Partial<TaskDraft>) => void;
@@ -58,10 +59,10 @@ export function EnvironmentFields({ value, onChange }: { value: EnvironmentDraft
     <label>{t("Baseline commit (40 characters)")}<input value={value.baseCommit} placeholder="0123456789abcdef0123456789abcdef01234567" spellCheck={false} onChange={(e) => change({ baseCommit: e.target.value })} /></label>
     <p>{t("Run git rev-parse HEAD in the intended baseline checkout. Do not use the fixed commit or a moving branch.")}</p>
     <label>{t("Test environment")}<select value={value.mode} onChange={(e) => change({ mode: e.target.value as EnvironmentDraft["mode"] })}><option value="image">{t("Existing Docker image")}</option><option value="build">{t("Build from baseline Dockerfile")}</option></select></label>
-    {value.mode === "image" ? <label>{t("Test image (not the Agent image)")}<input value={value.image} placeholder="registry.company.example/bench/project-tests:baseline" onChange={(e) => change({ image: e.target.value })} /></label> : <>
+    {value.mode === "image" ? <TestImagePicker value={value.image} onChange={(image) => change({ image })} /> : <>
       <div className="form-grid two"><label>{t("Build context (relative to repository)")}<input value={value.context} onChange={(e) => change({ context: e.target.value })} /></label><label>{t("Dockerfile (relative to build context)")}<input value={value.dockerfile} onChange={(e) => change({ dockerfile: e.target.value })} /></label></div>
       <label>{t("Build arguments (JSON, no secrets)")}<textarea rows={2} value={value.buildArgs} spellCheck={false} onChange={(e) => change({ buildArgs: e.target.value })} /></label>
     </>}
-    <p className="wizard-notice">{t("This image grades the submitted code; choose the coding Agent image later in the experiment. Include the language runtime and test dependencies, but never answers or private tests in the baseline build context.")}</p>
+    <p className="wizard-notice">{t("The test image and coding Agent have different roles, but may reuse the same suitable image. Never bake answers, hidden tests or credentials into a shared image or baseline build context. Tests run without network access.")}</p>
   </div>;
 }

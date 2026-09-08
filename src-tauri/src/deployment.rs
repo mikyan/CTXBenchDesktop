@@ -35,6 +35,102 @@ pub struct DeploymentInfo {
     pub checks: Vec<SetupCheck>,
     pub missing_images: Vec<String>,
     pub containers: Vec<String>,
+    pub active_containers: Vec<ActiveContainer>,
+    pub activity_error: Option<String>,
+}
+
+#[derive(Debug, Serialize)]
+pub struct ActiveContainer {
+    pub id: String,
+    pub name: String,
+    pub status: String,
+    pub role: &'static str,
+}
+
+// Query only running containers and explicitly selected fields, never Env, commands or arbitrary labels.
+const ACTIVITY_FILTERS: [(&str, &str); 3] = [
+    ("io.ctxbench.run", "agent"),
+    ("io.ctxbench.evaluator", "grader"),
+    ("com.docker.compose.service=ctxbench-worker", "worker"),
+];
+
+fn read_activity(
+    mut run: impl FnMut(&[&str]) -> Result<String, String>,
+    secrets: &[String],
+) -> Result<Vec<ActiveContainer>, String> {
+    let mut containers = Vec::<ActiveContainer>::new();
+    for (filter, role) in ACTIVITY_FILTERS {
+        let text = run(&[
+            "docker",
+            "ps",
+            "--filter",
+            &format!("label={filter}"),
+            "--format",
+            r#"{"id":{{json .ID}},"name":{{json .Names}},"status":{{json .Status}}}"#,
+        ])?;
+        for line in text.lines().filter(|line| !line.trim().is_empty()) {
+            let row: Value = serde_json::from_str(line)
+                .map_err(|_| "Docker returned invalid container activity JSON.".to_string())?;
+            let field = |key: &str| {
+                row[key]
+                    .as_str()
+                    .filter(|value| !value.is_empty())
+                    .ok_or_else(|| {
+                        "Docker returned incomplete container activity JSON.".to_string()
+                    })
+            };
+            let id = field("id")?;
+            if !containers.iter().any(|item| item.id == id) {
+                containers.push(ActiveContainer {
+                    id: id.into(),
+                    name: redact(field("name")?, secrets),
+                    status: redact(field("status")?, secrets),
+                    role,
+                });
+            }
+        }
+    }
+    Ok(containers)
+}
+
+fn activity_guard(
+    action: &str,
+    run: impl FnMut(&[&str]) -> Result<String, String>,
+    secrets: &[String],
+) -> Result<(), ActionResult> {
+    let containers = read_activity(run, secrets).map_err(|detail| ActionResult {
+        ok: false,
+        code: classify_error(&detail, "activity_unknown"),
+        detail: redact(&detail, secrets),
+        command: None,
+    })?;
+    let blockers: Vec<_> = containers
+        .iter()
+        .filter(|item| matches!(action, "import" | "build") || item.role != "worker")
+        .collect();
+    if blockers.is_empty() {
+        return Ok(());
+    }
+    Err(ActionResult {
+        ok: false,
+        code: if blockers.iter().any(|item| item.role != "worker") {
+            "active_runs"
+        } else {
+            "worker_running"
+        }
+        .into(),
+        detail: blockers
+            .iter()
+            .map(|item| {
+                format!(
+                    "{} · {} · {} · {}",
+                    item.id, item.name, item.role, item.status
+                )
+            })
+            .collect::<Vec<_>>()
+            .join("\n"),
+        command: None,
+    })
 }
 
 pub fn shell_quote(value: &str) -> String {
@@ -100,14 +196,23 @@ pub fn classify_error(detail: &str, fallback: &str) -> String {
         "docker"
     } else if value.contains("no space left") || value.contains("not enough space") {
         "disk_space"
-    } else if value.contains("timed out") || value.contains("timeout") {
-        "timeout"
     } else if value.contains("no such host")
         || value.contains("certificate")
         || value.contains("network is unreachable")
         || value.contains("connection refused")
+        || ((value.contains("registry")
+            || value.contains("load metadata")
+            || value.contains("failed to fetch"))
+            && (value.contains("deadline exceeded")
+                || value.contains("timeout")
+                || value.contains("timed out")))
     {
         "network"
+    } else if value.contains("timed out")
+        || value.contains("timeout")
+        || value.contains("deadline exceeded")
+    {
+        "timeout"
     } else {
         fallback
     };
@@ -225,6 +330,8 @@ pub fn inspect(root: &Path, distribution: &str) -> DeploymentInfo {
         checks: vec![],
         missing_images: vec![],
         containers: vec![],
+        active_containers: vec![],
+        activity_error: Some("Container activity has not been checked.".into()),
     };
     let path = match checked_path(root, distribution) {
         Ok(path) => path,
@@ -266,6 +373,13 @@ pub fn inspect(root: &Path, distribution: &str) -> DeploymentInfo {
             detail: redact(&error, &secrets),
         });
         return info;
+    }
+    match read_activity(|args| wsl::output(distribution, args), &secrets) {
+        Ok(containers) => {
+            info.active_containers = containers;
+            info.activity_error = None;
+        }
+        Err(error) => info.activity_error = Some(redact(&error, &secrets)),
     }
     // Full config stays in memory. Only image names and the data mount escape this function.
     let config = wsl::output(
@@ -390,7 +504,7 @@ pub fn control(
             Err(_) => {
                 return ActionResult {
                     ok: false,
-                    code: "action".into(),
+                    code: "busy".into(),
                     detail: "Another infrastructure action is still running.".into(),
                     command: None,
                 };
@@ -424,6 +538,13 @@ pub fn control(
             detail: redact(&error, &secrets),
             command: Some(command),
         };
+    }
+    if action != "logs" {
+        if let Err(result) =
+            activity_guard(action, |args| wsl::output(distribution, args), &secrets)
+        {
+            return result;
+        }
     }
     let args: Vec<&str> = args.iter().map(String::as_str).collect();
     let timeout = Duration::from_secs(if action == "build" { 3600 } else { 120 });
@@ -483,6 +604,8 @@ fn offline_error_code(detail: &str) -> String {
         "bundle_version".into()
     } else if detail.contains("Active CTXBench containers") {
         "worker_running".into()
+    } else if detail.contains("Linux amd64 Docker daemon") {
+        "offline_platform".into()
     } else if infrastructure != "action" {
         infrastructure
     } else if [
@@ -522,7 +645,7 @@ pub fn import_images(
         Ok(guard) => guard,
         Err(_) => {
             return fail(
-                "action",
+                "busy",
                 "Another infrastructure action is still running.".into(),
             );
         }
@@ -583,6 +706,11 @@ pub fn import_images(
         Ok(path) => path,
         Err(error) => return fail("wsl_path", error),
     };
+    // Fail before hashing a large ZIP, then the trusted importer checks again immediately before loading.
+    if let Err(result) = activity_guard("import", |args| wsl::output(distribution, args), &secrets)
+    {
+        return result;
+    }
     let args = offline_import_args(&tool, &package, version);
     let mut process = std::process::Command::new("wsl.exe");
     process
@@ -608,6 +736,77 @@ pub fn import_images(
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    fn activity_fixture(args: &[&str], active_filter: &str) -> Result<String, String> {
+        assert_eq!(&args[..3], &["docker", "ps", "--filter"]);
+        assert!(!args.contains(&"-a"));
+        assert!(!args.last().unwrap().contains("Command"));
+        Ok(if args[3] == format!("label={active_filter}") {
+            r#"{"id":"abc123","name":"test-container","status":"Up 1 minute"}"#.into()
+        } else {
+            String::new()
+        })
+    }
+
+    #[test]
+    fn mutations_guard_workers_agents_and_graders_without_touching_containers() {
+        for action in ["import", "build", "start", "stop"] {
+            for (filter, role) in ACTIVITY_FILTERS {
+                let result = activity_guard(action, |args| activity_fixture(args, filter), &[]);
+                let should_block = role != "worker" || matches!(action, "import" | "build");
+                assert_eq!(result.is_err(), should_block, "{action}: {role}");
+                if let Err(error) = result {
+                    assert_eq!(
+                        error.code,
+                        if role == "worker" {
+                            "worker_running"
+                        } else {
+                            "active_runs"
+                        }
+                    );
+                    assert!(error.detail.contains("test-container"));
+                }
+            }
+            assert!(
+                activity_guard(action, |args| activity_fixture(args, "unrelated"), &[]).is_ok()
+            );
+        }
+        assert_eq!(
+            compose_args("/test/compose.yaml", "stop").unwrap(),
+            [
+                "docker",
+                "compose",
+                "-f",
+                "/test/compose.yaml",
+                "stop",
+                "ctxbench-worker"
+            ]
+        );
+    }
+
+    #[test]
+    fn unknown_activity_fails_closed_and_diagnostic_fields_are_allowlisted() {
+        for output in ["not json", "{}", r#"{"id":"a","name":"b"}"#] {
+            assert_eq!(
+                activity_guard("stop", |_| Ok(output.into()), &[])
+                    .unwrap_err()
+                    .code,
+                "activity_unknown"
+            );
+        }
+        assert_eq!(
+            activity_guard("import", |_| Err("permission denied".into()), &[])
+                .unwrap_err()
+                .code,
+            "permission"
+        );
+        let containers = read_activity(|_| Ok(r#"{"id":"abc","name":"OPENAI_API_KEY=hidden","status":"Up","Env":["PRIVATE=hidden"],"Command":"secret command"}"#.into()), &[]).unwrap();
+        assert_eq!(containers.len(), 1); // Multiple matching labels do not duplicate a container.
+        let data = serde_json::to_string(&containers).unwrap();
+        assert!(!data.contains("hidden"));
+        assert!(!data.contains("Env"));
+        assert!(!data.contains("secret command"));
+    }
 
     #[test]
     fn offline_import_uses_only_installed_tool_and_literal_arguments() {
@@ -690,9 +889,33 @@ mod tests {
             ),
             ("Cannot connect to the Docker daemon", "docker"),
             ("no space left on device", "disk_space"),
+            (
+                "load metadata: registry-1.docker.io: context deadline exceeded",
+                "network",
+            ),
+            ("context deadline exceeded", "timeout"),
             ("something else", "action"),
         ] {
             assert_eq!(classify_error(message, "action"), code);
+        }
+    }
+
+    #[test]
+    fn offline_errors_preserve_recovery_categories() {
+        for (message, code) in [
+            (
+                "Image bundle error: This bundle requires a Linux amd64 Docker daemon (the selected WSL distribution).",
+                "offline_platform",
+            ),
+            (
+                "Image bundle error: Active CTXBench containers detected.",
+                "worker_running",
+            ),
+            ("Image bundle error: Version mismatch", "bundle_version"),
+            ("Image bundle error: no space left on device", "disk_space"),
+            ("Image bundle error: SHA-256 mismatch", "bundle_invalid"),
+        ] {
+            assert_eq!(offline_error_code(message), code);
         }
     }
 
@@ -752,9 +975,14 @@ mod tests {
 
     #[test]
     #[cfg(windows)]
-    #[ignore = "requires Ubuntu WSL Python; rejects a corrupt ZIP without mutating Docker"]
-    fn real_offline_import_rejects_corruption_through_wsl() {
+    #[ignore = "requires Ubuntu WSL Python/Docker; rejects active containers or a corrupt ZIP without mutation"]
+    fn real_offline_import_preflight_through_wsl() {
         let root = Path::new(env!("CARGO_MANIFEST_DIR")).parent().unwrap();
+        let activity = activity_guard(
+            "import",
+            |args| wsl::output("Ubuntu", args),
+            &secret_values(root),
+        );
         let folder =
             std::env::temp_dir().join(format!("ctxbench 离线 test {}", uuid::Uuid::new_v4()));
         std::fs::create_dir(&folder).unwrap();
@@ -768,15 +996,17 @@ mod tests {
         std::fs::remove_file(package).unwrap();
         std::fs::remove_dir(folder).unwrap();
         assert!(!result.ok, "{result:?}");
-        assert_eq!(result.code, "bundle_invalid", "{result:?}");
-        assert!(result.detail.contains("not a zip file"), "{result:?}");
         assert!(events.iter().any(|event| event.phase == "checking"));
-        assert!(
-            events
-                .iter()
-                .flat_map(|event| &event.lines)
-                .any(|line| line.contains("Image bundle error"))
-        );
+        if let Err(blocker) = activity {
+            assert_eq!(result.code, blocker.code, "{result:?}");
+            assert!(
+                matches!(result.code.as_str(), "worker_running" | "active_runs"),
+                "{result:?}"
+            );
+        } else {
+            assert_eq!(result.code, "bundle_invalid", "{result:?}");
+            assert!(result.detail.contains("not a zip file"), "{result:?}");
+        }
     }
 
     #[test]

@@ -46,8 +46,8 @@ export function draftDifference(before: DatasetDraft, after: DatasetDraft) {
 }
 export const authoringSteps = ["Dataset details", "Shared defaults", "Tasks and tests", "Review and create"];
 export const testTemplates = {
-  pytest: "python -m pytest -q tests",
-  unittest: "python -m unittest discover -s tests -v",
+  pytest: "python3 -m pytest -q tests",
+  unittest: "python3 -m unittest discover -s tests -v",
   npm: "npm test",
 };
 export function newTask(tasks: TaskDraft[] = []): TaskDraft {

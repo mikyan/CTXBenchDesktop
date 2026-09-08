@@ -12,10 +12,13 @@ import { TokenBudgets } from "../components/TokenBudgets";
 import { benchmarkLabel } from "../lib/benchmark-labels";
 import { SectionNav } from "../components/SectionNav";
 import { experimentViews } from "../lib/navigation";
+import { ConfirmDialog } from "../components/Dialogs";
 
 export function ExperimentsPage({ snapshot, onNewExperiment, onExport, onDatasets, onAction, onRun, initialBenchmark = "" }: { snapshot: DashboardSnapshot; onNewExperiment: () => void; onExport: (format: "json" | "csv" | "html") => void; onDatasets: () => void; initialBenchmark?: BenchmarkKind | ""; onAction: (id: string, action: string) => void; onRun: (run: BenchmarkRun) => void }) {
   const { locale, t } = useI18n();
   const [query, setQuery] = useState("");
+  const [cancelling, setCancelling] = useState<string>();
+  const cancelTarget = snapshot.experiments.find((item) => item.id === cancelling);
   const [view, setView] = useState<typeof experimentViews[number]["id"]>(initialBenchmark ? "results" : "plans");
   const [benchmark, setBenchmark] = useState<BenchmarkKind | "">(initialBenchmark);
   const [exportFormat, setExportFormat] = useState<"json" | "csv" | "html">("html");
@@ -34,6 +37,7 @@ export function ExperimentsPage({ snapshot, onNewExperiment, onExport, onDataset
 
   return (
     <div className="page">
+      {cancelTarget && <ConfirmDialog title={t("Cancel experiment?")} description={`${cancelTarget.name} — ${t("Cancellation interrupts active work and stops pending runs. Completed results and frozen packages are kept. To wait until the current stage finishes, use Pause instead.")}`} confirmLabel={t("Confirm cancellation")} cancelLabel={t("Keep running")} disabled={!["running", "preparing", "paused", "ready"].includes(cancelTarget.status)} onCancel={() => setCancelling(undefined)} onConfirm={() => { setCancelling(undefined); onAction(cancelTarget.id, "cancel"); }} />}
       <PageTitle
         eyebrow={t("EXPERIMENTS")}
         title={t("Runs and comparisons")}
@@ -68,6 +72,7 @@ export function ExperimentsPage({ snapshot, onNewExperiment, onExport, onDataset
               </div>
               <div className="experiment-main">
                 <div className="experiment-heading"><h3>{experiment.name}</h3><StatusBadge status={experiment.status} /></div>
+                {experiment.environmentPreparation && <p className="environment-progress" role="status">{t("Agent build environment")} · {experiment.environmentPreparation.taskId}: {t(experiment.environmentPreparation.message)}</p>}
                 <div className="experiment-meta">
                   <span>{benchmarkLabel(experiment.benchmark, t)}</span><i />
                   <span>{experiment.model.provider}/{experiment.model.model}</span><i />
@@ -85,7 +90,7 @@ export function ExperimentsPage({ snapshot, onNewExperiment, onExport, onDataset
               </div>
               <div className="experiment-actions">
                 {["running", "preparing"].includes(experiment.status) ? <button className="icon-button" title={t("Pause after current stage")} onClick={() => onAction(experiment.id, "pause")}><Pause size={16} /></button> : ["ready", "paused"].includes(experiment.status) ? <button className="icon-button" title={t("Resume")} onClick={() => onAction(experiment.id, "resume")}><Play size={16} /></button> : ["failed", "cancelled"].includes(experiment.status) ? <button className="button tertiary" onClick={() => onAction(experiment.id, "retry")}>{t("Retry failed runs")}</button> : null}
-                {["running", "preparing", "paused", "ready"].includes(experiment.status) && <button className="button tertiary" onClick={() => onAction(experiment.id, "cancel")}>{t("Cancel")}</button>}
+                {["running", "preparing", "paused", "ready"].includes(experiment.status) && <button className="button tertiary" onClick={() => setCancelling(experiment.id)}>{t("Cancel")}</button>}
                 <button className="button tertiary" onClick={() => { setSelected(experiment.id); setResultPage(0); setView("results"); }}>{t("Results")}</button>
               </div>
             </article>

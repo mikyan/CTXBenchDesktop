@@ -19,6 +19,7 @@ import { DatasetsPage } from "./pages/DatasetsPage";
 export default function App() {
   const { t } = useI18n();
   const [page, setPage] = useState<Page>("overview");
+  const [settingsSection, setSettingsSection] = useState<"runtime" | "images">("runtime");
   const [snapshot, setSnapshot] = useState<DashboardSnapshot>();
   const [loadingError, setLoadingError] = useState<string>();
   const [modalOpen, setModalOpen] = useState(false);
@@ -124,11 +125,11 @@ export default function App() {
           {page === "datasets" && <DatasetsPage snapshot={snapshot} onImport={(source) => { setImportSource(source ?? "ctxbench"); setDialog("dataset"); }} onCreate={() => setDialog("dataset-create")} onExperiment={openExperiment} />}
           {page === "knowledge" && <KnowledgePage snapshot={snapshot} onImport={() => setDialog("manual")} onGenerate={() => setDialog("context")} onView={setSelectedPackage} />}
           {page === "constraints" && <ConstraintsPage snapshot={snapshot} onMine={() => setDialog("constraints")} />}
-          {page === "infrastructure" && <InfrastructurePage diagnostics={diagnostics} onDiagnose={handleDiagnose} diagnosing={diagnosing} />}
+          {page === "infrastructure" && <InfrastructurePage initialSection={settingsSection} diagnostics={diagnostics} onDiagnose={handleDiagnose} diagnosing={diagnosing} onExperiments={() => setPage("experiments")} onKnowledge={() => setPage("knowledge")} />}
         </div>
       </main>
       {modalOpen && <ExperimentComposer initialDataset={initialDataset} creating={creating} onClose={() => setModalOpen(false)} onCreate={handleCreate} artifacts={snapshot.artifacts} />}
-      {dialog === "dataset" && <DatasetDialog initialBenchmark={importSource} onClose={() => setDialog(undefined)} onComplete={() => void refresh()} />}
+      {dialog === "dataset" && <DatasetDialog initialBenchmark={importSource} onClose={() => setDialog(undefined)} onComplete={() => void refresh()} onSettings={(section) => { setDialog(undefined); setSettingsSection(section); setPage("infrastructure"); }} />}
       {dialog === "dataset-create" && <DatasetWizard onClose={() => setDialog(undefined)} onComplete={() => void refresh()} />}
       {dialog && dialog !== "dataset" && dialog !== "dataset-create" && <PreparationDialog kind={dialog} onClose={() => setDialog(undefined)} onComplete={() => void refresh()} />}
       {selectedRun && <RunDialog run={snapshot.runs.find((run) => run.id === selectedRun.id) ?? selectedRun} onClose={() => setSelectedRun(undefined)} />}

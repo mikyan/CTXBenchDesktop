@@ -100,7 +100,7 @@ class Runtime:
             client.close()
 
     def command(self, image: str, command: list[str], *, volumes: dict, output: Path,
-                resources: ResourcePolicy, network: str = "none", socket: bool = False) -> bytes:
+                resources: ResourcePolicy, network: str = "none", socket: bool = False, record_logs: bool = True) -> bytes:
         import docker
         client = docker.from_env()
         output.mkdir(parents=True, exist_ok=True)
@@ -118,7 +118,8 @@ class Runtime:
                 **({} if socket else {"cap_drop": ["ALL"], "security_opt": ["no-new-privileges:true"]}))
             status = container.wait(timeout=resources.timeout_minutes * 60 + 60)["StatusCode"]
             log = container.logs()
-            (output / "evaluator.log").write_bytes(log)
+            if record_logs:
+                (output / "evaluator.log").write_bytes(log)
             if status:
                 raise RuntimeError(f"Evaluator exited {status}: {log.decode(errors='replace')[-2500:]}")
             return log
@@ -256,10 +257,14 @@ class Runtime:
     def import_parquet(self, path: Path) -> list[dict]:
         relative = path.resolve().relative_to((self.root / "datasets").resolve())
         output = self.root / "imports" / uuid.uuid4().hex
-        raw = self.command("ctxbench/official-harness:0.1.0", ["catalog", "--dataset", f"/datasets/{relative.as_posix()}"],
-            volumes={self.host_path(self.root / "datasets"): {"bind": "/datasets", "mode": "ro"}},
-            output=output, resources=ResourcePolicy(timeout_minutes=10))
-        return json.loads(raw)
+        try:
+            raw = self.command("ctxbench/official-harness:0.1.0", ["catalog", "--dataset", f"/datasets/{relative.as_posix()}"],
+                volumes={self.host_path(self.root / "datasets"): {"bind": "/datasets", "mode": "ro"}},
+                output=output, resources=ResourcePolicy(timeout_minutes=10), record_logs=False)
+            return json.loads(raw)
+        finally:
+            if output.is_dir() and not any(output.iterdir()):
+                output.rmdir()
 
     def grade(self, task: TaskRecord, dataset_path: Path, patch: Path, output: Path,
               resources: ResourcePolicy, harness_image: str, *, environment_image: str | None = None) -> dict:
@@ -287,12 +292,21 @@ class Runtime:
             import docker
             client = docker.from_env()
             container = None
+            workspace_owner = None
             try:
                 image = task.image
                 if not image:
                     raise ValueError("Custom test image must be frozen during preparation.")
                 self.cancel_grade(output)
-                container = client.containers.run(image, list(task.test_command), entrypoint="", working_dir="/workspace",
+                command = list(task.test_command)
+                if client.images.get(image).labels.get('io.ctxbench.project-validated') == '1':
+                    # Same clean dependency filesystem as the Agent, but no Agent request,
+                    # credentials or model invocation. Only initialize dependency links.
+                    command = ['/opt/ctxbench-pi/node', '/opt/ctxbench/project-entrypoint.mjs', '--test-command', json.dumps(command)]
+                    from .runner import _chown_tree
+                    workspace_owner = workspace.stat()
+                    _chown_tree(workspace, 10001, 10001)
+                container = client.containers.run(image, command, entrypoint="", working_dir="/workspace",
                     detach=True, volumes={self.host_path(workspace): {"bind": "/workspace", "mode": "rw"}},
                     network="none", nano_cpus=int(resources.cpus * 1e9), mem_limit=f"{resources.memory_gb}g",
                     pids_limit=1024, cap_drop=["ALL"], security_opt=["no-new-privileges:true"],
@@ -308,6 +322,8 @@ class Runtime:
                     except docker.errors.NotFound:
                         pass
                 client.close()
+                if workspace_owner is not None:
+                    _chown_tree(workspace, workspace_owner.st_uid, workspace_owner.st_gid)
         summary["durationSeconds"] = time.monotonic() - started
         (output / "summary.json").write_text(json.dumps(summary, indent=2), encoding="utf-8")
         return summary

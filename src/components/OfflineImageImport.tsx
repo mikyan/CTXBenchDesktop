@@ -6,7 +6,7 @@ import { importPhaseLabels, offlineImportStore, type OfflineImport } from "../li
 import { ExternalLink } from "./ExternalLink";
 import { version } from "../../package.json";
 
-export function OfflineImageImport({ distribution, disabled, state, onBegin }: { distribution: string; disabled: boolean; state?: OfflineImport; onBegin: () => void }) {
+export function OfflineImageImport({ distribution, disabled, ready = false, state, onBegin }: { distribution: string; disabled: boolean; ready?: boolean; state?: OfflineImport; onBegin: () => void }) {
   const { t } = useI18n();
   const [path, setPath] = useState(state?.packagePath ?? "");
   const [trusted, setTrusted] = useState(false);
@@ -27,7 +27,8 @@ export function OfflineImageImport({ distribution, disabled, state, onBegin }: {
         <button className="button secondary" disabled={disabled || picking} onClick={() => void choose()}>{t(picking ? "Choosing a package…" : "Select offline images ZIP")}</button>
         {path && <pre className="offline-selected-path">{path}</pre>}
         <label className="offline-confirm"><input type="checkbox" checked={trusted} disabled={disabled || picking} onChange={(event) => setTrusted(event.target.checked)} />{t("I trust this package's source and have paused experiments and stopped the worker.")}</label>
-        <button className="button primary" disabled={disabled || picking || !path || !trusted || !distribution.trim()} onClick={() => { onBegin(); setError(""); void offlineImportStore.start(distribution, path); }}>{t("Verify and import images")}</button>
+        {!ready && <p>{t("Complete the image update safety check above before importing or building. File selection is still available.")}</p>}
+        <button className="button primary" disabled={disabled || picking || !ready || !path || !trusted || !distribution.trim()} onClick={() => { onBegin(); setError(""); void offlineImportStore.start(distribution, path); }}>{t("Verify and import images")}</button>
       </li>
       <li><strong>{t("Start the worker after import")}</strong><p>{t("After import, open Settings → Runtime & diagnostics and start the worker. Nothing starts automatically.")}</p></li>
     </ol>
@@ -57,7 +58,7 @@ export function OfflineImportProgress({ state }: { state: OfflineImport }) {
     <div className="image-build-metrics">{running && percent !== undefined && <strong>{t("Current stage: {percent}%", { percent })}</strong>}<span>{t("Elapsed: {time}", { time: `${Math.floor(timing.elapsed / 60_000)}:${String(Math.floor(timing.elapsed / 1000) % 60).padStart(2, "0")}` })}</span></div>
     <p>{t("Progress applies to the current stage. After all bytes reach Docker, unpacking and image verification may still take time.")}</p>
     {running && timing.silent > 30_000 && <p role="status">{t("Docker may be unpacking large image layers without output. Import is still awaiting a result; do not start another import.")}</p>}
-    <details open={state.status === "failed"}><summary>{t("Technical details (redacted)")}</summary><pre className="image-build-log">{state.lines.join("\n") || t("Waiting for Docker output…")}</pre></details>
+    <details><summary>{t("Technical details (redacted)")}</summary><pre className="image-build-log">{state.lines.join("\n") || t("Waiting for Docker output…")}</pre></details>
     {state.omitted > 0 && <p>{t("Showing recent output only; {count} earlier lines were discarded to limit memory use.", { count: state.omitted })}</p>}
     <p>{t("You can leave this page and return while the app stays open. Import status is kept for this app session.")}</p>
   </section>;

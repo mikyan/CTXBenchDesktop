@@ -10,11 +10,13 @@ import { Pagination } from "../components/Pagination";
 import { SectionNav } from "../components/SectionNav";
 import { StandardDatasetDownloads } from "../components/StandardDatasetDownloads";
 import { IntranetWorkbench } from "../components/IntranetWorkbench";
+import { StandardImageInstaller } from "../components/StandardImageInstaller";
 
 const views = [{ id: "library", label: "Registered datasets" }, { id: "downloads", label: "Standard downloads" }, { id: "self-test", label: "Self-test" }] as const;
 export function DatasetsPage({ snapshot, onImport, onCreate, onExperiment }: { snapshot: DashboardSnapshot; onImport: (source?: BenchmarkKind) => void; onCreate: () => void; onExperiment: (dataset: string) => void }) {
   const { t } = useI18n();
   const [view, setView] = useState<typeof views[number]["id"]>("library");
+  const [installDataset, setInstallDataset] = useState<{ id: string; name: string }>();
   const [query, setQuery] = useState(""); const [selected, setSelected] = useState("");
   const [tasks, setTasks] = useState<TaskSummary[]>([]); const [loading, setLoading] = useState(false); const [error, setError] = useState("");
   const [taskQuery, setTaskQuery] = useState(""); const [page, setPage] = useState(0);
@@ -33,7 +35,7 @@ export function DatasetsPage({ snapshot, onImport, onCreate, onExperiment }: { s
       {!datasets.length && <div className="panel empty-state"><LibraryBig size={28} /><h2>{t(snapshot.datasets?.length ? "No matching datasets" : "No datasets yet")}</h2><p>{t(snapshot.datasets?.length ? "Try a different dataset name or clear the search." : "Import an official snapshot, or use the guided creator to build your own dataset.")}</p>{snapshot.datasets?.length ? <button className="button secondary" onClick={() => setQuery("")}>{t("Clear")}</button> : <button className="button secondary" onClick={() => setView("downloads")}>{t("Standard downloads")}</button>}</div>}
       <div className="dataset-library">{datasets.map((dataset) => <article className={`panel dataset-card ${selected === dataset.id ? "selected" : ""}`} key={dataset.id}>
         <span className="panel-kicker">{benchmarkLabel(dataset.benchmark, t)}</span><h2>{datasetLabel(dataset, t)}</h2><p>{dataset.count} {t("Tasks")} · {t("Frozen definition")}</p><code>{dataset.id}</code>
-        <div className="form-actions"><button className="button secondary" aria-pressed={selected === dataset.id} onClick={() => setSelected(dataset.id)}>{t("Browse tasks")}</button><button className="text-button" onClick={() => onExperiment(dataset.id)}>{t("New experiment")}<ArrowRight size={16} /></button></div>
+        <div className="form-actions"><button className="button secondary" aria-pressed={selected === dataset.id} onClick={() => setSelected(dataset.id)}>{t("Browse tasks")}</button>{dataset.benchmark !== "custom" && <button className="button secondary" onClick={() => setInstallDataset(dataset)}>{t("Install project images")}</button>}<button className="text-button" onClick={() => onExperiment(dataset.id)}>{t("New experiment")}<ArrowRight size={16} /></button></div>
       </article>)}</div>
       {selected && <section className="panel task-library"><div className="panel-header"><h2>{snapshot.datasets?.find((row) => row.id === selected)?.name} · {t("Tasks")}</h2></div>
         <label className="table-search"><Search size={16} /><input aria-label={t("Filter tasks")} placeholder={t("Filter tasks")} value={taskQuery} onChange={(e) => { setTaskQuery(e.target.value); setPage(0); }} /></label>
@@ -44,5 +46,6 @@ export function DatasetsPage({ snapshot, onImport, onCreate, onExperiment }: { s
     </div>
     <div hidden={view !== "downloads"}><StandardDatasetDownloads benchmark="custom" onSelect={onImport} /></div>
     <div hidden={view !== "self-test"}><IntranetWorkbench section="Dataset self-test" /></div>
+    {installDataset && <StandardImageInstaller dataset={installDataset.id} name={installDataset.name} onClose={() => setInstallDataset(undefined)} />}
   </div>;
 }

@@ -10,6 +10,8 @@ from .agent_args import normalize_agent_args
 
 def validate_experiment(spec: ExperimentSpec) -> list[str]:
     errors: list[str] = []
+    if type(spec.project_environment) is not bool:
+        errors.append('Project environment selection must be a boolean.')
     if not spec.name.strip():
         errors.append("Experiment name is required.")
     if not spec.dataset.strip():
