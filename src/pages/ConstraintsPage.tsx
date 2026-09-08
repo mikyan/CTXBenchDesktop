@@ -5,10 +5,12 @@ import type { DashboardSnapshot } from "../domain/types";
 import { useI18n } from "../i18n";
 import { percent } from "../lib/format";
 import { PreparationQueue } from "../components/PreparationQueue";
+import { SectionNav } from "../components/SectionNav";
 
 export function ConstraintsPage({ snapshot, onMine }: { snapshot: DashboardSnapshot; onMine: () => void }) {
   const { t } = useI18n();
   const [query, setQuery] = useState("");
+  const [view, setView] = useState<"library" | "queue">("library");
   const constraints = useMemo(
     () => snapshot.constraints.filter((constraint) => `${constraint.repository} ${constraint.title}`.toLowerCase().includes(query.toLowerCase())),
     [query, snapshot.constraints],
@@ -31,14 +33,16 @@ export function ConstraintsPage({ snapshot, onMine }: { snapshot: DashboardSnaps
         <div className="constraint-metric"><span className="round-icon violet"><BookOpenCheck size={18} /></span><div><span>{t("Curated constraints")}</span><strong>{snapshot.constraints.length}</strong><small>{t("{gold} gold · {silver} silver", { gold: snapshot.constraints.filter((item) => item.quality === "gold").length, silver: snapshot.constraints.filter((item) => item.quality === "silver").length })}</small></div></div>
         <div className="constraint-metric"><span className="round-icon orange"><GitPullRequestArrow size={18} /></span><div><span>{t("Judged decisions")}</span><strong>{totalSatisfied + totalViolated}</strong><small>{t("3-vote research mode")}</small></div></div>
       </section>
-      <PreparationQueue operations={snapshot.operations ?? []} kind="constraints" />
+      <SectionNav label="Constraint views" items={[{ id: "library", label: "Constraint library" }, { id: "queue", label: "Mining queue" }]} value={view} onChange={setView} />
+      <div hidden={view !== "queue"}><PreparationQueue operations={snapshot.operations ?? []} kind="constraints" /></div>
+      <div hidden={view !== "library"}>
 
-      <section className="panel methodology-strip">
+      <details className="secondary-disclosure"><summary>{t("Methodology and limitations")}</summary><section className="panel methodology-strip">
         <div><span>1</span><strong>{t("Mine")}</strong><small>{t("Review evidence + adoption")}</small></div><i />
         <div><span>2</span><strong>{t("Extract")}</strong><small>{t("Review evidence + adoption")}</small></div><i />
         <div><span>3</span><strong>{t("Freeze")}</strong><small>{t("Silver constraint package")}</small></div><i />
         <div><span>4</span><strong>{t("Judge")}</strong><small>{t("Applicability, then verdict")}</small></div>
-      </section>
+      </section></details>
 
       <div className="toolbar">
         <label className="table-search"><Search size={15} /><input aria-label={t("Search constraints")} value={query} onChange={(event) => setQuery(event.target.value)} placeholder={t("Search constraints")} /></label>
@@ -47,7 +51,7 @@ export function ConstraintsPage({ snapshot, onMine }: { snapshot: DashboardSnaps
       </div>
 
       <section className="panel constraints-table-panel">
-        <table className="data-table constraints-table">
+        <div className="table-scroll"><table className="data-table constraints-table">
           <thead><tr><th>{t("Constraint")}</th><th>{t("Quality")}</th><th>{t("Applicable")}</th><th>{t("Satisfied")}</th><th>{t("Violated")}</th><th>{t("Provenance")}</th></tr></thead>
           <tbody>
             {constraints.map((constraint) => (
@@ -61,8 +65,9 @@ export function ConstraintsPage({ snapshot, onMine }: { snapshot: DashboardSnaps
               </tr>
             ))}
           </tbody>
-        </table>
-      </section>
+        </table></div>
+        {!constraints.length && <p className="empty-state">{t("No matching constraints")}</p>}
+      </section></div>
     </div>
   );
 }

@@ -2,7 +2,7 @@
 
 ## 中文
 
-入口：**实验 → 创建评测集**。无需手写 JSON，也不会在创建时调用模型。
+入口：**评测集 → 创建评测集**。无需手写 JSON，也不会在创建时调用模型。
 
 1. **评测集信息**：填写名称。一个任务是一个独立编码问题；任务中的多个测试断言不等于多次 Agent 运行。重复次数在实验中配置。
 2. **默认仓库与环境**：填写 Git 地址、修复前的完整 40 位提交号，以及测试镜像或基线 Dockerfile。Gitee、公司内网 Git 均可，不限 GitHub；Worker 必须能访问仓库。不要在 URL 中嵌入凭据。仓库路径必须是 Worker 容器可见的 Linux 路径。
@@ -57,7 +57,7 @@ git diff --binary BASE -- tests/test_regression.py > hidden-tests.patch
 
 ## English
 
-Open **Experiments → Create dataset**. The four steps cover dataset naming, shared repository/environment defaults, individual tasks and tests, then review/validation/creation. Add, duplicate or remove independent tasks and optionally override their repository, baseline and test environment. Unoverridden tasks inherit defaults live. Each task can contain multiple assertions; experiment repeats are a separate setting.
+Open **Datasets → Create dataset**. The four steps cover dataset naming, shared repository/environment defaults, individual tasks and tests, then review/validation/creation. Add, duplicate or remove independent tasks and optionally override their repository, baseline and test environment. Unoverridden tasks inherit defaults live. Each task can contain multiple assertions; experiment repeats are a separate setting.
 
 Use a full pre-fix commit and a credential-free Git URL reachable by the worker (not necessarily GitHub). Worker-local paths must be absolute Linux paths visible inside the worker. The test image is separate from the coding Agent image. It must contain runtime/test dependencies; grading executes offline at `/workspace`. Alternatively, build from a Dockerfile at the baseline: the Dockerfile is relative to the build context, which is relative to the repository.
 
@@ -70,6 +70,6 @@ Definition validation is read-only and shares registration checks. It does **not
 Creation freezes the definition by content hash; existing experiment datasets are unchanged. Select it in **New experiment** to configure models, context arms, workflows and repeats. Export produces the existing custom-import JSON array and includes evaluator-only materials; handle it accordingly. Unsaved forms remain in memory and closing asks for confirmation. Use the final-step export to preserve completed definitions. Export and creation need an updated worker connection.
 ## Draft versions and container self-tests / 草稿版本与容器自检
 
-The creation wizard now supports Worker-stored draft versions, JSON draft restoration, and copying a frozen custom dataset into an editable draft. Its review step can run actual baseline/reference tests without an Agent. Existing datasets can also be self-tested from Infrastructure. Definitions and execution results remain separate; inspect baseline failures manually before trusting scores. See the [intranet workbench guide](intranet-workbench.md) for limits and the complete workflow.
+The creation wizard now supports Worker-stored draft versions, JSON draft restoration, and copying a frozen custom dataset into an editable draft. Its review step can run actual baseline/reference tests without an Agent. Existing datasets can also be self-tested from Datasets → Self-test. Definitions and execution results remain separate; inspect baseline failures manually before trusting scores. See the [intranet workbench guide](intranet-workbench.md) for limits and the complete workflow.
 
-创建向导现支持 Worker 内的草稿版本、草稿 JSON 恢复、复制已有评测集继续编辑，以及无 Agent 的真实基线／参考修复测试。基础设施也可重新自检已有评测集。定义校验不等于执行通过，请人工确认基线失败原因。详见[内网适配工作台](intranet-workbench.md)。
+创建向导现支持 Worker 内的草稿版本、草稿 JSON 恢复、复制已有评测集继续编辑，以及无 Agent 的真实基线／参考修复测试。“评测集 → 用例自检”也可重新自检已有评测集。定义校验不等于执行通过，请人工确认基线失败原因。详见[内网适配工作台](intranet-workbench.md)。

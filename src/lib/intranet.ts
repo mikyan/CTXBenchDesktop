@@ -45,3 +45,7 @@ export async function buildFiles(files: FileList | File[]): Promise<{ path: stri
     return { path: file.name, base64: btoa(binary) };
   }));
 }
+export function companyFeatureError(cause: unknown): string {
+  const message = cause instanceof Error ? cause.message : String(cause);
+  return /^(?:Error: )?Not Found$/i.test(message) ? "Company features require a newer Worker image. Install the matching image in Settings → Application images, then restart the Worker after pausing experiments. Existing results remain available; new configuration features require an upgrade." : message;
+}

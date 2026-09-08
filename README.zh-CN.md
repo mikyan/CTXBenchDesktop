@@ -1,5 +1,7 @@
 # CTXBench Desktop
 
+v0.1.5 已重构导航与设置分层，详见[工作台使用指南](docs/workspace-navigation.md)及[真实 CTXBench 验收记录](docs/ctx-live-acceptance.md)。旧版 v0.1.4 安装包仍使用原来的导航入口。
+
 [English](README.md) | [简体中文](README.zh-CN.md)
 
 CTXBench Desktop 是本地优先的 Windows 桌面代码 Agent 评测工作台。它在相同仓库、基线 commit、任务提示词、模型和资源配置下，对比有无冻结知识库的生成效果，并结合功能测试与 SWE-Shield 风格的设计约束评审。
@@ -11,7 +13,7 @@ CTXBench Desktop 是本地优先的 Windows 桌面代码 Agent 评测工作台�
 - **SWE-bench**：导入官方任务，执行代码修复，使用官方测试评分。
 - **CTXBench（原 AGENTBench）**：对比无知识库、Skill 生成、人工导入和基线自带上下文。适配 [CTXBench 论文](https://arxiv.org/abs/2602.11988)及[官方仓库](https://github.com/eth-sri/agentbench)的数据和评分工具。
 - **SWE-Shield 风格约束评测**：从基线截止日期之前的历史 PR 评审中挖掘设计约束，再由三个独立评审会话判断候选补丁是否满足约束；支持测试通过后仍违反约束的统计。这是有来源证据的兼容实现，不是论文的逐项完整复现。
-- **自定义任务**：可在 **实验 → 创建评测集** 中按四步向导添加任务，设置默认或独立仓库环境、测试命令及隐藏测试；支持定义校验和 JSON 导出，也保留 manifest 导入。[查看用例设计与创建指南](docs/custom-datasets.md)。
+- **自定义任务**：可在 **评测集 → 创建评测集** 中按四步向导添加任务，设置默认或独立仓库环境、测试命令及隐藏测试；支持定义校验和 JSON 导出，也保留 manifest 导入。[查看用例设计与创建指南](docs/custom-datasets.md)。
 
 知识库是被动的仓库文件，例如 `AGENTS.md` 或文档目录。工具不会修改任务提示词、插入检索提示或强制 Agent 阅读知识库。生成只依赖指定基线，不得接触目标 PR、标准答案、隐藏测试、未来历史或挖掘出的约束。
 
@@ -55,14 +57,14 @@ npm run tauri dev
 
 ## 桌面操作流程
 
-**两个标准评测集去哪下载？** 见[标准评测集下载与内网导入](docs/standard-datasets.md)：CTXBench（原 AGENTBench）138 任务、SWE-bench Verified 500 任务，提供固定版本下载链接、SHA-256 和导入步骤。新版源码在“实验 → 导入数据集”中也提供这些入口；目前 Release 未镜像分发数据本体，数据文件不包含基线代码或 Docker 镜像。
+**两个标准评测集去哪下载？** 见[标准评测集下载与内网导入](docs/standard-datasets.md)：CTXBench（原 AGENTBench）138 任务、SWE-bench Verified 500 任务，提供固定版本下载链接、SHA-256 和导入步骤。新版源码在“评测集 → 导入数据集”中也提供这些入口；目前 Release 未镜像分发数据本体，数据文件不包含基线代码或 Docker 镜像。
 
-首次安装、内网镜像导入及“工作节点无法启动”等问题，请看[桌面安装与故障排查](docs/desktop-setup.md)。基础设施页面提供分步引导、启动条件检查、脱敏日志和带实际绝对路径的手动命令；默认启动只使用本地镜像，不会自动构建或拉取。
+首次安装、内网镜像导入及“工作节点无法启动”等问题，请看[桌面安装与故障排查](docs/desktop-setup.md)。“设置 → 运行环境”页面提供分步引导、启动条件检查、脱敏日志和带实际绝对路径的手动命令；默认启动只使用本地镜像，不会自动构建或拉取。
 
-**发行版自动检测**：基础设施页面通过 `wsl --list --verbose` 列出本机已安装的发行版及 WSL 版本，可下拉选择，也可手动输入 `Ubuntu-24.04` 等准确名称。软件会记住你的选择；首次使用优先选 WSL 2，条件相同时优先系统默认发行版，不会自动选中 Docker Desktop 的内部发行版。安装或导入新发行版后可点击“刷新发行版”。版本判断不再依赖内核名称；启动失败会保留具体错误。此功能仅在桌面应用中可用。
+**发行版自动检测**：“设置 → 运行环境”页面通过 `wsl --list --verbose` 列出本机已安装的发行版及 WSL 版本，可下拉选择，也可手动输入 `Ubuntu-24.04` 等准确名称。软件会记住你的选择；首次使用优先选 WSL 2，条件相同时优先系统默认发行版，不会自动选中 Docker Desktop 的内部发行版。安装或导入新发行版后可点击“刷新发行版”。版本判断不再依赖内核名称；启动失败会保留具体错误。此功能仅在桌面应用中可用。
 
-1. 在**基础设施**中选择 WSL 发行版，构建镜像并启动 Worker。Agent 环境变量支持**添加变量**，填写多组名称和值后**保存全部环境变量**（仅保留到 Worker 重启），或通过部署环境变量配置；不要把密钥写入仓库、镜像或知识库。在实验、知识库生成和约束挖掘窗口中，可勾选多个已配置变量，或输入以换行、空格、逗号分隔的变量名；此处只填名称，不填值。只有选中的变量会传入 Agent，地址等配置是否生效取决于 Agent 是否识别对应变量名。
-2. 在**实验 → 导入数据集**中导入 JSON / JSONL；parquet 文件须先放入 Worker 的 `/var/lib/ctxbench/datasets`。官方来源：[CTXBench（原 AGENTBench）](https://huggingface.co/datasets/eth-sri/agentbench)、[SWE-bench Verified](https://huggingface.co/datasets/princeton-nlp/SWE-bench_Verified)。导入内容会计算哈希并冻结。
+1. 在**设置 → 运行环境**选择 WSL 发行版；到**应用镜像**导入或构建镜像，再返回运行环境启动 Worker。**模型凭据**中的 Agent 环境变量支持**添加变量**，填写多组名称和值后**保存全部环境变量**（仅保留到 Worker 重启），或通过部署环境变量配置；不要把密钥写入仓库、镜像或知识库。在实验、知识库生成和约束挖掘窗口中，可勾选多个已配置变量，或输入以换行、空格、逗号分隔的变量名；此处只填名称，不填值。只有选中的变量会传入 Agent，地址等配置是否生效取决于 Agent 是否识别对应变量名。
+2. 在**评测集 → 导入数据集**中导入 JSON / JSONL；parquet 文件须先放入 Worker 的 `/var/lib/ctxbench/datasets`。官方来源：[CTXBench（原 AGENTBench）](https://huggingface.co/datasets/eth-sri/agentbench)、[SWE-bench Verified](https://huggingface.co/datasets/princeton-nlp/SWE-bench_Verified)。导入内容会计算哈希并冻结。
 3. 选择实际任务、Provider / 模型、各角色额度、资源、重复次数及上下文分支。选择**先准备全部上下文**可停在 `ready` 状态，之后显式恢复求解。
 4. 跨模型复用时选择**冻结包**。支持 JSON 包和文档目录，仓库与基线 commit 必须完全匹配。人工提供的基线声明是作者声明，并不能证明文档确实基于该版本生成。
 5. 按需开启历史 PR 约束挖掘。自动生成的约束包标为银级（silver）；三个评审会话相互独立，可配置不同模型。评审失败会明确报错，不会伪造为中立票。
@@ -120,9 +122,9 @@ docker compose -f docker/compose.yaml up -d ctxbench-worker
 python3 scripts/images-release.py pack --version v0.1.0 --output artifacts/images-v0.1.0
 ```
 
-GitHub Actions 的 **Offline Docker images** 支持手动构建下载；从 v0.1.3 起，Release 默认只需下载一个 `ctxbench-images-v版本号-linux-amd64.zip` 镜像附件。首次安装另需 Windows 安装程序；已有桌面软件只需镜像 ZIP。在 **基础设施 → 离线安装** 选择文件后，软件自动校验并导入，显示阶段进度，无需解压或输入命令；WSL 仍须已有 Python 3.10+ 和 Docker。超过单文件限制时保留分片方式，旧包可选择清单文件导入。已发布 v0.1.2 及更早桌面版需升级才有此入口。包内仅有四个应用镜像，不包含用例镜像或数据。版本匹配、兼容导入和发布说明见[离线镜像发布说明](docs/offline-images.md)。
+GitHub Actions 的 **Offline Docker images** 支持手动构建下载；从 v0.1.3 起，Release 默认只需下载一个 `ctxbench-images-v版本号-linux-amd64.zip` 镜像附件。首次安装另需 Windows 安装程序；已有桌面软件只需镜像 ZIP。在 **设置 → 应用镜像 → 安装或构建** 选择文件后，软件自动校验并导入，显示阶段进度，无需解压或输入命令；WSL 仍须已有 Python 3.10+ 和 Docker。超过单文件限制时保留分片方式，旧包可选择清单文件导入。已发布 v0.1.2 及更早桌面版需升级才有此入口。包内仅有四个应用镜像，不包含用例镜像或数据。版本匹配、兼容导入和发布说明见[离线镜像发布说明](docs/offline-images.md)。
 
-从 v0.1.4 起支持 **基础设施 → 打包自定义 Docker 镜像**：将内网安装依赖后保存的本地镜像打成一个 ZIP，可选择四个角色的自定义标签，显示导出/校验进度，不重新构建或拉取镜像。容器内改动须先保存为镜像；不要把密钥或登录文件写进镜像。操作步骤见[离线镜像说明](docs/offline-images.md)。
+从 v0.1.4 起支持 **设置 → 应用镜像 → 导出定制镜像**：将内网安装依赖后保存的本地镜像打成一个 ZIP，可选择四个角色的自定义标签，显示导出/校验进度，不重新构建或拉取镜像。容器内改动须先保存为镜像；不要把密钥或登录文件写进镜像。操作步骤见[离线镜像说明](docs/offline-images.md)。
 
 Agent 容器没有 Docker socket，只接收白名单环境变量。可信评分监督进程可下载或构建环境；正式测试子容器断网并限制 CPU / 内存。官方测试选择及评分规则保留。
 

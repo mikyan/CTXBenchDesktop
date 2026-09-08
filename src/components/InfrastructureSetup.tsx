@@ -12,12 +12,14 @@ import { OfflineImageImport, OfflineImportProgress } from "./OfflineImageImport"
 import { offlineExportStore } from "../lib/offline-export";
 import { OfflineImageExport, OfflineExportProgress } from "./OfflineImageExport";
 
-export function InfrastructureSetup({ distribution, onDistribution, onDiagnose, onBusy, diagnosing }: {
+export function InfrastructureSetup({ distribution, onDistribution, onDiagnose, onBusy, diagnosing, view = "all" }: {
   distribution: string; onDistribution: (name: string) => void; onDiagnose: (distribution?: string) => void; onBusy: (busy: boolean) => void; diagnosing: boolean;
+  view?: "runtime" | "images" | "all";
 }) {
   const { t } = useI18n();
   const [mode, setMode] = useState<"offline" | "online">(() => imageBuildStore.getSnapshot()?.status === "running" ? "online" : "offline");
   const [shell, setShell] = useState<"wsl" | "powershell">("powershell");
+  const [imageOperation, setImageOperation] = useState<"install" | "export">("install");
   const [info, setInfo] = useState<DeploymentInfo>();
   const [checking, setChecking] = useState(false);
   const [refresh, setRefresh] = useState(0);
@@ -86,15 +88,20 @@ export function InfrastructureSetup({ distribution, onDistribution, onDiagnose, 
   const message = result && setupMessage(result.code);
   const disabled = Boolean(active) || diagnosing || checking || !distribution.trim();
   return <section className="panel setup-panel" aria-labelledby="setup-heading">
-    <div className="panel-header"><div><span className="panel-kicker">{t("NEXT ACTION")}</span><h2 id="setup-heading" tabIndex={-1}>{t("Install and start the worker")}</h2></div><Download size={22} aria-hidden="true" /></div>
+    <div className="panel-header"><div><h2 id="setup-heading" tabIndex={-1}>{t(view === "images" ? "Application images" : "Install and start the worker")}</h2></div><Download size={22} aria-hidden="true" /></div>
     <div className="setup-content">
-      <p className="setup-intro">{t("WSL and Docker are the foundation, not the CTXBench worker. Complete the three steps below; no Provider key is needed for setup.")}</p>
+      <details className="setup-introduction"><summary>{t("Open setup guide")}</summary><p className="setup-intro">{t("WSL and Docker are the foundation, not the CTXBench worker. Complete the three steps below; no Provider key is needed for setup.")}</p>
       <ol className="setup-steps">
         <li><span>1</span><div><strong>{t("Choose the WSL distribution")}</strong><p>{t("Install Docker Engine and its Compose plugin in this same distribution.")}</p></div></li>
         <li><span>2</span><div><strong>{t("Prepare application images")}</strong><p>{t("Import offline images or build online. The Windows installer contains deployment files, not Docker images.")}</p></div></li>
         <li><span>3</span><div><strong>{t("Start and verify")}</strong><p>{t("Start the worker, wait for its health check, then configure credentials and datasets.")}</p></div></li>
       </ol>
+      </details>
       <WslDistributionPicker value={distribution} onChange={onDistribution} disabled={Boolean(active) || diagnosing} />
+      <div hidden={view === "runtime"} className="settings-stack">
+      <p>{t("Images belong to the selected WSL distribution. Choose one operation below.")}</p>
+      <div className="segmented-actions" role="group" aria-label={t("Application images")}><button className="button secondary" aria-pressed={imageOperation === "install"} onClick={() => setImageOperation("install")}>{t("Install or build")}</button><button className="button secondary" aria-pressed={imageOperation === "export"} onClick={() => setImageOperation("export")}>{t("Export customized images")}</button></div>
+      <div hidden={imageOperation !== "install"} className="settings-stack">
       <fieldset className="setup-mode"><legend>{t("How will you prepare images?")}</legend>
         <label><input type="radio" name="setup-mode" checked={mode === "offline"} disabled={Boolean(active)} onChange={() => setMode("offline")} />{t("Internal network / offline images")}</label>
         <label><input type="radio" name="setup-mode" checked={mode === "online"} disabled={Boolean(active)} onChange={() => setMode("online")} />{t("Internet available / build images")}</label>
@@ -103,12 +110,12 @@ export function InfrastructureSetup({ distribution, onDistribution, onDiagnose, 
         <h3>{t("Online installation")}</h3><p>{t("Build images downloads base images and dependencies and may take several minutes. Check registry access and free disk space first. The build does not start experiments or call a Provider.")}</p>
         <button className="button secondary" disabled={disabled} onClick={() => void action("build")}>{t("Build images")}</button>
       </div>}
-
+      </div><div hidden={imageOperation !== "export"}>
       <OfflineImageExport key={distribution} distribution={distribution} disabled={disabled} state={exported} onBegin={() => setResult(undefined)} />
-
-      {build && <ImageBuildProgress key={build.id} build={build} />}
-      {imported && <OfflineImportProgress key={imported.id} state={imported} />}
-      {exported && <OfflineExportProgress key={exported.id} state={exported} />}
+      </div></div>
+      {build && recent === build && <ImageBuildProgress key={build.id} build={build} />}
+      {imported && recent === imported && <OfflineImportProgress key={imported.id} state={imported} />}
+      {exported && recent === exported && <OfflineExportProgress key={exported.id} state={exported} />}
 
       {result && message && <div className={`setup-feedback ${result.ok ? "success" : "error"}`} role={result.ok ? "status" : "alert"}>
         <h3>{t(message.title)}</h3><p>{t(message.help)}</p>
@@ -116,6 +123,10 @@ export function InfrastructureSetup({ distribution, onDistribution, onDiagnose, 
         <button className="button secondary" onClick={() => void copy(diagnosticReport(info, result))}><Copy size={16} />{t("Copy diagnostic report")}</button>
       </div>}
 
+      <div hidden={view === "images"} className="settings-stack">
+      <div className="toolbar"><button className="button primary" disabled={disabled} onClick={() => void action("start")}>{t("Start worker")}</button><button className="button secondary" disabled={disabled} onClick={() => void action("logs")}>{t("Read container logs")}</button></div>
+      <p>{t("Start worker uses local images only: no build, no pull. Stop worker does not delete stored data. Pause active experiments before stopping or replacing the worker.")}</p>
+      <details className="prerequisite-details"><summary>{t("Deployment prerequisites")}{info && ` · ${info.checks.filter((check) => check.ok).length}/${info.checks.length}`}</summary>
       <div className="setup-check-header"><h3>{t("Deployment prerequisites")}</h3><button className="button secondary" disabled={disabled || checking} onClick={() => setRefresh((value) => value + 1)}><RefreshCw size={16} className={checking ? "spin" : ""} />{t("Check prerequisites")}</button></div>
       <p>{t("This check is read-only: it checks the deployment file, Compose, images and data directory without installing or starting containers.")}</p>
       {checking && <p role="status"><LoaderCircle size={18} className="spin" /> {t("Checking deployment prerequisites…")}</p>}
@@ -131,9 +142,10 @@ export function InfrastructureSetup({ distribution, onDistribution, onDiagnose, 
         </li>)}</ul>
         {info.containers.length > 0 && <details><summary>{t("Current container status")}</summary><pre>{info.containers.join("\n")}</pre></details>}
       </>}
-
-      <div className="toolbar"><button className="button primary" disabled={disabled} onClick={() => void action("start")}>{t("Start worker")}</button><button className="button secondary" disabled={disabled} onClick={() => void action("logs")}>{t("Read container logs")}</button><button className="button tertiary" disabled={disabled} onClick={() => void action("stop")}>{t("Stop worker")}</button></div>
-      <p>{t("Start worker uses local images only: no build, no pull. Stop worker does not delete stored data. Pause active experiments before stopping or replacing the worker.")}</p>
+      </details>
+      {info?.checks.some((check) => !check.ok) && <p className="setup-callout">{t("Action needed")} · {info.checks.filter((check) => !check.ok).map((check) => t(prerequisiteLabels[check.id] ?? check.id)).join(" · ")}</p>}
+      <details className="danger-disclosure"><summary>{t("Stop worker safely")}</summary><p>{t("Keep active work paused before stopping. Stored datasets and results are retained.")}</p><button className="button tertiary" disabled={disabled} onClick={() => void action("stop")}>{t("Stop worker")}</button></details>
+      </div>
       {active && active !== "build" && active !== "import" && active !== "export" && <div className="setup-callout" role="status"><LoaderCircle className="spin" size={18} /><span>{t(active === "start" ? "Starting containers and waiting for the worker health check…" : "Reading or updating containers…")}</span></div>}
       <details className="setup-manual"><summary><FileCode size={18} /> {t("Manual commands and troubleshooting")}</summary>
         <p>{t("Commands below use the detected absolute path, so your current directory does not matter. Do not replace compose.yaml with compose.yml.")}</p>

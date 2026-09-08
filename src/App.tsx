@@ -6,7 +6,7 @@ import { DatasetWizard } from "./components/DatasetWizard";
 import { DatasetDialog, PreparationDialog, RunDialog, PackageDialog } from "./components/WorkbenchDialogs";
 import { Sidebar } from "./components/Sidebar";
 import { Topbar } from "./components/Topbar";
-import type { BenchmarkRun, CreateExperimentRequest, DashboardSnapshot, DiagnosticItem } from "./domain/types";
+import type { BenchmarkKind, BenchmarkRun, CreateExperimentRequest, DashboardSnapshot, DiagnosticItem } from "./domain/types";
 import { useI18n } from "./i18n";
 import { createExperiment, diagnoseEnvironment, exportSnapshot, loadSnapshot, workerRequest } from "./lib/desktop";
 import { ConstraintsPage } from "./pages/ConstraintsPage";
@@ -14,6 +14,7 @@ import { DashboardPage } from "./pages/DashboardPage";
 import { ExperimentsPage } from "./pages/ExperimentsPage";
 import { InfrastructurePage } from "./pages/InfrastructurePage";
 import { KnowledgePage } from "./pages/KnowledgePage";
+import { DatasetsPage } from "./pages/DatasetsPage";
 
 export default function App() {
   const { t } = useI18n();
@@ -21,6 +22,13 @@ export default function App() {
   const [snapshot, setSnapshot] = useState<DashboardSnapshot>();
   const [loadingError, setLoadingError] = useState<string>();
   const [modalOpen, setModalOpen] = useState(false);
+  const [initialDataset, setInitialDataset] = useState("");
+  const [experimentRevision, setExperimentRevision] = useState(0);
+  const [initialBenchmark, setInitialBenchmark] = useState<BenchmarkKind | "">("");
+  const [importSource, setImportSource] = useState<BenchmarkKind>("ctxbench");
+  const contentRef = useRef<HTMLDivElement>(null);
+  const openExperiment = (dataset = "") => { setInitialDataset(dataset); setModalOpen(true); };
+  useEffect(() => { contentRef.current?.scrollTo({ top: 0 }); }, [page]);
   const [creating, setCreating] = useState(false);
   const [diagnosing, setDiagnosing] = useState(false);
   const [diagnostics, setDiagnostics] = useState<DiagnosticItem[]>([]);
@@ -67,6 +75,8 @@ export default function App() {
       const experiment = await createExperiment(request);
       setSnapshot((current) => current ? { ...current, experiments: [experiment, ...current.experiments] } : current);
       setModalOpen(false);
+      setInitialBenchmark("");
+      setExperimentRevision((value) => value + 1);
       setPage("experiments");
       setToast({ message: t("Experiment plan created. Context preparation is queued.") });
     } catch (error) {
@@ -105,19 +115,20 @@ export default function App() {
     <div className="app-shell">
       <Sidebar page={page} onNavigate={setPage} />
       <main className="main-shell">
-        <Topbar runtime={snapshot.runtime} />
-        <div className="content-scroll">
+        <Topbar runtime={snapshot.runtime} page={page} />
+        <div className="content-scroll" ref={contentRef}>
           {loadingError && <p className="connection-banner" role="alert">{t("Worker disconnected — showing last received data")}</p>}
           {snapshot.runtime === "mock" && <p className="connection-banner">{t("Demo data — not benchmark results")}</p>}
-          {page === "overview" && <DashboardPage snapshot={snapshot} onNewExperiment={() => setModalOpen(true)} onOpenExperiments={() => setPage("experiments")} onRun={setSelectedRun} />}
-          {page === "experiments" && <ExperimentsPage snapshot={snapshot} onNewExperiment={() => setModalOpen(true)} onImport={() => setDialog("dataset")} onCreateDataset={() => setDialog("dataset-create")} onRun={setSelectedRun} onAction={(id, action) => { void workerRequest(`/experiments/${id}/${action}`, "POST").then(refresh).catch((error) => setToast({ message: String(error), error: true })); }} onExport={(format) => { void exportSnapshot(snapshot, format).catch((error) => setToast({ message: String(error), error: true })); }} />}
+          {page === "overview" && <DashboardPage snapshot={snapshot} onNewExperiment={() => openExperiment()} onOpenExperiments={(benchmark) => { setInitialBenchmark(benchmark ?? ""); setPage("experiments"); }} onRun={setSelectedRun} />}
+          {page === "experiments" && <ExperimentsPage key={experimentRevision} snapshot={snapshot} initialBenchmark={initialBenchmark} onNewExperiment={() => openExperiment()} onDatasets={() => setPage("datasets")} onRun={setSelectedRun} onAction={(id, action) => { void workerRequest(`/experiments/${id}/${action}`, "POST").then(refresh).catch((error) => setToast({ message: String(error), error: true })); }} onExport={(format) => { void exportSnapshot(snapshot, format).catch((error) => setToast({ message: String(error), error: true })); }} />}
+          {page === "datasets" && <DatasetsPage snapshot={snapshot} onImport={(source) => { setImportSource(source ?? "ctxbench"); setDialog("dataset"); }} onCreate={() => setDialog("dataset-create")} onExperiment={openExperiment} />}
           {page === "knowledge" && <KnowledgePage snapshot={snapshot} onImport={() => setDialog("manual")} onGenerate={() => setDialog("context")} onView={setSelectedPackage} />}
           {page === "constraints" && <ConstraintsPage snapshot={snapshot} onMine={() => setDialog("constraints")} />}
           {page === "infrastructure" && <InfrastructurePage diagnostics={diagnostics} onDiagnose={handleDiagnose} diagnosing={diagnosing} />}
         </div>
       </main>
-      {modalOpen && <ExperimentComposer creating={creating} onClose={() => setModalOpen(false)} onCreate={handleCreate} artifacts={snapshot.artifacts} />}
-      {dialog === "dataset" && <DatasetDialog onClose={() => setDialog(undefined)} onComplete={() => void refresh()} />}
+      {modalOpen && <ExperimentComposer initialDataset={initialDataset} creating={creating} onClose={() => setModalOpen(false)} onCreate={handleCreate} artifacts={snapshot.artifacts} />}
+      {dialog === "dataset" && <DatasetDialog initialBenchmark={importSource} onClose={() => setDialog(undefined)} onComplete={() => void refresh()} />}
       {dialog === "dataset-create" && <DatasetWizard onClose={() => setDialog(undefined)} onComplete={() => void refresh()} />}
       {dialog && dialog !== "dataset" && dialog !== "dataset-create" && <PreparationDialog kind={dialog} onClose={() => setDialog(undefined)} onComplete={() => void refresh()} />}
       {selectedRun && <RunDialog run={snapshot.runs.find((run) => run.id === selectedRun.id) ?? selectedRun} onClose={() => setSelectedRun(undefined)} />}

@@ -7,10 +7,12 @@ import { bytes, relativeTime, titleCase } from "../lib/format";
 import { PreparationQueue } from "../components/PreparationQueue";
 import { Pagination } from "../components/Pagination";
 import { pageWindow } from "../domain/pagination";
+import { SectionNav } from "../components/SectionNav";
 
 export function KnowledgePage({ snapshot, onImport, onGenerate, onView }: { snapshot: DashboardSnapshot; onImport: () => void; onGenerate: () => void; onView: (id: string) => void }) {
   const { locale, t } = useI18n();
   const [query, setQuery] = useState("");
+  const [view, setView] = useState<"library" | "queue">("library");
   const [page, setPage] = useState(0);
   const artifacts = useMemo(
     () => snapshot.artifacts.filter((artifact) => `${artifact.repository} ${artifact.commit}`.toLowerCase().includes(query.toLowerCase())),
@@ -39,7 +41,9 @@ export function KnowledgePage({ snapshot, onImport, onGenerate, onView }: { snap
         <div><FileCode2 size={19} /><span>{t("Context files")}</span><strong>{snapshot.artifacts.reduce((sum, item) => sum + item.files, 0)}</strong></div>
         <div><Fingerprint size={19} /><span>{t("Task-informed")}</span><strong>{snapshot.artifacts.filter((item) => item.informed).length}</strong></div>
       </section>
-      <PreparationQueue operations={snapshot.operations ?? []} kind="context" />
+      <SectionNav label="Knowledge views" items={[{ id: "library", label: "Library" }, { id: "queue", label: "Generation queue" }]} value={view} onChange={setView} />
+      <div hidden={view !== "queue"}><PreparationQueue operations={snapshot.operations ?? []} kind="context" /></div>
+      <div hidden={view !== "library"}>
 
       <div className="toolbar">
         <label className="table-search"><Search size={15} /><input aria-label={t("Search repositories or commits")} value={query} onChange={(event) => setQuery(event.target.value)} placeholder={t("Search repositories or commits")} /></label>
@@ -80,8 +84,9 @@ export function KnowledgePage({ snapshot, onImport, onGenerate, onView }: { snap
           </article>
         ))}
       </section>
+      {!artifacts.length && <div className="panel empty-state"><h2>{t("No context packages yet")}</h2><p>{t("Generate from a baseline commit or import a matching frozen package.")}</p></div>}
       <Pagination total={artifacts.length} page={page} size={20} onChange={setPage} />
-      <div className="causal-callout">
+      </div><div className="causal-callout">
         <Fingerprint size={20} />
         <div><strong>{t("Passive context guarantee")}</strong><span>{t("Artifacts are overlaid as repository files only. CTXBench never changes the task prompt, forces reads, or adds retrieval hints.")}</span></div>
       </div>

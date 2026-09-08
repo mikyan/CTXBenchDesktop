@@ -11,12 +11,13 @@ import {
   Sparkles,
   TrendingUp,
 } from "lucide-react";
-import type { BenchmarkRun, DashboardSnapshot } from "../domain/types";
+import type { BenchmarkKind, BenchmarkRun, DashboardSnapshot } from "../domain/types";
 import { useState } from "react";
 import { aggregateArms, aggregateDashboard } from "../domain/metrics";
 import { useI18n } from "../i18n";
 import { duration, money, percent, relativeTime, signedPercent, titleCase } from "../lib/format";
 import { PageTitle, ProgressBar, StatusBadge } from "../components/shared";
+import { benchmarkLabel } from "../lib/benchmark-labels";
 
 export function DashboardPage({
   snapshot,
@@ -26,7 +27,7 @@ export function DashboardPage({
 }: {
   snapshot: DashboardSnapshot;
   onNewExperiment: () => void;
-  onOpenExperiments: () => void;
+  onOpenExperiments: (benchmark?: BenchmarkKind) => void;
   onRun: (run: BenchmarkRun) => void;
 }) {
   const { locale, t } = useI18n();
@@ -40,10 +41,10 @@ export function DashboardPage({
   const metrics = aggregateDashboard(runs);
   const armMetrics = aggregateArms(runs);
   const pairCount = metrics.pairedWins + metrics.pairedLosses + metrics.pairedTies;
-  const active = snapshot.experiments.find((experiment) => experiment.status === "running");
+  const active = snapshot.experiments.find((experiment) => ["preparing", "running"].includes(experiment.status));
   const baseline = armMetrics.find((item) => item.arm === "none");
   const context = armMetrics.find((item) => item.arm !== "none");
-  const live = snapshot.runs.find((run) => ["running", "grading", "preparing"].includes(run.status));
+  const live = snapshot.runs.find((run) => run.experimentId === active?.id && ["running", "grading", "preparing"].includes(run.status));
   const armRate = (arm: string, passing: boolean) => {
     const judged = runs.filter((run) => run.arm === arm && run.status === "completed" && run.constraintVerdict !== undefined);
     return judged.length ? judged.filter((run) => run.constraintVerdict === "satisfied" && (!passing || run.testsPassed)).length / judged.length : undefined;
@@ -57,7 +58,7 @@ export function DashboardPage({
         description={t("Paired coding-agent evaluation, from frozen context to constraint-aware verdicts.")}
         actions={
           <>
-            <button type="button" className="button secondary" onClick={onOpenExperiments}>{t("View all runs")}</button>
+            <button type="button" className="button secondary" onClick={() => onOpenExperiments()}>{t("View all runs")}</button>
             <button type="button" className="button primary" onClick={onNewExperiment}>
               <FlaskConical size={16} /> {t("New experiment")}
             </button>
@@ -65,8 +66,15 @@ export function DashboardPage({
         }
       />
 
+      <section className="coverage-grid" aria-label={t("Benchmark coverage")}>{(["ctxbench", "swebench", "custom"] as const).map((kind) => {
+        const ids = new Set(snapshot.experiments.filter((item) => item.benchmark === kind).map((item) => item.id));
+        const graded = snapshot.runs.filter((run) => ids.has(run.experimentId) && !run.mock && run.status === "completed" && typeof run.testsPassed === "boolean");
+        return <button key={kind} className="coverage-card" onClick={() => onOpenExperiments(kind)}><span>{benchmarkLabel(kind, t)}</span><strong>{graded.length}</strong><small>{t(graded.length ? "Real graded runs" : "No real grades yet")}</small><ArrowUpRight size={17} /></button>;
+      })}</section><p className="coverage-note">{t("Coverage counts completed non-mock grades, not full-suite certification.")}</p>
+      <div className="dashboard-filters">
       <div className="toolbar"><label>{t("Comparison block")} <select value={block} onChange={(event) => setBlock(event.target.value)}><option value="">{t("All real experiments")}</option>{snapshot.experiments.filter((item) => item.model.provider !== "mock").map((item) => <option value={item.id} key={item.id}>{item.name} · {item.model.model}</option>)}</select></label><span className="muted">{t("Real runs only; mock results are excluded.")}</span></div>
       {contextArms.length > 0 && <div className="toolbar"><label>{t("Comparison arm")} <select value={selectedArm} onChange={(event) => setChosenArm(event.target.value)}>{contextArms.map((arm) => <option key={arm} value={arm}>{t(titleCase(arm))}</option>)}</select></label></div>}
+      </div>
       <section className="metric-grid" aria-label={t("Benchmark summary")}>
         <MetricCard
           label={t("Functional pass rate")}
@@ -146,9 +154,9 @@ export function DashboardPage({
               <div className="experiment-progress">
                 <div className="progress-copy">
                   <strong>{active.completedRuns} <span>/ {active.totalRuns}</span></strong>
-                  <em>{Math.round((active.completedRuns / active.totalRuns) * 100)}%</em>
+                  <em>{active.totalRuns ? Math.round((active.completedRuns / active.totalRuns) * 100) : 0}%</em>
                 </div>
-                <ProgressBar value={active.completedRuns / active.totalRuns} />
+                <ProgressBar value={active.totalRuns ? active.completedRuns / active.totalRuns : 0} />
               </div>
               <div className="run-stage-grid">
                 <Stage value={String(active.tasks)} label={t("Tasks")} />
@@ -165,7 +173,7 @@ export function DashboardPage({
                 <Clock3 size={15} />
                 <time>{duration(live?.durationSeconds, locale)}</time>
               </div>
-              <button type="button" className="button panel-button" onClick={onOpenExperiments}>
+              <button type="button" className="button panel-button" onClick={() => onOpenExperiments()}>
                 {t("Open experiment")} <ArrowUpRight size={15} />
               </button>
             </>
@@ -178,7 +186,7 @@ export function DashboardPage({
               <span className="panel-kicker">{t("LATEST VERDICTS")}</span>
               <h2>{t("Recent runs")}</h2>
             </div>
-            <button type="button" className="text-button" onClick={onOpenExperiments}>{t("All results")} <ArrowUpRight size={14} /></button>
+            <button type="button" className="text-button" onClick={() => onOpenExperiments()}>{t("All results")} <ArrowUpRight size={14} /></button>
           </div>
           <div className="compact-table-wrap">
             <table className="data-table compact">

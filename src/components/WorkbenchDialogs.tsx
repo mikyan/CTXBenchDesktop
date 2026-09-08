@@ -11,6 +11,7 @@ import { benchmarkLabel, CTXBENCH_LABEL, datasetLabel } from "../lib/benchmark-l
 import { AgentArgsField } from "./AgentArgsField";
 import { agentArgsError } from "../lib/agent-args";
 import { StandardDatasetDownloads } from "./StandardDatasetDownloads";
+import { titleCase } from "../lib/format";
 
 export function defaultProfile(): FrozenModelConfig { return { provider: "mock", model: "deterministic", thinking: "high", maxTokens: 5000000 }; }
 export function Modal({ title, children, onClose }: { title: string; children: ReactNode; onClose: () => void }) {
@@ -22,10 +23,10 @@ export function ProfileEditor({ title, value, onChange }: { title: string; value
   const { t } = useI18n();
   return <fieldset><legend>{title}</legend><div className="form-grid two"><label>{t("Provider")}<input value={value.provider} onChange={(e) => onChange({ ...value, provider: e.target.value })} /></label><label>{t("Model")}<input value={value.model} onChange={(e) => onChange({ ...value, model: e.target.value })} /></label><label>{t("Thinking")}<select value={value.thinking} onChange={(e) => onChange({ ...value, thinking: e.target.value as FrozenModelConfig["thinking"] })}>{["off", "minimal", "low", "medium", "high", "xhigh", "max"].map((item) => <option key={item}>{item}</option>)}</select></label><label>{t("Cumulative token budget")}<input type="number" min={1} value={value.maxTokens} onChange={(e) => onChange({ ...value, maxTokens: Number(e.target.value) })} /></label></div></fieldset>;
 }
-export function DatasetDialog({ onClose, onComplete }: { onClose: () => void; onComplete: () => void }) {
+export function DatasetDialog({ onClose, onComplete, initialBenchmark = "ctxbench" }: { onClose: () => void; onComplete: () => void; initialBenchmark?: BenchmarkKind }) {
   const { t } = useI18n();
-  const [name, setName] = useState(""); const [benchmark, setBenchmark] = useState<BenchmarkKind>("ctxbench");
-  const [path, setPath] = useState("agentbench.parquet"); const [content, setContent] = useState("");
+  const [name, setName] = useState(""); const [benchmark, setBenchmark] = useState<BenchmarkKind>(initialBenchmark);
+  const [path, setPath] = useState(initialBenchmark === "ctxbench" ? "agentbench.parquet" : initialBenchmark === "swebench" ? "swebench-verified.parquet" : ""); const [content, setContent] = useState("");
   const uploadVersion = useRef(0); const [reading, setReading] = useState(false);
   const [busy, setBusy] = useState(false); const [error, setError] = useState("");
   const selectSource = (value: BenchmarkKind) => {
@@ -78,7 +79,7 @@ export function PreparationDialog({ kind, onClose, onComplete }: { kind: "contex
     else await workerRequest(`/prepare/${kind}`, "POST", { dataset, taskId, model: profile, envNames: parseEnvironmentNames(env), agentImage: image, agentArgs, resources: { cpus: 4, memoryGb: 8, timeoutMinutes: 60, network }, ...(kind === "context" ? { workflow } : {}) });
     onComplete(); onClose();
   } catch (error) { setError(String(error)); } finally { setBusy(false); } };
-  return <Modal title={t(kind === "manual" ? "Import package" : kind === "context" ? "Generate context" : "Mine constraints")} onClose={onClose}>
+  return <Modal title={t(kind === "manual" ? "Import package" : kind === "context" ? "Generate context" : "Mine constraints")} onClose={() => { if (!busy) onClose(); }}>
     <label>{t("Dataset or manifest")}<select value={dataset} onChange={(e) => setDataset(e.target.value)}><option value="">{t("Select an imported dataset")}</option>{datasets.map((item) => <option value={item.id} key={item.id}>{datasetLabel(item, t)} · {item.count}</option>)}</select></label>
     <label>{t("Task")}<select value={taskId} onChange={(e) => setTaskId(e.target.value)}><option value="">{t("Select task")}</option>{tasks.map((task) => <option key={task.id}>{task.id}</option>)}</select></label>
     {kind === "manual" && <label>{t("Or select a documentation folder")}<input type="file" multiple {...{ webkitdirectory: "" }} onChange={(event) => {
@@ -86,10 +87,10 @@ export function PreparationDialog({ kind, onClose, onComplete }: { kind: "contex
       if (selected.reduce((total, file) => total + file.size, 0) > 20 * 1024 * 1024) { setError("Context packages are limited to 20 MiB."); return; }
       void Promise.all(selected.map(async (file) => [file.webkitRelativePath.split("/").slice(1).join("/") || file.name, await file.text()] as const)).then((entries) => setFiles(Object.fromEntries(entries))).catch((error) => setError(String(error)));
     }} /></label>}
-    {kind === "manual" ? <><label>{t("Package baseline commit")}<input value={packageCommit} onChange={(e) => setPackageCommit(e.target.value)} /></label><label>{t("Package JSON: relative paths mapped to text")}<input type="file" accept=".json" onChange={(e) => { const file = e.target.files?.[0]; if (file) void file.text().then((text) => { const parsed = JSON.parse(text); setFiles(parsed.files ?? parsed); if (parsed.baseCommit) setPackageCommit(parsed.baseCommit); }).catch((error) => setError(String(error))); }} /></label><pre>{JSON.stringify(Object.keys(files), null, 2)}</pre><p>{t("Use AGENTS.md or documentation folders. The package must match the selected baseline commit.")}</p></> : <><ProfileEditor title={t(kind === "context" ? "Knowledge builder" : "Constraint miner")} value={profile} onChange={setProfile} /><EnvironmentNamesField value={env} onChange={setEnv} /><label>{t("Agent image")}<input value={image} onChange={(e) => setImage(e.target.value)} /></label></>}
-    {kind !== "manual" && <AgentArgsField value={agentArgs} onChange={setAgentArgs} />}
-    {kind === "context" && <><WorkflowEditor title={t("Knowledge generation workflow")} value={workflow} onChange={setWorkflow} defaultPrompt={generationPrompt} />
-      <label>{t("Network")}<select value={network} onChange={(event) => setNetwork(event.target.value)}>{["api-only", "offline", "unrestricted"].map((item) => <option key={item}>{item}</option>)}</select></label></>}
+    {kind === "manual" ? <><label>{t("Package baseline commit")}<input value={packageCommit} onChange={(e) => setPackageCommit(e.target.value)} /></label><label>{t("Package JSON: relative paths mapped to text")}<input type="file" accept=".json" onChange={(e) => { const file = e.target.files?.[0]; if (file) void file.text().then((text) => { const parsed = JSON.parse(text); setFiles(parsed.files ?? parsed); if (parsed.baseCommit) setPackageCommit(parsed.baseCommit); }).catch((error) => setError(String(error))); }} /></label><pre>{JSON.stringify(Object.keys(files), null, 2)}</pre><p>{t("Use AGENTS.md or documentation folders. The package must match the selected baseline commit.")}</p></> : <><ProfileEditor title={t(kind === "context" ? "Knowledge builder" : "Constraint miner")} value={profile} onChange={setProfile} /><EnvironmentNamesField value={env} onChange={setEnv} /></>}
+    {kind !== "manual" && <details className="advanced-form"><summary>{t("Runtime and budgets")}</summary><label>{t("Agent image")}<input value={image} onChange={(e) => setImage(e.target.value)} /></label><AgentArgsField value={agentArgs} onChange={setAgentArgs} /></details>}
+    {kind === "context" && <details className="advanced-form"><summary>{t("Advanced workflows")}</summary><p>{t("Defaults use one Agent step. Expand only to add startup commands or separate prompts.")}</p><WorkflowEditor title={t("Knowledge generation workflow")} value={workflow} onChange={setWorkflow} defaultPrompt={generationPrompt} />
+      <label>{t("Network")}<select value={network} onChange={(event) => setNetwork(event.target.value)}>{["api-only", "offline", "unrestricted"].map((item) => <option key={item}>{item}</option>)}</select></label></details>}
     {error && <p className="form-error" role="alert">{error}</p>}<button className="button primary" disabled={busy || !taskId} onClick={() => void submit()}>{busy ? t("Working…") : t("Submit")}</button>
   </Modal>;
 }
@@ -109,9 +110,10 @@ export function RunDialog({ run, onClose }: { run: BenchmarkRun; onClose: () => 
   useEffect(() => { setContent(""); setMore(false); if (run.solverRunId) void read(); return () => { readVersion.current++; }; }, [run.solverRunId, file]);
   return <Modal title={`${run.taskId} · ${run.arm}`} onClose={onClose}>
     {run.mock && <p className="form-error">{t("Mock provider — infrastructure verification only")}</p>}
-    <pre>{JSON.stringify({ ...full, judgeRecords: undefined }, null, 2)}</pre>
+    <dl className="review-grid"><div><dt>{t("Status")}</dt><dd>{t(titleCase(run.status))}</dd></div><div><dt>{t("Tests")}</dt><dd>{typeof run.testsPassed === "boolean" ? t(run.testsPassed ? "PASS" : "FAIL") : t("Not graded")}</dd></div><div><dt>{t("Arm")}</dt><dd>{t(titleCase(run.arm))} · {run.repeat}</dd></div><div><dt>{t("Constraint")}</dt><dd>{run.constraintVerdict ? t(titleCase(run.constraintVerdict)) : t("Not judged")}</dd></div></dl>
+    <details><summary>{t("Frozen metadata and hashes")}</summary><pre>{JSON.stringify({ ...full, judgeRecords: undefined }, null, 2)}</pre></details>
     {recordError && <p className="form-error" role="alert">{recordError}</p>}
-    <select value={file} onChange={(e) => setFile(e.target.value)}>{["graded.patch", "raw_agent.patch", "context_mutation.patch", "workflow.json", "setup.log", "trajectory.live.jsonl", "trajectory.jsonl", "result.json", "container.log", "grading/evaluator.log"].map((item) => <option key={item}>{item}</option>)}</select>
+    <label>{t("Evidence file")}<select value={file} onChange={(e) => setFile(e.target.value)}>{["graded.patch", "raw_agent.patch", "context_mutation.patch", "workflow.json", "setup.log", "trajectory.live.jsonl", "trajectory.jsonl", "result.json", "container.log", "grading/evaluator.log"].map((item) => <option key={item}>{item}</option>)}</select></label>
     <button className="button secondary" onClick={() => void read()}>{t("Refresh")}</button>
     {error && <p className="form-error">{error}</p>}<pre className="log-view">{content}</pre>{more && <button className="button secondary" onClick={() => void read(next)}>{t("Load more")}</button>}
     <details><summary>{t("Judge evidence")}</summary><pre>{recordError ? t("Evidence unavailable") : !record ? t("Loading…") : JSON.stringify(full.judgeRecords ?? [], null, 2)}</pre></details>

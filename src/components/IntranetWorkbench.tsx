@@ -6,13 +6,15 @@ import { buildFiles, companyProfileSchema, defaultCompanyProfile, namesFromLines
 import { AgentArgsField } from "./AgentArgsField";
 import { OperatorJobPanel } from "./OperatorJobPanel";
 import { DatasetSelfTest } from "./DatasetSelfTest";
+import { companyFeatureError } from "../lib/intranet";
 
 type Inspection = { filename: string; sha256: string; dataset: string; datasetId: string; images: number; baselines: number; contexts: number; conflicts: string[]; requiredBytes: number; freeBytes: number; ready: boolean };
 const emptyInventory: IntranetInventory = { profiles: [], drafts: [], adaptations: [], operations: [], transferDirectory: "" };
 
-export function IntranetWorkbench({ distribution = "" }: { distribution?: string }) {
+export function IntranetWorkbench({ distribution = "", section }: { distribution?: string; section?: "Company profiles" | "Image adaptation" | "Dataset self-test" | "Portable resources" }) {
   const { t } = useI18n();
-  const [tab, setTab] = useState("Company profiles");
+  const [localTab, setTab] = useState("Company profiles");
+  const tab = section ?? localTab;
   const [inventory, setInventory] = useState(emptyInventory); const [datasets, setDatasets] = useState<DatasetRecord[]>([]);
   const [error, setError] = useState(""); const [message, setMessage] = useState(""); const [busy, setBusy] = useState(false);
   const [profile, setProfile] = useState(defaultCompanyProfile); const [selectedProfile, setSelectedProfile] = useState("");
@@ -30,10 +32,10 @@ export function IntranetWorkbench({ distribution = "" }: { distribution?: string
     const [value, rows] = await Promise.all([workerRequest<IntranetInventory>("/intranet"), workerRequest<DatasetRecord[]>("/datasets")]);
     setInventory(value); setDatasets(rows);
   };
-  useEffect(() => { let alive = true; void Promise.all([workerRequest<IntranetInventory>("/intranet"), workerRequest<DatasetRecord[]>("/datasets")]).then(([value, rows]) => { if (alive) { setInventory(value); setDatasets(rows); } }).catch((cause) => { if (alive) setError(String(cause)); }); return () => { alive = false; }; }, []);
+  useEffect(() => { let alive = true; void Promise.all([workerRequest<IntranetInventory>("/intranet"), workerRequest<DatasetRecord[]>("/datasets")]).then(([value, rows]) => { if (alive) { setInventory(value); setDatasets(rows); } }).catch((cause) => { if (alive) setError(companyFeatureError(cause)); }); return () => { alive = false; }; }, []);
   const run = async (action: () => Promise<void>) => {
     if (busy) return; setBusy(true); setError(""); setMessage("");
-    try { await action(); } catch (cause) { setError(String(cause)); } finally { setBusy(false); }
+    try { await action(); } catch (cause) { setError(companyFeatureError(cause)); } finally { setBusy(false); }
   };
   const loadProfile = (row: CompanyProfileRecord) => { setProfile(row.document); setDomains(row.document.providerDomains.join("\n")); setEnvNames(row.document.envNames.join("\n")); setSelectedProfile(row.id); };
   const currentProfile = () => ({ ...profile, envNames: namesFromLines(envNames), providerDomains: namesFromLines(domains) });
@@ -42,10 +44,10 @@ export function IntranetWorkbench({ distribution = "" }: { distribution?: string
   const toggle = (current: string[], key: string) => current.includes(key) ? current.filter((id) => id !== key) : [...current, key];
   const datasetPicker = <label>{t("Custom dataset")}<select value={datasetId} onChange={(e) => chooseDataset(e.target.value)}><option value="">{t("Choose a dataset")}</option>{datasets.filter((d) => d.benchmark === "custom").map((d) => <option key={d.id} value={d.id}>{d.name} · {d.count}</option>)}</select></label>;
   return <section className="panel intranet-workbench" aria-labelledby="intranet-title">
-    <div className="panel-header"><div><span className="panel-kicker">{t("INTRANET ADAPTATION")}</span><h2 id="intranet-title">{t("Company deployment workbench")}</h2></div><button className="button secondary" disabled={busy} onClick={() => void run(refresh)}>{t("Refresh")}</button></div>
-    <p>{t("Version company settings, adapt local images, verify custom tests, and transfer pinned resources. These tools never start an Agent or modify an existing experiment.")}</p>
-    <div className="wizard-actions" role="tablist" aria-label={t("Company deployment workbench")}>{["Company profiles", "Image adaptation", "Dataset self-test", "Portable resources"].map((name) => <button role="tab" aria-selected={tab === name} className={`button ${tab === name ? "primary" : "secondary"}`} key={name} disabled={busy} onClick={() => { setTab(name); setError(""); setMessage(""); }}>{t(name)}</button>)}</div>
-    <fieldset disabled={busy} className="intranet-fields" role="tabpanel">
+    <div className="panel-header"><div>{!section && <span className="panel-kicker">{t("INTRANET ADAPTATION")}</span>}<h2 id="intranet-title">{t(section ?? "Company deployment workbench")}</h2></div><button className="button secondary" disabled={busy} onClick={() => void run(refresh)}>{t("Refresh")}</button></div>
+    {!section && <p>{t("Version company settings, adapt local images, verify custom tests, and transfer pinned resources. These tools never start an Agent or modify an existing experiment.")}</p>}
+    {!section && <nav className="wizard-actions" aria-label={t("Company deployment workbench")}>{["Company profiles", "Image adaptation", "Dataset self-test", "Portable resources"].map((name) => <button aria-current={tab === name ? "page" : undefined} className={`button ${tab === name ? "primary" : "secondary"}`} key={name} disabled={busy} onClick={() => { setTab(name); setError(""); setMessage(""); }}>{t(name)}</button>)}</nav>}
+    <fieldset disabled={busy} className="intranet-fields">
       {tab === "Company profiles" && <>
         <p>{t("Profiles contain names and non-secret configuration only. Set API keys and endpoint environment values separately in Runtime environment. Saving creates an immutable version; apply it explicitly when creating an experiment.")}</p>
         <label>{t("Saved company profiles")}<select value={selectedProfile} onChange={(e) => { const row = inventory.profiles.find((p) => p.id === e.target.value); if (row) loadProfile(row); else { setSelectedProfile(""); setProfile(defaultCompanyProfile()); setDomains(""); setEnvNames(""); } }}><option value="">{t("New profile")}</option>{inventory.profiles.map((p) => <option key={p.id} value={p.id}>{p.document.name} · {p.id.slice(0, 8)}</option>)}</select></label>
@@ -53,11 +55,13 @@ export function IntranetWorkbench({ distribution = "" }: { distribution?: string
         <label>{t("Environment names only")}<textarea value={envNames} onChange={(e) => setEnvNames(e.target.value)} placeholder={"OPENAI_API_KEY\nOPENAI_BASE_URL"} /></label>
         <AgentArgsField value={profile.agentArgs} onChange={(agentArgs) => setProfile({ ...profile, agentArgs })} />
         <label className="check-line"><input type="checkbox" checked={profile.offline} onChange={(e) => setProfile({ ...profile, offline: e.target.checked })} />{t("Offline preparation: use cached baselines and local images only; fail instead of fetching.")}</label>
-        <h4>{t("Exact Git mirrors")}</h4><p>{t("Map the original repository URL to a company mirror. The benchmark keeps the original repository identity and exact commit; it does not rewrite task prompts or context identities.")}</p>
+        <details><summary>{t("Exact Git mirrors")}{profile.gitMirrors.length > 0 && ` · ${profile.gitMirrors.length}`}</summary><p>{t("Map the original repository URL to a company mirror. The benchmark keeps the original repository identity and exact commit; it does not rewrite task prompts or context identities.")}</p>
         {profile.gitMirrors.map((mirror, index) => <div className="intranet-grid" key={index}>{([['repository', 'Original repository'], ['mirror', 'Company Git mirror']] as const).map(([key, label]) => <label key={key}>{t(label)}<input value={mirror[key]} onChange={(e) => setProfile({ ...profile, gitMirrors: profile.gitMirrors.map((m, n) => n === index ? { ...m, [key]: e.target.value } : m) })} /></label>)}<button className="button secondary" onClick={() => setProfile({ ...profile, gitMirrors: profile.gitMirrors.filter((_, n) => n !== index) })}>{t("Remove mirror")}</button></div>)}
         <button className="button secondary" onClick={() => setProfile({ ...profile, gitMirrors: [...profile.gitMirrors, { repository: "", mirror: "" }] })}>{t("Add Git mirror")}</button>
+        </details><details><summary>{t("Provider HTTPS domains (one per line)")}</summary>
         <label>{t("Provider HTTPS domains (one per line)")}<textarea value={domains} onChange={(e) => setDomains(e.target.value)} placeholder="api.company.example" /></label>
         <p>{t("Provider domains generate a Squid configuration for your proxy image. They are not hot-applied to the running proxy. Public CA certificates can be added through image adaptation; never upload private keys.")}</p>
+        </details>
         <div className="wizard-actions"><button className="button primary" onClick={() => void run(async () => { const row = await workerRequest<CompanyProfileRecord>("/intranet/profiles", "POST", currentProfile()); loadProfile(row); await refresh(); setMessage(t("Company profile version saved.")); })}>{t("Save profile version")}</button>
           <button className="button secondary" onClick={() => void run(async () => { const row = await workerRequest<CompanyProfileRecord>("/intranet/profiles", "POST", currentProfile()); await saveText("ctxbench-company-profile.json", JSON.stringify(row.document, null, 2)); await refresh(); })}>{t("Export profile JSON")}</button>
           <button className="button secondary" disabled={!selectedProfile} onClick={() => void run(async () => { const file = await workerRequest<{ filename: string; content: string }>(`/intranet/profiles/${selectedProfile}/proxy`); await saveText(file.filename, file.content); })}>{t("Export saved proxy rules")}</button>
@@ -78,7 +82,7 @@ export function IntranetWorkbench({ distribution = "" }: { distribution?: string
         {inventory.adaptations.length > 0 && <details><summary>{t("Saved image recipes")}</summary>{inventory.adaptations.map((a) => <div key={a.id}><p>{a.name}: <code>{a.tag}</code></p><button className="button secondary" onClick={() => void run(async () => { const record = await workerRequest<{ recipe: unknown }>(`/intranet/images/${a.id}`); await saveText("ctxbench-image-recipe.json", JSON.stringify(record, null, 2)); })}>{t("Export recipe and image receipt")}</button></div>)}</details>}
       </>}
       {tab === "Dataset self-test" && <>
-        <p>{t("Create or restore drafts in Experiments → Create custom dataset. Here you can re-test an already frozen custom dataset without changing it.")}</p>
+        <p>{t("Create or restore drafts in Datasets → Create dataset. Self-test an existing custom dataset here without modifying it.")}</p>
         {datasetPicker}<button className="button secondary" disabled={!datasetId} onClick={() => void run(async () => { const value = await workerRequest<{ name: string; rows: unknown[] }>(`/intranet/datasets/${datasetId}`); setProbe(JSON.stringify({ ...value, benchmark: "custom" })); })}>{t("Load evaluator definition for self-test")}</button>
         {probe && <DatasetSelfTest key={datasetId} payload={probe} disabled={busy} />}
       </>}

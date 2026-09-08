@@ -1,13 +1,15 @@
 import { Bell, CircleHelp, Languages, Search } from "lucide-react";
 import { useI18n } from "../i18n";
 import { ExternalLink } from "./ExternalLink";
+import type { Page } from "../app-types";
+import { pageLabels } from "../lib/navigation";
 
-export function Topbar({ runtime }: { runtime: "desktop" | "mock" }) {
+export function Topbar({ runtime, page = "overview" }: { runtime: "desktop" | "mock"; page?: Page }) {
   const { locale, setLocale, t } = useI18n();
   return (
     <div className="topbar" data-tauri-drag-region>
       <div className="breadcrumb" data-tauri-drag-region>
-        {t("Local workspace")} <span>/</span> {t("Benchmark lab")}
+        {t("Local workspace")} <span>/</span> <strong>{t(pageLabels[page])}</strong>
       </div>
       <div className="topbar-actions">
         <span className={`runtime-mode ${runtime}`}>

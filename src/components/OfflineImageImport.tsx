@@ -29,7 +29,7 @@ export function OfflineImageImport({ distribution, disabled, state, onBegin }: {
         <label className="offline-confirm"><input type="checkbox" checked={trusted} disabled={disabled || picking} onChange={(event) => setTrusted(event.target.checked)} />{t("I trust this package's source and have paused experiments and stopped the worker.")}</label>
         <button className="button primary" disabled={disabled || picking || !path || !trusted || !distribution.trim()} onClick={() => { onBegin(); setError(""); void offlineImportStore.start(distribution, path); }}>{t("Verify and import images")}</button>
       </li>
-      <li><strong>{t("Start the worker after import")}</strong><p>{t("When import succeeds, click Start worker below. No experiments or containers are started automatically.")}</p></li>
+      <li><strong>{t("Start the worker after import")}</strong><p>{t("After import, open Settings → Runtime & diagnostics and start the worker. Nothing starts automatically.")}</p></li>
     </ol>
     <details><summary>{t("Have an older split package?")}</summary><p>{t("Keep every old image part and support file in one folder. Use the same file picker and select ctxbench-images-manifest.json instead of a ZIP. Missing parts will be reported before import.")}</p><p>{t("Packages larger than GitHub's 2 GiB limit still use this legacy split format.")}</p></details>
     <p>{t("Python 3.10+ and Docker must be installed in the selected WSL. This package does not include datasets, baseline repositories or task test images.")}</p>

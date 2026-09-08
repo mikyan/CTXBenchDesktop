@@ -5,13 +5,54 @@ import time
 import unittest
 from dataclasses import asdict, replace
 from pathlib import Path
-from unittest.mock import patch
+from unittest.mock import Mock, patch
 
 from worker.ctxbench_worker.artifacts import ContextIdentity
 from worker.ctxbench_worker.engine import create_mock_engine
 from worker.ctxbench_worker.models import ExperimentSpec, ModelConfig, ResourcePolicy, RunResult
 from worker.ctxbench_worker.runtime import git, seal
 from worker.ctxbench_worker.workbench import Workbench, Interrupted, usage
+
+
+def cleanup_fixture(directory):
+    # Windows scanners can briefly retain a just-closed Git directory handle.
+    # Retry only sharing/access errors; persistent failures still fail the test.
+    for attempt in range(5):
+        try:
+            directory.cleanup()
+            return
+        except OSError as error:
+            if getattr(error, 'winerror', None) not in {5, 32, 145} or attempt == 4:
+                raise
+            time.sleep(.1 * 2 ** attempt)
+
+
+class FixtureCleanupTests(unittest.TestCase):
+    def test_transient_windows_directory_errors_are_retried(self):
+        for code in (5, 32, 145):
+            error = OSError('Temporary fixture handle')
+            error.winerror = code
+            directory = Mock()
+            directory.cleanup.side_effect = [error, None]
+            with patch('worker.tests.test_workbench.time.sleep'):
+                cleanup_fixture(directory)
+            self.assertEqual(directory.cleanup.call_count, 2)
+
+    def test_persistent_windows_errors_still_fail(self):
+        error = OSError('Persistent fixture handle')
+        error.winerror = 32
+        directory = Mock()
+        directory.cleanup.side_effect = error
+        with patch('worker.tests.test_workbench.time.sleep'), self.assertRaises(OSError):
+            cleanup_fixture(directory)
+        self.assertEqual(directory.cleanup.call_count, 5)
+
+    def test_unrelated_errors_are_never_hidden(self):
+        directory = Mock()
+        directory.cleanup.side_effect = OSError('Disk error')
+        with self.assertRaises(OSError):
+            cleanup_fixture(directory)
+        self.assertEqual(directory.cleanup.call_count, 1)
 
 
 class FixtureRunner:
@@ -311,7 +352,7 @@ class WorkbenchTests(unittest.TestCase):
 
     def setUp(self):
         self.temp = tempfile.TemporaryDirectory()
-        self.addCleanup(self.temp.cleanup)
+        self.addCleanup(cleanup_fixture, self.temp)
         self.root = Path(self.temp.name)
         self.engine = create_mock_engine(self.root)
         self.runner = FixtureRunner()

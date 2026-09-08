@@ -5,6 +5,7 @@ import { datasetWizardChinese } from "./i18n.dataset-wizard";
 import { wslChinese } from "./i18n.wsl";
 import { infrastructureChinese } from "./i18n.infrastructure";
 import { intranetChinese } from "./i18n.intranet";
+import { uxChinese } from "./i18n.ux";
 import { I18nContext, type I18nValue } from "./i18n.context";
 
 export type Locale = "en" | "zh-CN";
@@ -19,6 +20,7 @@ const zhCN: Record<string, string> = {
   ...wslChinese,
   ...infrastructureChinese,
   ...intranetChinese,
+  ...uxChinese,
   "Experiment plan created. Context preparation is queued.": "实验计划已创建，知识上下文准备任务已进入队列。",
   "Environment diagnostics completed.": "环境诊断已完成。",
   "Could not start CTXBench": "无法启动 CTXBench",

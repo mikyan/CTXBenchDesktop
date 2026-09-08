@@ -9,10 +9,10 @@ Docker images are separate GitHub assets, not embedded in the Windows installer 
 首次安装只需两个下载：**桌面安装程序 `.exe` + 同版本的离线镜像 `.zip`**。已有桌面软件时，只需镜像 ZIP，不用逐个下载清单、校验文件和脚本。
 
 1. 在外网电脑打开对应版本的 Release，下载 `ctxbench-images-v版本号-linux-amd64.zip`，复制到内网电脑。不要选 GitHub 自动提供的 `Source code (zip)`。
-2. 桌面软件进入 **基础设施 → 离线安装**，选择正确的 WSL，点击 **选择离线镜像 ZIP 包**。不需要解压。
+2. 桌面软件进入 **设置 → 应用镜像 → 安装或构建**，选择正确的 WSL，点击 **选择离线镜像 ZIP 包**。不需要解压。
 3. 确认离线包来源可信、已暂停实验并停止工作节点，点击 **校验并导入镜像**。软件显示校验、传输、解包和注册镜像阶段的进度；完成后再点击 **启动工作节点**。
 
-Fresh installation: download the desktop installer and **one matching images ZIP**. If the desktop is already installed, only the images ZIP is needed. In **Infrastructure → Offline installation**, select the ZIP, confirm its source and that experiments/worker are stopped, then **Verify and import images**. No extraction, separate checksum files or terminal commands are needed. Start the worker explicitly after import succeeds.
+Fresh installation: download the desktop installer and **one matching images ZIP**. If the desktop is already installed, only the images ZIP is needed. In **Settings → Application images → Install or build**, select the ZIP, confirm its source and that experiments/worker are stopped, then **Verify and import images**. No extraction, separate checksum files or terminal commands are needed. Start the worker explicitly after import succeeds.
 
 此功能从 v0.1.3 起提供；**v0.1.2 及更早版本没有文件选择入口**。旧版分片附件不会被替换。软件和离线包必须来自同一版本；WSL、Docker、Compose、Python 仍需事先安装，此包不包含操作系统基础环境。
 
@@ -20,13 +20,13 @@ This picker is available starting with v0.1.3; **v0.1.2 and earlier do not have 
 
 ## Repackage customized images / 内网定制镜像重新打包
 
-**从 v0.1.4 起提供导出入口。** 升级后，在 **基础设施 → 打包自定义 Docker 镜像** 操作。包格式与 v0.1.3 导入器兼容，但包内桌面版本必须与目标安装版匹配。
+**从 v0.1.4 起提供导出入口。** 升级后，在 **设置 → 应用镜像 → 导出定制镜像** 操作。包格式与 v0.1.3 导入器兼容，但包内桌面版本必须与目标安装版匹配。
 
 1. 在选定 WSL 的 Docker 中完成镜像定制。推荐基于原镜像编写 Dockerfile，将依赖安装保存为新标签，例如 `registry.internal:5000/team/pi:company-v1`。如果只进入容器安装了软件，必须先自行保存为镜像；导出不会自动提交容器。
 2. 展开打包入口。四个角色默认使用本机标准镜像，可从本地镜像提示中选择，或输入已有标签/摘要。只修改 Pi 时，其余三个角色保持默认。内网仓库地址也可以，但镜像须已经存在于本机；打包不会拉取镜像。
 3. 点击 **选择 ZIP 保存位置**，使用一个尚不存在的新文件名。确认镜像已保存，且镜像层中没有密钥、登录文件或不应共享的私有数据，再点击 **导出镜像 ZIP**。
 4. 等待检查、导出压缩、写入 ZIP 和校验完成。Docker save 阶段显示已处理 MiB 和耗时，不伪造总百分比；已知总量的阶段显示百分比。保持应用开启，切换页面后可继续查看本次进度。
-5. 复制这**一个 ZIP**到同版本目标电脑，在 **基础设施 → 离线安装 → 选择离线镜像 ZIP 包** 导入。导入前暂停实验并停止 Worker，成功后再显式启动。导出本身不需要停止 Worker。
+5. 复制这**一个 ZIP**到同版本目标电脑，在 **设置 → 应用镜像 → 安装或构建 → 选择离线镜像 ZIP 包** 导入。导入前暂停实验并停止 Worker，成功后再显式启动。导出本身不需要停止 Worker。
 
 打包固定包含 Worker、出站代理、Pi Agent、官方评分器四个角色。包记录所选镜像的固定 ID；导入时注册为本版本约定的运行标签，无需目标电脑使用你的内网源标签。镜像需保持 Linux amd64 架构及各角色原有启动/接口契约。不能在同一组配对评测中途更换镜像。
 
@@ -36,7 +36,7 @@ This picker is available starting with v0.1.3; **v0.1.2 and earlier do not have 
 
 **凭据边界：** 常见非空敏感环境变量及带账号密码的 HTTP(S) 地址会被拦截，部署配置中的同类明文值也会被拦截。检查不能完整审计镜像文件或历史层；后续层删除密钥不代表早期层已删除。不要将 API Key、登录状态或 `.env` 烘焙进镜像；应在目标电脑配置运行时环境变量。此功能不是容器/整机备份：不包含容器可写层、挂载卷、实验数据、知识库、基线仓库或额外用例镜像。
 
-**Available starting with v0.1.4.** In **Infrastructure → Package customized Docker images**, select four existing local role images (custom tags/digests supported), choose a new ZIP destination, confirm image safety, and export. First save container-only modifications as an image yourself, preferably with a reproducible Dockerfile. No build, pull, commit, service restart or upload is performed. Image IDs are pinned under temporary export-only tags; source/runtime tags are preserved. A Git checkout is not required. Import the single verified ZIP on a matching-version desktop after stopping experiments and Worker. Import restores the app's canonical role names, not your source tag names; keep the Linux amd64 architecture and role startup contracts compatible.
+**Available starting with v0.1.4.** In **Settings → Application images → Export customized images**, select four existing local role images (custom tags/digests supported), choose a new ZIP destination, confirm image safety, and export. First save container-only modifications as an image yourself, preferably with a reproducible Dockerfile. No build, pull, commit, service restart or upload is performed. Image IDs are pinned under temporary export-only tags; source/runtime tags are preserved. A Git checkout is not required. Import the single verified ZIP on a matching-version desktop after stopping experiments and Worker. Import restores the app's canonical role names, not your source tag names; keep the Linux amd64 architecture and role startup contracts compatible.
 
 Local exports support ZIP64 packages above 2 GiB; allow roughly twice the compressed size. Docker save shows bytes processed without a guessed percentage; later stages show known fractions. Keep the app open; navigation retains this session's progress. Failed writes may retain a `.zip.incomplete`; inspect the operation before retrying with a new filename. Custom bundles are explicitly non-official and cannot be published through the official release command. Common nonempty credential environment settings are blocked, but files/history require manual auditing. Never embed secrets; configure them at runtime. Volumes, writable container layers, datasets, repositories and task-specific images are not included.
 
