@@ -242,3 +242,34 @@ dialog :focus-visible { outline:2px solid #71ddd2; outline-offset:4px; }
 .standard-image-task-list small { display: block; font-size: 14px; margin-top: 4px; overflow-wrap: anywhere; }
 .standard-image-row { display: grid; gap: 6px; padding: 12px 4px; border-bottom: 1px solid var(--line); }
 .standard-image-row code { overflow-wrap: anywhere; white-space: normal; }
+
+/* Editable library: readable actions and bounded membership lists. */
+.library-source { padding:18px; border:1px solid var(--line); border-radius:10px; min-width:0; }
+.library-source legend { padding:0 6px; font-size:16px; font-weight:700; }
+.library-source p { color:#c6d2e3; font-size:14px; line-height:1.7; }
+.section-tabs { display:flex; flex-wrap:wrap; gap:8px; margin:18px 0; }
+.section-tabs button { border:1px solid var(--line); background:var(--surface); color:var(--text); border-radius:8px; padding:12px 16px; font-size:15px; cursor:pointer; }
+.section-tabs button.selected { border-color:#67d7cd; color:#9ce9df; background:#153033; }
+.selected-cases { max-height:280px; overflow:auto; padding-left:28px; }
+.selected-cases li { padding:8px 4px; overflow-wrap:anywhere; }
+.selected-cases li .text-button { margin-left:14px; }
+.collection-member { display:flex; align-items:center; justify-content:space-between; flex-wrap:wrap; gap:12px; padding:14px 0; border-bottom:1px solid var(--line); font-size:15px; }
+.collection-member span { min-width:0; overflow-wrap:anywhere; }
+.collection-member small { display:block; color:#b7c7d8; font-size:13px; padding-top:6px; }
+.dataset-card details { margin:14px 0; font-size:15px; line-height:1.65; }
+.dataset-card summary { cursor:pointer; color:var(--text); }
+.dataset-card .form-actions { gap:12px; justify-content:flex-start; }
+.dataset-card .task-prompt { color:#d1dfeb; }
+.datasets-page > section.panel { padding:24px; }
+.project-image-addresses { border:1px solid var(--line); border-radius:10px; padding:16px; min-width:0; }
+.project-image-addresses legend { padding:0 6px; font-size:16px; font-weight:700; }
+.project-image-addresses p { color:#c6d2e3; font-size:14px; line-height:1.7; }
+.project-image-address { border-top:1px solid var(--line); padding:16px 0; min-width:0; }
+.project-image-address code { display:block; overflow-wrap:anywhere; white-space:normal; color:var(--text); font-size:14px; }
+.project-image-address input { width:100%; min-width:0; font-size:15px; }
+.ci-grading-fields { margin-block: 16px; padding: 20px; border: 1px solid var(--line); border-radius: 10px; }
+.ci-grading-fields details { margin-block: 14px; }
+.ci-grading-result code, .ci-run-url { display: block; overflow-wrap: anywhere; white-space: normal; }
+.image-recipe-guide, .custom-agent-fields { margin: 18px 0; padding: 18px; border: 1px solid var(--line); border-radius: 12px; }
+.image-recipe-guide p, .remote-image-pull p, .custom-agent-fields p { font-size: 14px; line-height: 1.65; }
+.image-recipe-preview { white-space: pre-wrap; overflow-wrap: anywhere; max-height: 400px; overflow: auto; padding: 16px; background: var(--bg); border: 1px solid var(--line); }

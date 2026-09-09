@@ -1,6 +1,10 @@
 # CTXBench Desktop
 
-v0.1.6 adds local dataset file import, reusable project environments, on-demand project image installation and optional company registry mappings. See the [release notes](docs/releases/v0.1.6.md), [navigation guide](docs/workspace-navigation.md) and [real CTXBench acceptance record](docs/ctx-live-acceptance.md) for verified coverage and limits.
+v0.1.7 adds editable case libraries and dataset composition, immutable run snapshots, optional GitHub CI grading, custom coding commands without Pi, remote image downloads and guided image recipes. Missing custom Agent token usage never blocks functional testing. See the [release notes](docs/releases/v0.1.7.md) and [navigation guide](docs/workspace-navigation.md) for upgrade instructions and verified limits.
+
+v0.1.7: independent editable **Evaluation cases**, **Datasets** composed from existing cases, and automatic immutable run snapshots. Editing the library affects future runs only; queued work and retries keep their original definitions. See the [case-library guide](docs/case-library.md). Update the desktop and evaluation service images together.
+
+The official project-image installer also accepts a full internal image address or a literal `docker pull …` per required image. Saved addresses are reused by future preparation and evaluation jobs without changing official dataset rows. See [company image sources](docs/company-image-registry.md).
 
 Looking for the two standard datasets? See [official snapshots and offline import](docs/standard-datasets.md): CTXBench (formerly AGENTBench), 138 tasks, and SWE-bench Verified, 500 tasks. Current source also links them from **Datasets → Import dataset**, with pinned revisions/checksums. Dataset contents are not currently mirrored in our Release assets and do not include baseline repositories or Docker images.
 
@@ -10,10 +14,12 @@ CTXBench Desktop is a local-first Windows desktop benchmark workbench for paired
 
 ## Implemented workbench
 
+- [Remote images, guided image recipes and custom coding commands](docs/image-workshop.md) (v0.1.7): pull company images, install dependencies/default configuration step by step, and run a case-specific Agent without Pi. Coding commands are separate from grading; arbitrary CLI token usage is unknown, not zero.
 - [Company Docker registries and partial image coverage](docs/company-image-registry.md): shared image-name mappings for installation/preparation/evaluation, metadata-only availability checks, explicit subset selection and immutable runtime images; no automatic Docker Hub fallback. Package-manager sources are separate.
 - [Intranet adaptation workbench](docs/intranet-workbench.md) (v0.1.4): frozen company profiles, Git mirror mapping, isolated image recipes, saved/editable dataset drafts, actual no-Agent baseline/reference self-tests, and verified portable **custom-dataset** resource ZIPs. Official SWE/CTX dynamic environment bundles are not yet supported. Update the Worker together with the desktop.
 - SWE-bench, CTXBench (formerly AGENTBench), and custom-manifest experiment types.
-- [Guided custom dataset creation](docs/custom-datasets.md): **Datasets → Create dataset**, with reusable defaults, multiple tasks, test templates, evaluator-only patches, definition validation and JSON export.
+- [Guided custom case creation](docs/custom-datasets.md): **Evaluation cases → Create evaluation case**, then **Datasets → Compose dataset**. Cases can also generate context or start experiments directly. Legacy drafts and JSON imports remain supported.
+- [Optional CI grading for custom cases](docs/ci-grading.md) (v0.1.7): dedicated GitHub Actions evaluation branches, exact required gates and optional JUnit test counts. Platform-only in-memory credentials; a [replaceable company CI adapter](docs/ci-platform-adapter.md) keeps platform integration separate from grading policy. Verified [real GitHub pass/fail controls and restored observation](docs/ci-live-acceptance.md), plus [real Docker Pi + MiMo coding through final CI grading](docs/ci-agent-live-acceptance.md). No new knowledge base was generated; these are not knowledge-effect conclusions.
 - Paired and randomized `none` versus `skill-generated`, `manual`, or `developer-historical` context arms.
 - Content-addressed context artifacts generated once per exact repository commit and reused across runs.
 - Pi coding-agent image using its JSONL RPC mode, with provider/model selection and allowlisted environment injection.

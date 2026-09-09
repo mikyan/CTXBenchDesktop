@@ -15,6 +15,7 @@ from .catalog import Catalog, fingerprint
 from .constraint_prompts import judging_prompt, mining_prompt
 from .constraints import aggregate_constraint_votes, design_constraints_from_document, issue_verdict, judge_votes_from_document
 from .database import utc_now
+from .datasets import TaskRecord, task_document
 from .history import mine_review_archive
 from .models import ExperimentSpec, ModelConfig, RunSpec
 from .runner import DockerRunner, selected_environment
@@ -33,6 +34,8 @@ GENERATION_PROMPT = "/skill:ctxbench-generate-context\n\nCapability: tree-only. 
 
 
 def usage(metadata: dict) -> dict:
+    if metadata.get('usageAvailable') is False:
+        return dict.fromkeys(('inputTokens', 'outputTokens', 'cacheReadTokens', 'cacheWriteTokens', 'totalTokens', 'costUsd'))
     stats = metadata.get("sessionStats") or metadata
     tokens = stats.get("tokens") or {}
     cost = stats.get("cost", stats.get("totalCost"))
@@ -53,6 +56,10 @@ class Workbench:
         self.engine, self.db = engine, engine.database
         self.root = self.db.path.parent
         self.catalog = Catalog(self.root, self.db)
+        from .case_library import CaseLibrary
+        self.library = CaseLibrary(self.catalog, self.redact)
+        from .project_image_sources import ProjectImageSources
+        self.image_sources = ProjectImageSources(self)
         self.runtime = Runtime(self.root, engine.runner)
         self.history_client = history_client
         self._stop = threading.Event()
@@ -63,6 +70,8 @@ class Workbench:
         self._scope = threading.local()
         self.budgets = TokenBudget(self.db)
         self.operation_handlers = {}
+        from .ci_grading import CIGrading
+        self.ci = CIGrading(self)
 
     def start(self):
         if self._thread and self._thread.is_alive():
@@ -109,6 +118,13 @@ class Workbench:
             self._thread.join(timeout=5)
 
     def enqueue(self, kind: str, payload: dict) -> dict:
+        if kind in {'context', 'constraints'} and self.library.editable(payload.get('dataset')):
+            dataset, receipt = self.library.freeze(payload['dataset'], [payload['taskId']], payload.get('datasetRevision'))
+            payload = {**payload, 'dataset': dataset, 'datasetSnapshot': receipt}
+        if kind in {'context', 'constraints'}:
+            environment = self.image_sources.freeze(payload['dataset'], [payload['taskId']], payload.get('environment'))
+            if environment:
+                payload = {**payload, 'environment': environment}
         operation = {"id": f"op-{uuid.uuid4().hex[:16]}", "kind": kind, "payload": payload,
                      "status": "queued", "createdAt": utc_now(), "updatedAt": utc_now()}
         self.db.put_document("operations", operation["id"], operation)
@@ -138,6 +154,11 @@ class Workbench:
 
     def create_experiment(self, spec: ExperimentSpec) -> dict:
         self.validate_inputs(spec)
+        if self.library.editable(spec.dataset):
+            dataset, receipt = self.library.freeze(spec.dataset, spec.task_ids, spec.dataset_revision)
+            spec = replace(spec, dataset=dataset, dataset_snapshot=receipt)
+            self.validate_inputs(spec)
+        spec = replace(spec, company_environment=self.image_sources.freeze(spec.dataset, spec.task_ids, spec.company_environment))
         experiment = self.engine.create_experiment(spec)
         self.enqueue("experiment", {"experimentId": experiment["id"]})
         return experiment
@@ -146,19 +167,42 @@ class Workbench:
         self.validate_agent_args(spec.agent_args, spec.agent_image)
         self.validate_workflow(spec.builder_workflow, 'generate-context')
         self.validate_workflow(spec.solver_workflow, 'solve')
-        if spec.budget_id:
-            self.budgets.validate(spec.budget_id, [spec.model, *spec.profiles.values(), *spec.judge_profiles])
-        dataset = self.db.get_document("datasets", spec.dataset)
+        dataset = self.library.definition(spec.dataset) if self.library.editable(spec.dataset) else self.catalog.verify(spec.dataset)
         if dataset["benchmark"] != spec.benchmark:
             raise ValueError("The imported dataset belongs to another benchmark.")
         if spec.profiles.get("solver", spec.model) != spec.model:
             raise ValueError("The solver profile and model must be identical.")
         if spec.judge_profiles and len(spec.judge_profiles) != 3:
             raise ValueError("Research mode requires exactly three frozen judge profiles.")
-        task_index = self.catalog.index(spec.dataset)
+        task_index = {task['id']: TaskRecord(**{**task, 'test_command': tuple(task['test_command'])}) for task in dataset['tasks']}
         if any(task_id not in task_index for task_id in spec.task_ids):
             raise ValueError('Selected tasks must belong to the imported dataset.')
         tasks = [task_index[task_id] for task_id in spec.task_ids]
+        if spec.budget_id:
+            if any(task.agent for task in tasks):
+                # Only metered, enabled roles belong to the shared token guard.
+                # A custom CLI's missing telemetry must not block coding/grading.
+                metered = [spec.model] if any(not task.agent for task in tasks) else []
+                if 'skill-generated' in spec.arms:
+                    metered.append(spec.profiles.get('builder', spec.model))
+                if spec.evaluate_constraints:
+                    if any(not spec.constraint_packages.get(task.id) for task in tasks):
+                        metered.append(spec.profiles.get('constraintMiner', spec.model))
+                    metered.extend(spec.judge_profiles or (spec.profiles.get('constraintJudge', spec.model),) * 3)
+            else:
+                metered = [spec.model, *spec.profiles.values(), *spec.judge_profiles]
+            self.budgets.validate(spec.budget_id, metered)
+        for task in tasks:
+            if task.agent:
+                from .environments import public_material
+                public_material(task.agent, self.redact)
+                if spec.agent_args:
+                    raise ValueError('Custom Agent commands cannot use global Pi startup arguments. Put these arguments in the case command instead.')
+        for task in tasks:
+            if task.ci:
+                self.ci.connection(task.ci['connectionId'])
+                if spec.company_environment.get('document', {}).get('offline'):
+                    raise ValueError('CI: remote grading is incompatible with strict offline mode.')
         for task in tasks:
             task_id = task.id
             if spec.constraint_packages.get(task_id):
@@ -191,6 +235,7 @@ class Workbench:
     def preflight(self, spec: ExperimentSpec) -> dict:
         tasks = self.validate_inputs(spec)
         return {**estimate(spec, tasks), 'storage': storage_status(self.root),
+                'datasetRevision': self.library.selection(spec.dataset)['revision'],
                 'workerUsesDocker': isinstance(self.engine.runner, DockerRunner),
                 'sharedBudget': self.budgets.snapshot(spec.budget_id) if spec.budget_id else None}
 
@@ -207,6 +252,8 @@ class Workbench:
                 self._interrupt_experiment_operations(experiment_id, 'cancelled')
                 self._cancel_environment_preparations(experiment_id)
                 for run in self.db.list_runs(experiment_id):
+                    if run['status'] != 'completed':
+                        self.ci.cancel(run['id'])
                     if run["status"] == "grading" and run.get("outputDir") and isinstance(self.engine.runner, DockerRunner):
                         self.runtime.cancel_grade(Path(run["outputDir"]) / "grading")
                     if run["status"] not in {"completed", "failed", "cancelled"}:
@@ -364,6 +411,8 @@ class Workbench:
             raise
 
     def redact(self, text: str) -> str:
+        for value in getattr(getattr(self, 'ci', None), 'credentials', {}).values():
+            if value: text = text.replace(value, '[REDACTED]')
         names = getattr(self.engine.runner, "env_allowlist", ())
         for name in names:
             value = os.environ.get(name)
@@ -372,7 +421,7 @@ class Workbench:
         return text
 
     def _agent(self, key: str, mode: str, workspace_factory, prompt: str, model: ModelConfig,
-               spec: ExperimentSpec, image: str, *, context_paths=(), experiment_id=None) -> dict:
+               spec: ExperimentSpec, image: str, *, context_paths=(), experiment_id=None, command_agent=None, command_adapter_hash=None) -> dict:
         workflow = normalize_workflow(spec.builder_workflow if mode == 'generate-context' else spec.solver_workflow if mode == 'solve' else {})
         try:
             stage = self.db.get_document("stages", key)
@@ -385,7 +434,7 @@ class Workbench:
         except KeyError:
             pass
         self._check(experiment_id)
-        if workflow and isinstance(self.engine.runner, DockerRunner):
+        if workflow and isinstance(self.engine.runner, DockerRunner) and not command_agent:
             self.engine.runner.validate_workflow_image(image)
         self.validate_agent_args(spec.agent_args, image)
         run_id = f"{mode[:8]}-{uuid.uuid4().hex[:20]}"
@@ -396,7 +445,8 @@ class Workbench:
         elif mode == "judge-constraints":
             expected_document = json.loads(safe_file(workspace, "constraints.json").read_text(encoding="utf-8"))
         output = self.root / "runs" / run_id
-        if spec.budget_id:
+        metered_budget = spec.budget_id if not command_agent else ''
+        if metered_budget:
             self.budgets.validate(spec.budget_id, [model])
             try:
                 self.budgets.reserve(spec.budget_id, run_id, model.max_tokens, mode=mode, experiment_id=experiment_id, output=str(output))
@@ -416,11 +466,17 @@ class Workbench:
             result = self.engine.runner.run(RunSpec(run_id, mode, image, str(workspace), str(output), prompt,
                 model, spec.resources, spec.env_names, tuple(context_paths),
                 str(self.engine.context_skill_path) if mode == "generate-context" and self.engine.context_skill_path else None,
-                {"capability": "tree-only"} if mode == "generate-context" else {}, workflow=normalize_workflow(workflow), agent_args=spec.agent_args))
+                {"capability": "tree-only"} if mode == "generate-context" else {'commandAgent': command_agent, 'commandAdapterHash': command_adapter_hash} if command_agent else {}, workflow=normalize_workflow(workflow), agent_args=spec.agent_args))
             metadata_path = safe_file(output, "result.json")
             metadata = json.loads(metadata_path.read_text(encoding="utf-8")) if metadata_path.exists() else {}
             if isinstance(self.engine.runner, DockerRunner) and (metadata.get("schemaVersion") != 1 or metadata.get("runId") != run_id):
+                if command_agent:
+                    raise ValueError('Custom Agent image requires working python3, git and /bin/sh for UID 10001. The adapter did not return a valid result; inspect container.log.')
                 raise ValueError(f"Agent result contract invalid for run {run_id}.")
+            if command_agent and isinstance(self.engine.runner, DockerRunner):
+                expected = hashlib.sha256(json.dumps(command_agent, sort_keys=True, separators=(',', ':')).encode()).hexdigest()
+                if metadata.get('commandAgentProtocolVersion') != 1 or metadata.get('commandAgentHash') != expected:
+                    raise ValueError('Custom Agent did not confirm the frozen command.')
             if result.status != "completed" or metadata.get("status", "completed") != "completed":
                 self._check(experiment_id)
                 reason = ("Cumulative token budget exhausted" if metadata.get("budgetInterrupted") else
@@ -469,7 +525,7 @@ class Workbench:
             self.db.put_document("stages", key, stage)
             return stage
         finally:
-            if spec.budget_id:
+            if metered_budget:
                 try:
                     accounting = json.loads(safe_file(output, 'result.json').read_text(encoding='utf-8'))
                     if not isinstance(accounting, dict):
@@ -497,6 +553,9 @@ class Workbench:
         return package
 
     def import_context(self, value: dict) -> dict:
+        if self.library.editable(value.get('dataset')):
+            dataset, _ = self.library.freeze(value['dataset'], [value['taskId']], value.get('datasetRevision'))
+            value = {**value, 'dataset': dataset}
         task = self.catalog.task(value["dataset"], value["taskId"])
         if value.get("baseCommit") != task.base_commit or value.get("repository") != task.repository:
             raise ValueError("Manual package must declare the exact task repository and baseline commit.")
@@ -598,15 +657,42 @@ class Workbench:
     def run_experiment(self, experiment_id: str, start: bool = False) -> dict:
         self._check(experiment_id)
         spec = self.db.get_spec(experiment_id)
+        selected_tasks = self.validate_inputs(spec)
         try:
             prepared = self.db.get_document("prepared", experiment_id)
         except KeyError:
-            image = self.runtime.resolve_image(spec.agent_image) if isinstance(self.engine.runner, DockerRunner) else spec.agent_image
+            needs_default = any(not task.agent for task in selected_tasks) or 'skill-generated' in spec.arms or spec.evaluate_constraints
+            image = self.runtime.resolve_image(spec.agent_image) if isinstance(self.engine.runner, DockerRunner) and needs_default else spec.agent_image
             harness = self.runtime.resolve_image(self.runtime.environment.get("harnessImage", "ctxbench/official-harness:0.1.0")) if isinstance(self.engine.runner, DockerRunner) and spec.benchmark != "custom" else "custom"
             prepared = {"id": experiment_id, "image": image, "harnessImage": harness, "contexts": {}, "constraints": {}, "graderImages": {}, "agentImages": {},
                         "environmentVersion": 1}
             self.db.put_document("prepared", experiment_id, prepared)
         task_index = self.catalog.index(spec.dataset)
+        # Resolve every external target before the first paid Agent stage. Frozen
+        # policy and workflow tree are shared across both arms and all repeats.
+        for task_id in spec.task_ids:
+            task = task_index[task_id]
+            if task.agent and task_id not in prepared.setdefault('commandImages', {}):
+                prepared.setdefault('commandAdapterHash', hashlib.sha256(Path(__file__).with_name('command_adapter.py').read_bytes()).hexdigest())
+                prepared['commandImages'][task_id] = self.runtime.resolve_image(task.agent['image']) if isinstance(self.engine.runner, DockerRunner) else task.agent['image']
+                if isinstance(self.engine.runner, DockerRunner):
+                    import docker
+                    from .environments import public_image_config
+                    client = docker.from_env()
+                    try:
+                        public_image_config(client.images.get(prepared['commandImages'][task_id]).attrs.get('Config', {}), self.redact)
+                    finally:
+                        client.close()
+                self.db.put_document('prepared', experiment_id, prepared)
+            if task.ci:
+                if spec.model.provider == 'mock' or not isinstance(self.engine.runner, DockerRunner):
+                    raise ValueError('CI: mock experiments do not upload code or trigger real workflows. Use a configured real Agent and Docker runner.')
+                if task_id not in prepared.setdefault('ciTargets', {}):
+                    prepared['ciTargets'][task_id] = self.ci.prepare(task)
+                    self.db.put_document('prepared', experiment_id, prepared)
+                # Credentials are intentionally not persisted. Also preflight a
+                # restored experiment before spending tokens on another stage.
+                self.ci.adapter(prepared['ciTargets'][task_id]['connection']['document'])
         from .image_sources import ImageSources
         from .standard_images import swe_image
         company_images = ImageSources(self.runtime.environment).restricted and isinstance(self.engine.runner, DockerRunner)
@@ -650,7 +736,7 @@ class Workbench:
                 prepared.setdefault("graderImages", {})
                 if task_id not in prepared["graderImages"]:
                     prepared["graderImages"][task_id] = self.runtime.prepare_test_image(task)
-            if spec.project_environment and isinstance(self.engine.runner, DockerRunner):
+            if spec.project_environment and isinstance(self.engine.runner, DockerRunner) and (not task.agent or 'skill-generated' in spec.arms):
                 if 'agentImages' not in prepared:
                     raise ValueError('This experiment was prepared without project Agent environments. Create a new experiment; frozen plans cannot be silently upgraded.')
                 if task_id not in prepared['agentImages']:
@@ -697,7 +783,11 @@ class Workbench:
     def _run(self, run: dict, spec: ExperimentSpec, prepared: dict):
         task = self.catalog.task(spec.dataset, run["taskId"])
         agent_image = prepared.get('agentImages', {}).get(task.id, prepared['image'])
-        if spec.project_environment and isinstance(self.engine.runner, DockerRunner) and task.id not in prepared.get('agentImages', {}):
+        if task.agent:
+            agent_image = prepared.get('commandImages', {}).get(task.id)
+            if not agent_image:
+                raise ValueError('Custom Agent image has not been pinned during preparation.')
+        if spec.project_environment and not task.agent and isinstance(self.engine.runner, DockerRunner) and task.id not in prepared.get('agentImages', {}):
             raise ValueError('The frozen project Agent environment is missing; preparation must finish before coding.')
         if task.id in prepared.get("graderImages", {}):
             task = replace(task, image=prepared["graderImages"][task.id])
@@ -715,6 +805,13 @@ class Workbench:
             return workspace
         pairing = {"task": task.solver_payload(), "model": asdict(spec.model), "resources": asdict(spec.resources),
                    "image": agent_image, "dataset": spec.dataset, "envNames": spec.env_names, "harness": prepared["harnessImage"], "graderImage": task.image}
+        if task.ci:
+            pairing['ciTarget'] = prepared.get('ciTargets', {}).get(task.id)
+        if task.agent:
+            pairing['commandAgent'] = task.agent
+            pairing['commandAdapterHash'] = prepared.get('commandAdapterHash')
+            if prepared.get('commandAdapterHash') != hashlib.sha256(Path(__file__).with_name('command_adapter.py').read_bytes()).hexdigest():
+                raise ValueError('The frozen custom Agent adapter changed. Restore the matching worker or create a new experiment.')
         if spec.agent_args:
             pairing['agentArgs'] = spec.agent_args
         workflow = workflow_request(spec.solver_workflow, task.prompt)
@@ -726,7 +823,8 @@ class Workbench:
             "projectEnvironmentKey": prepared.get('projectEnvironmentKeys', {}).get(task.id),
             "mock": spec.model.provider == "mock" or not isinstance(self.engine.runner, DockerRunner), "agentArgs": list(spec.agent_args)})
         stage = self._agent(f"solve:{run['id']}", "solve", checkout, task.prompt, spec.model, spec, agent_image,
-                            context_paths=context_paths, experiment_id=run["experimentId"])
+                            context_paths=context_paths, experiment_id=run["experimentId"], command_agent=task.agent,
+                            command_adapter_hash=prepared.get('commandAdapterHash'))
         output = Path(stage["output"])
         safe_file(output, "graded.patch").read_bytes()
         mutation = safe_file(output, "context_mutation.patch")
@@ -736,16 +834,18 @@ class Workbench:
         self.db.update_run(run["id"], "grading", result)
         grade_dir = output / "grading"
         dataset = self.catalog.verify(spec.dataset)
-        binding = fingerprint({'version': 1, 'task': asdict(task), 'dataset': spec.dataset,
+        binding = fingerprint({'version': 1, 'task': task_document(task), 'dataset': spec.dataset,
                                'patch': digest(output, 'graded.patch'), 'harness': prepared['harnessImage'],
-                               'resources': asdict(spec.resources)})
+                               'resources': asdict(spec.resources),
+                               **({'ciTarget': prepared.get('ciTargets', {}).get(task.id)} if task.ci else {})})
         checkpoint = GradeCheckpoint(grade_dir, binding)
         self._check(run["experimentId"])
         grade = checkpoint.load()
         if grade is None:
             environment_options = {'environment_image': task.image} if (task.source == 'agentbench' and prepared.get('environmentVersion') == 1
                 or task.source == 'swebench' and task.id in prepared.get('graderImages', {})) else {}
-            grade = self.runtime.grade(task, Path(dataset["path"]), output / "graded.patch", grade_dir, spec.resources, prepared["harnessImage"], **environment_options)
+            grade = (self.ci.grade(task, output / 'graded.patch', run, prepared.get('ciTargets', {}).get(task.id), lambda: self._check(run['experimentId']))
+                     if task.ci else self.runtime.grade(task, Path(dataset["path"]), output / "graded.patch", grade_dir, spec.resources, prepared["harnessImage"], **environment_options))
             checkpoint.save(grade)
         if not isinstance(grade.get("resolved"), bool):
             raise ValueError("Grader must return a boolean resolved result.")
@@ -826,6 +926,7 @@ class Workbench:
             "constraints": constraints, "datasets": self.catalog.list(), "operations": [
                 {**{key: item[key] for key in ("id", "kind", "status", "createdAt", "updatedAt", "failure", "progress") if key in item},
                  "taskId": item["payload"].get("taskId"), "dataset": item["payload"].get("dataset"),
+                 "datasetSnapshot": item['payload'].get('datasetSnapshot'),
                  "resultId": item.get("result", {}).get("id")} for item in operations],
             "activity": [{"id": item["id"], "kind": "system", "message": item["kind"],
                           "detail": item.get("failure", item["status"]), "timestamp": item["updatedAt"]} for item in sorted(operations, key=lambda item: item["updatedAt"], reverse=True)[:20]],

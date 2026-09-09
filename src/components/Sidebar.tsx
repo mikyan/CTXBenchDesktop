@@ -14,6 +14,7 @@ import { version } from "../../package.json";
 const navItems: Array<{ id: Page; label: string; icon: typeof Gauge }> = [
   { id: "overview", label: "Overview", icon: Gauge },
   { id: "experiments", label: "Experiments", icon: FlaskConical },
+  { id: "cases", label: "Evaluation cases", icon: LibraryBig },
   { id: "datasets", label: "Datasets", icon: LibraryBig },
   { id: "knowledge", label: "Knowledge", icon: DatabaseZap },
   { id: "constraints", label: "Constraints", icon: ShieldCheck },
@@ -36,7 +37,7 @@ export function Sidebar({ page, onNavigate }: { page: Page; onNavigate: (page: P
         {navItems.map((item) => {
           const Icon = item.icon;
           return (
-            <div key={item.id}>{item.id === "datasets" && <div className="nav-label">{t("PREPARATION")}</div>}<button
+            <div key={item.id}>{item.id === "cases" && <div className="nav-label">{t("PREPARATION")}</div>}<button
               type="button"
               key={item.id}
               className={`nav-item ${page === item.id ? "selected" : ""}`}

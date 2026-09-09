@@ -6,10 +6,20 @@ import { I18nContext } from "../i18n.context";
 import { translate } from "../i18n";
 import { StandardImageInstaller } from "../components/StandardImageInstaller";
 import { standardImagesChinese } from "../i18n.standard-images";
-import { availableImageTasks, imageAvailable, imageStatus, selectedProjectImages, standardImageError, type ProjectImage, type StandardImagePlan } from "./standard-images";
+import { availableImageTasks, imageAvailable, imageStatus, normalizeProjectImageAddress, selectedProjectImages, standardImageError, type ProjectImage, type StandardImagePlan } from "./standard-images";
 import { externalLinks } from "./external-links";
 
 describe("standard project image installation", () => {
+  it('accepts full internal paths and extracts only a single literal docker pull address', () => {
+    const target = 'harbor.company.example:5000/mirror/planbenchx86:Internal-v1';
+    expect(normalizeProjectImageAddress(' docker pull ' + target + '\n')).toBe(target);
+    expect(normalizeProjectImageAddress(target)).toBe(target);
+    expect(normalizeProjectImageAddress('')).toBe('');
+    expect(normalizeProjectImageAddress('harbor.company.example/image@sha256:' + 'a'.repeat(64))).toContain('@sha256:');
+    for (const value of ['docker pull --all-tags ' + target, target + '; id', target + ' && true',
+      'https://' + target, 'user:password@' + target, '${REGISTRY}/image', 'namespace/image:v1', target + ' | tee /tmp/log'])
+      expect(() => normalizeProjectImageAddress(value), value).toThrow();
+  });
   it("never selects unknown, missing, private, unreachable or stale remote images as available", () => {
     const image: ProjectImage = { reference: 'registry.example/project:v1', taskIds: ['one'], installed: false, compatible: true, imageId: null, sizeBytes: null, pullAllowed: true };
     for (const status of ['unchecked', 'not-found', 'auth-required', 'unreachable', 'local', 'wrong-platform']) {

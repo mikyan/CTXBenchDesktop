@@ -23,6 +23,7 @@ from .workflows import normalize_workflow
 from .agent_args import normalize_agent_args
 from .intranet import IntranetWorkbench, register_intranet_routes
 from .dataset_files import DatasetFiles, MAX_DATASET_BYTES
+from .case_library import LibraryConflict
 from starlette.concurrency import run_in_threadpool
 from dataclasses import replace
 
@@ -78,6 +79,7 @@ class ExperimentInput(BaseModel):
     # Validate explicitly without Pydantic echoing potentially sensitive argv in errors.
     agentArgs: object = Field(default_factory=list)
     companyProfileId: str = ""
+    datasetRevision: str = ""
 
 
 class RunInput(BaseModel):
@@ -135,6 +137,7 @@ def _spec(value: ExperimentInput) -> ExperimentSpec:
         name=value.name,
         benchmark=value.benchmark,  # type: ignore[arg-type]
         dataset=value.dataset,
+        dataset_revision=value.datasetRevision,
         arms=tuple(value.arms),  # type: ignore[arg-type]
         repeats=value.repeats,
         task_ids=tuple(value.taskIds),
@@ -221,6 +224,8 @@ def create_app(
         lifespan=lifespan,
     )
     register_intranet_routes(app, intranet)
+    from .ci_grading import register_ci_routes
+    register_ci_routes(app, workbench.ci)
 
     def environment_spec(value):
         spec = _spec(value)
@@ -243,6 +248,10 @@ def create_app(
     async def invalid_value(_: Request, error: ValueError):
         return JSONResponse(status_code=422, content={"detail": workbench.redact(str(error))})
 
+    @app.exception_handler(LibraryConflict)
+    async def library_conflict(_: Request, error: LibraryConflict):
+        return JSONResponse(status_code=409, content={'detail': str(error)})
+
     @app.exception_handler(KeyError)
     async def missing_value(_: Request, error: KeyError):
         return JSONResponse(status_code=404, content={"detail": f"Record not found: {error}"})
@@ -261,6 +270,8 @@ def create_app(
             spec = environment_spec(value)
             with workbench.runtime.using_environment(spec.company_environment):
                 return workbench.create_experiment(spec)
+        except LibraryConflict:
+            raise
         except ValueError as error:
             raise HTTPException(status_code=422, detail=str(error)) from error
 
@@ -361,7 +372,45 @@ def create_app(
 
     @app.get("/v1/datasets/{dataset_id}/tasks")
     def tasks(dataset_id: str):
-        return workbench.catalog.tasks(dataset_id)
+        return workbench.library.selection(dataset_id)['tasks']
+
+    @app.get('/v1/library')
+    def case_library():
+        sets = workbench.library.sets()
+        return {'version': 1, 'sets': sets, 'cases': workbench.library.cases()}
+
+    @app.get('/v1/library/selections/{key}')
+    def library_selection(key: str):
+        return workbench.library.selection(key)
+
+    @app.get('/v1/library/cases/{key}')
+    def case_definition(key: str):
+        return workbench.library.case(key)
+
+    @app.post('/v1/library/cases', status_code=201)
+    def create_case(value: dict):
+        return workbench.library.save_case(value)
+
+    @app.put('/v1/library/cases/{key}')
+    def edit_case(key: str, value: dict):
+        return workbench.library.save_case(value, key)
+
+    @app.post('/v1/library/sets', status_code=201)
+    def create_set(value: dict):
+        return workbench.library.save_set(value)
+
+    @app.put('/v1/library/sets/{key}')
+    def edit_set(key: str, value: dict):
+        return workbench.library.save_set(value, key)
+
+    @app.get('/v1/library/snapshots')
+    def library_snapshots(source: str = ''):
+        return workbench.library.snapshots(source)
+
+    @app.get('/v1/library/snapshots/{key}')
+    def library_snapshot(key: str):
+        receipt = workbench.db.get_document('datasetSnapshots', key)
+        return {**receipt, 'tasks': workbench.catalog.tasks(receipt['dataset'])}
 
     @app.post("/v1/datasets", status_code=201)
     def import_dataset(value: dict):
@@ -433,12 +482,14 @@ def create_app(
     def prepare(kind: str, value: dict):
         if kind not in {"context", "constraints"}:
             raise ValueError("Unknown preparation kind.")
-        workbench.catalog.task(value["dataset"], value["taskId"])
+        if value['taskId'] not in {task['id'] for task in workbench.library.selection(value['dataset'])['tasks']}:
+            raise ValueError('Select a task belonging to the dataset or case.')
         model = _model(ModelConfigInput.model_validate(value["model"]))
         if value.get('budgetId'):
             workbench.budgets.validate(value['budgetId'], [model])
         resources = _resources(ResourcePolicyInput.model_validate(value["resources"]))
         payload = {"dataset": value["dataset"], "taskId": value["taskId"], "model": model.__dict__,
+                   'datasetRevision': value.get('datasetRevision', ''),
                    "resources": resources.__dict__, "agentImage": value.get("agentImage", "ctxbench/agent-pi:0.1.0"), "envNames": value.get("envNames", []), 'budgetId': value.get('budgetId', '')}
         workflow = normalize_workflow(value.get('workflow'))
         workbench.validate_workflow(workflow, 'generate-context' if kind == 'context' else 'mine-constraints')
@@ -469,7 +520,8 @@ def create_app(
     def runtime_settings():
         names = runtime_names | set(getattr(selected_engine.runner, "env_allowlist", DEFAULT_SECRET_ALLOWLIST))
         return {"runner": type(selected_engine.runner).__name__, "dataDirectory": str(data_root),
-                'defaultPrompts': {'builder': GENERATION_PROMPT}, 'projectEnvironmentVersion': 1,
+                'defaultPrompts': {'builder': GENERATION_PROMPT}, 'projectEnvironmentVersion': 1, 'caseLibraryVersion': 1, 'ciGradingVersion': 1,
+                'commandAgentVersion': 1, 'imageWorkshopVersion': 1,
                 'storage': storage_status(data_root),
                 "credentials": [{"name": name, "configured": bool(os.environ.get(name))} for name in sorted(names)],
                 "datasetFiles": sorted(path.name for path in (data_root / "datasets").glob("*") if path.suffix in {".parquet", ".jsonl"})}

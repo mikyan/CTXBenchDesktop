@@ -263,7 +263,13 @@ class IntranetTests(unittest.TestCase):
         self.wb.db.put_document('projectEnvironments', 'f'*64, {'key':'f'*64, 'repository':'unrelated',
             'baseCommit':row()['baseCommit'], 'agentAdapter':'unrelated/agent'})
         resource = PortableResources(self.service)
-        operation = self.service.enqueue('bundle-export', {'dataset':dataset['id']})
+        collection = self.wb.library.adopt(dataset['id'])
+        operation = self.service.enqueue('bundle-export', {'dataset':collection['id'],
+            'datasetRevision': self.wb.library.selection(collection['id'])['revision']})
+        case = self.wb.library.case(collection['caseIds'][0])
+        self.wb.library.save_case({'name': 'Edited later', 'benchmark': 'custom', 'expectedRevision': 1,
+            'row': {**case['row'], 'image': 'company/future:v2', 'prompt': 'Future task'}}, case['id'])
+        self.assertEqual(operation['payload']['datasetSnapshot']['sourceId'], collection['id'])
         attempt = self.root / 'export-attempt'; attempt.mkdir()
         client = Mock()
         def image(ref):
@@ -274,6 +280,7 @@ class IntranetTests(unittest.TestCase):
             result = resource.export(operation, attempt)
         with zipfile.ZipFile(result['path']) as archive:
             manifest = json.loads(archive.read('manifest.json'))
+            self.assertEqual(json.loads(archive.read('evaluator/dataset.json')), [row()])
         refs = {ref for image in manifest['images'] for ref in image['references']}
         self.assertEqual(refs, {row()['image'], 'ctxbench/project-agent:'+'d'*64, 'sha256:'+'e'*64})
         client.images.pull.assert_not_called()

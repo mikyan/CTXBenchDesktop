@@ -3,6 +3,7 @@ import { useI18n } from "../i18n";
 import { listLocalImages } from "../lib/desktop";
 import { savedDistribution } from "../lib/wsl";
 import { bundledImageRole, imageRoleHints } from "../lib/test-images";
+import { RemoteImagePull } from './RemoteImagePull';
 
 export function TestImagePicker({ value, onChange }: { value: string; onChange: (image: string) => void }) {
   const { t } = useI18n();
@@ -29,6 +30,7 @@ export function TestImagePicker({ value, onChange }: { value: string; onChange: 
     {!loading && !error && distribution && !images.length && <p>{t("No tagged local images found. Build or import the required images first, or enter a local image digest.")}</p>}
     <label>{t("Test image reference")}<input value={value} autoComplete="off" spellCheck={false} placeholder="ctxbench/agent-pi:0.1.0" onChange={(event) => onChange(event.target.value)} /></label>
     <p>{t("You may reuse a suitable image or type an internal registry tag/digest. An image not listed here may require a pull during preparation; in an offline network, import it into the selected Docker environment first.")}</p>
+    <RemoteImagePull initialImage={value} compact onInstalled={(image) => { onChange(image); setRefresh((current) => current + 1); }} />
     {role && <p className="wizard-notice" role="status">{t(imageRoleHints[role])}</p>}
     <details><summary>{t("Can I use the four imported application images?")}</summary>
       <dl className="image-role-guide">{(["agent", "harness", "worker", "proxy"] as const).map((kind) => <div key={kind}><dt><code>{({ agent: "agent-pi", harness: "official-harness", worker: "worker", proxy: "egress-proxy" })[kind]}</code></dt><dd>{t(imageRoleHints[kind])}</dd></div>)}</dl>

@@ -14,6 +14,10 @@ import { CompanyProfilePicker } from "./CompanyProfilePicker";
 import { SectionNav } from "./SectionNav";
 import { FormError } from "./Dialogs";
 import { ProjectEnvironmentField, requireProjectEnvironment } from "./ProjectEnvironmentField";
+import { libraryError, librarySources, loadLibrary, type LibrarySelection } from '../lib/case-library';
+import { LibrarySourcePicker } from './LibrarySourcePicker';
+import { ProjectImageSourceNotice } from './ProjectImageSourceNotice';
+import { CISelectionNotice } from './CISelectionNotice';
 
 export function ExperimentComposer({ creating, onClose, onCreate, artifacts, initialDataset = "", imageSelection }: {
   creating: boolean; onClose: () => void; onCreate: (request: CreateExperimentRequest) => Promise<void>; artifacts: KnowledgeArtifact[]; initialDataset?: string; imageSelection?: import("../lib/standard-images").ImageSelection;
@@ -46,10 +50,12 @@ export function ExperimentComposer({ creating, onClose, onCreate, artifacts, ini
   const [builderWorkflow, setBuilderWorkflow] = useState(defaultWorkflow);
   const [solverWorkflow, setSolverWorkflow] = useState(defaultWorkflow);
   const [generationPrompt, setGenerationPrompt] = useState<string>();
+  const [selectionBenchmark, setSelectionBenchmark] = useState<DatasetRecord['benchmark']>();
+  const [datasetRevision, setDatasetRevision] = useState(''); const [selectionReload, setSelectionReload] = useState(0);
   const [preflight, setPreflight] = useState<{ request: string; report: { runs: number; builderInvocations: number; minerInvocations: number; judgeInvocations: number; builderPromptSteps?: number; solverPromptSteps?: number; configuredTokenAllowance: number; storage: { freeBytes: number; ready: boolean } } }>();
   useEffect(() => {
-    workerRequest<DatasetRecord[]>("/datasets").then(setDatasets).catch((error) => setError(String(error)));
-    workerRequest<TokenBudgetRecord[]>("/token-budgets").then(setBudgets).catch((error) => setError(String(error)));
+    loadLibrary().then((value) => setDatasets(librarySources(value))).catch((error) => setError(libraryError(error)));
+    workerRequest<TokenBudgetRecord[]>("/token-budgets").then(setBudgets).catch((error) => setError(libraryError(error)));
     workerRequest<typeof availableConstraints>("/constraint-packages").then(setAvailableConstraints).catch(() => {});
     workerRequest<RuntimeSettings>("/runtime").then((settings) => {
       setGenerationPrompt(settings.defaultPrompts?.builder);
@@ -57,10 +63,15 @@ export function ExperimentComposer({ creating, onClose, onCreate, artifacts, ini
       if (mimo) { if (!environmentEdited.current) setEnv(mimo.name); if (!modelEdited.current) { const profile = { ...defaultProfile(), provider: "xiaomi-token-plan-cn", model: "mimo-v2.5" }; setProfiles({ solver: profile, builder: profile, constraintMiner: profile, constraintJudge: profile }); } }
     }).catch(() => {});
   }, []);
-  useEffect(() => { let current = true; setTasks([]); setSelected([]); setPackages({}); if (dataset) workerRequest<TaskSummary[]>(`/datasets/${dataset}/tasks`).then((tasks) => { if (current) { setTasks(tasks); if (dataset === initialDataset && imageSelection) setSelected(imageSelection.taskIds.filter((id) => tasks.some((task) => task.id === id))); } }).catch((error) => setError(String(error))); return () => { current = false; }; }, [dataset, initialDataset, imageSelection]);
+  useEffect(() => { let current = true; setTasks([]); setSelected([]); setPackages({}); setDatasetRevision(''); setSelectionBenchmark(undefined);
+    if (dataset) void workerRequest<LibrarySelection>(`/library/selections/${dataset}`).then((value) => { if (current) { setTasks(value.tasks); setDatasetRevision(value.revision); setSelectionBenchmark(value.dataset.benchmark); if (dataset === initialDataset && imageSelection) setSelected(imageSelection.taskIds.filter((id) => value.tasks.some((task) => task.id === id))); else if (dataset.startsWith('case-')) setSelected(value.tasks.map((task) => task.id)); } }).catch((error) => { if (current) setError(libraryError(error)); });
+    return () => { current = false; };
+  }, [dataset, initialDataset, imageSelection, selectionReload]);
   const visible = tasks.filter((task) => `${task.id} ${task.repository}`.toLowerCase().includes(query.toLowerCase()));
+  const hasCustomCommands = tasks.some((task) => selected.includes(task.id) && task.customAgentImage);
+  const hasMeteredSolver = tasks.some((task) => selected.includes(task.id) && !task.customAgentImage);
   const selectedPackages = (values: Record<string, string>) => Object.fromEntries(selected.filter((id) => values[id]).map((id) => [id, values[id]]));
-  const request: CreateExperimentRequest = { name, benchmark: datasets.find((item) => item.id === dataset)?.benchmark ?? "custom", dataset, taskIds: selected, arms: ["none", arm], repeats, seed, profiles, model: profiles.solver,
+  const request: CreateExperimentRequest = { name, benchmark: selectionBenchmark ?? datasets.find((item) => item.id === dataset)?.benchmark ?? "custom", dataset, datasetRevision, taskIds: selected, arms: ["none", arm], repeats, seed, profiles, model: profiles.solver,
     agentImage: image, projectEnvironment, resources: { cpus: cpu, memoryGb: memory, timeoutMinutes: timeout, network }, envNames: parseEnvironmentNames(env), prepareOnly, evaluateConstraints: constraints, contextArtifacts: selectedPackages(packages), constraintPackages: selectedPackages(constraintPackages), judgeProfiles: judges, budgetId,
     builderWorkflow: arm === "skill-generated" ? builderWorkflow : defaultWorkflow(), solverWorkflow, agentArgs, companyProfileId };
   const requestJson = JSON.stringify(request);
@@ -70,7 +81,7 @@ export function ExperimentComposer({ creating, onClose, onCreate, artifacts, ini
     if (envError) { setError(t(envError)); return; }
     setChecking(true); setError("");
     try { await requireProjectEnvironment(projectEnvironment, t); const report = await workerRequest<NonNullable<typeof preflight>["report"]>("/preflight", "POST", request); setPreflight({ request: requestJson, report }); }
-    catch (error) { setError(String(error)); }
+    catch (error) { setError(libraryError(error)); }
     finally { setChecking(false); }
   };
   const submit = async () => {
@@ -80,7 +91,7 @@ export function ExperimentComposer({ creating, onClose, onCreate, artifacts, ini
     setError("");
     if (selected.length > 20 && !checked) { setError(t("Review workload preflight before creating a large experiment.")); return; }
     setChecking(true);
-    try { await requireProjectEnvironment(projectEnvironment, t); await onCreate(request); } catch (error) { setError(String(error)); } finally { setChecking(false); }
+    try { await requireProjectEnvironment(projectEnvironment, t); await onCreate(request); } catch (error) { setError(libraryError(error)); } finally { setChecking(false); }
   };
   const steps = [{ id: "tasks", label: "Tasks & comparison" }, { id: "execution", label: "Models & execution" }, { id: "review", label: "Review & create" }] as const;
   const go = (value: typeof step) => {
@@ -99,8 +110,14 @@ export function ExperimentComposer({ creating, onClose, onCreate, artifacts, ini
     <h3 ref={stepHeading} tabIndex={-1} className="composer-step-title">{t(steps.find((item) => item.id === step)!.label)}</h3>
     <div hidden={step !== "tasks"} className="composer-step">
     <label>{t("Experiment name")}<input value={name} onChange={(e) => setName(e.target.value)} /></label>
-    <label>{t("Dataset or manifest")}<select value={dataset} onChange={(e) => setDataset(e.target.value)}><option value="">{t("Select an imported dataset")}</option>{datasets.map((item) => <option key={item.id} value={item.id}>{datasetLabel(item, t)} · {item.count}</option>)}</select></label>
-    {!datasets.length && <p>{t("Import a dataset from the dataset library first.")}</p>}
+    <LibrarySourcePicker value={dataset} onChange={setDataset} sources={datasets} onReload={() => { setError(''); setSelectionReload((value) => value + 1); }} />
+    <ProjectImageSourceNotice key={selectionReload} dataset={dataset} profileId={companyProfileId} />
+    <CISelectionNotice key={`ci-${selectionReload}`} dataset={dataset} selected={selected} />
+    {tasks.some((task) => selected.includes(task.id) && task.customAgentImage) && <aside className="wizard-notice" role="status"><p>{t('Selected cases override the coding Agent image and command. Project dependency composition and the default Pi image do not replace these custom coding images. Knowledge generation still uses the experiment Agent. Custom command token usage and enforcement are unavailable.')}</p>
+      {tasks.filter((task) => selected.includes(task.id) && task.customAgentImage).map((task) => <p key={task.id}>{task.id}: <code>{task.customAgentImage}</code></p>)}
+      {agentArgs.length > 0 && <button type="button" className="button secondary" onClick={() => setAgentArgs([])}>{t('Remove incompatible Pi arguments')}</button>}
+    </aside>}
+    {!datasets.length && <p>{t('Create a case or import standard cases first, then compose a dataset here.')}</p>}
     <label>{t("Filter tasks")}<input value={query} onChange={(e) => setQuery(e.target.value)} /></label>
     <div className="task-picker"><button className="text-button" onClick={() => setSelected(visible.map((task) => task.id))}>{t("Select filtered tasks")}</button><button className="text-button" onClick={() => setSelected([])}>{t("Clear")}</button>
       {visible.map((task) => <label className="check-line" key={task.id}><input type="checkbox" checked={selected.includes(task.id)} onChange={(e) => setSelected((current) => e.target.checked ? [...current, task.id] : current.filter((id) => id !== task.id))} /><span>{task.id}<small>{task.repository} · {task.baseCommit.slice(0, 12)}</small></span></label>)}
@@ -121,8 +138,9 @@ export function ExperimentComposer({ creating, onClose, onCreate, artifacts, ini
     <label>{t("Shared token budget")}<select value={budgetId} onChange={(e) => {
       setBudgetId(e.target.value); const budget = budgets.find((item) => item.id === e.target.value);
       if (budget) { modelEdited.current = true; const bind = (profile: FrozenModelConfig) => ({ ...profile, provider: budget.provider, model: budget.model });
-        setProfiles((current) => ({ builder: bind(current.builder), solver: bind(current.solver), constraintMiner: bind(current.constraintMiner), constraintJudge: bind(current.constraintJudge) })); setJudges((current) => current.map(bind)); }
+        setProfiles((current) => ({ builder: bind(current.builder), solver: hasMeteredSolver || !hasCustomCommands ? bind(current.solver) : current.solver, constraintMiner: bind(current.constraintMiner), constraintJudge: bind(current.constraintJudge) })); setJudges((current) => current.map(bind)); }
     }}><option value="">{t("No shared budget")}</option>{budgets.map((budget) => <option key={budget.id} value={budget.id}>{budget.id} · {budget.model} · {budget.remainingTokens.toLocaleString()}</option>)}</select></label>
+    {hasCustomCommands && <p className="wizard-notice">{t('Missing token usage does not block custom commands or affect grading. These commands bypass shared token accounting; only metered roles remain budget-protected. Token totals and allowances exclude custom commands, not their actual consumption. Configure spending limits in your Agent or Provider.')}</p>}
     {(Object.keys(profiles) as (keyof typeof profiles)[]).filter((role) => (role !== "builder" || arm === "skill-generated") && (constraints || !role.startsWith("constraint"))).map((role) => <ProfileEditor key={role} title={t(role)} value={profiles[role]} onChange={(value) => { modelEdited.current = true; setProfiles({ ...profiles, [role]: value }); }} />)}
     <label className="check-line"><input type="checkbox" checked={constraints} onChange={(e) => setConstraints(e.target.checked)} />{t("Mine historical constraints and run three independent judges")}</label>
     {constraints && selected.map((id) => { const task = tasks.find((task) => task.id === id)!; return <label key={`constraints-${id}`}>{t("Frozen constraints")} · {id}<select value={constraintPackages[id] ?? ""} onChange={(event) => setConstraintPackages({ ...constraintPackages, [id]: event.target.value })}><option value="">{t("Mine or reuse matching miner cache")}</option>{availableConstraints.filter((item) => `https://github.com/${item.repository}.git` === task.repository && item.commit === task.baseCommit).map((item) => <option key={item.id} value={item.id}>{item.id.slice(0, 12)} · {item.count} · history v{item.historyVersion ?? 1}</option>)}</select></label>; })}
@@ -137,8 +155,11 @@ export function ExperimentComposer({ creating, onClose, onCreate, artifacts, ini
     </div><div hidden={step !== "review"} className="composer-step">
     <h3>{t("Review the plan before starting")}</h3><dl className="review-grid"><div><dt>{t("Experiment name")}</dt><dd>{name}</dd></div><div><dt>{t("Dataset or manifest")}</dt><dd>{datasets.find((item) => item.id === dataset)?.name}</dd></div><div><dt>{t("Tasks")}</dt><dd>{selected.length} × {repeats}</dd></div><div><dt>{t("Context arm")}</dt><dd>{t(arm === "skill-generated" ? "Skill generated" : arm === "manual" ? "Frozen package (generated or manual)" : "Developer historical")}</dd></div><div><dt>{t("Model")}</dt><dd>{profiles.solver.provider} / {profiles.solver.model}</dd></div><div><dt>{t("Agent image")}</dt><dd>{image}</dd></div></dl>
     <p>{t("Changing a field invalidates the previous preflight. The no-context baseline is always included.")}</p>
+    {hasCustomCommands && <p className="wizard-notice">{t('Missing token usage does not block custom commands or affect grading. These commands bypass shared token accounting; only metered roles remain budget-protected. Token totals and allowances exclude custom commands, not their actual consumption. Configure spending limits in your Agent or Provider.')}</p>}
     <p>{t("Agent build environment")}: {t(projectEnvironment ? "Prepared project environment" : "Agent image as-is")}</p>
     <label className="check-line"><input type="checkbox" checked={prepareOnly} onChange={(e) => setPrepareOnly(e.target.checked)} />{t("Prepare all context first; start solver runs later")}</label>
+    <p className="wizard-notice">{t('Starting freezes the selected case revisions, prompts, baselines, test definitions and membership. Resume and retry reuse that snapshot, even after library edits.')}</p>
+    <CISelectionNotice key={`ci-review-${selectionReload}`} dataset={dataset} selected={selected} />
     <p>{t("{runs} runs · {keys} context keys", { runs: selected.length * repeats * 2, keys: new Set(tasks.filter((task) => selected.includes(task.id)).map((task) => `${task.repository}@${task.baseCommit}`)).size })}</p>
     <button className="button secondary" disabled={checking || creating || !selected.length || !name.trim()} onClick={() => void check()}>{t(checking ? "Checking…" : "Workload preflight")}</button>
     {checked && <section className="panel workbench-results"><h3>{t("Workload preflight")}</h3>
@@ -150,7 +171,7 @@ export function ExperimentComposer({ creating, onClose, onCreate, artifacts, ini
       <small>{t("For WSL virtual disks, also check free space on the Windows host volume.")}</small>
     </section>}
     </div>
-    {error && <FormError>{error}</FormError>}
+    {error && <FormError>{t(error)}</FormError>}
     <footer className="composer-footer">
       {step !== "tasks" && <button className="button secondary" disabled={creating || checking} onClick={() => go(step === "review" ? "execution" : "tasks")}>{t("Back")}</button>}
       <span>{selected.length} {t("Tasks")} · {selected.length * repeats * 2} {t("runs")}</span>

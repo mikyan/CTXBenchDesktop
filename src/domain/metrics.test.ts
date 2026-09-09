@@ -26,6 +26,17 @@ const run = (
 });
 
 describe("aggregateDashboard", () => {
+  it('keeps pass/fail and paired results when token and cost usage are unavailable', () => {
+    const runs = [run('1', 'a', 'none', false, undefined), run('2', 'a', 'manual', true, undefined)]
+      .map((item) => ({ ...item, inputTokens: undefined, outputTokens: undefined, costUsd: undefined }));
+    const metrics = aggregateDashboard(runs);
+    expect(metrics.totalRuns).toBe(2);
+    expect(metrics.passRate).toBe(.5);
+    expect(metrics.knowledgeLift).toBe(1);
+    expect(metrics.pairedWins).toBe(1);
+    expect(metrics.failedRuns).toBe(0);
+    expect(pairedComparisons(runs)[0].lift).toBe(1);
+  });
   it("retains functional grades when a later independent judge fails", () => {
     const metrics = aggregateDashboard([{ ...run('1', 'a', 'none', true, undefined), status: 'failed' }]);
     expect(metrics.totalRuns).toBe(1);

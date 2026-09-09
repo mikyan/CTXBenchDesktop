@@ -10,7 +10,7 @@ import { EnvironmentFields, TaskFields } from "./DatasetWizardFields";
 import { DatasetSelfTest } from "./DatasetSelfTest";
 import { DatasetDrafts } from "./DatasetDrafts";
 
-export function DatasetWizard({ onClose, onComplete }: { onClose: () => void; onComplete: (dataset: DatasetRecord) => void }) {
+export function DatasetWizard({ onClose, onComplete, legacyImport = false }: { onClose: () => void; onComplete: (dataset: DatasetRecord) => void; legacyImport?: boolean }) {
   const { t } = useI18n();
   const [draft, setDraft] = useState(newDatasetDraft);
   const [step, setStep] = useState(0);
@@ -58,7 +58,8 @@ export function DatasetWizard({ onClose, onComplete }: { onClose: () => void; on
     catch { setError("Could not read the patch file."); }
     finally { setBusy(false); }
   };
-  return <Modal title={t("Create custom dataset")} busy={busy} onClose={close}>
+  return <Modal title={t(legacyImport ? "Open legacy draft importer" : "Create custom dataset")} busy={busy} onClose={close}>
+    {legacyImport && <p>{t('Restore previously saved multi-case drafts here. Importing adds their cases to the library and creates an initial dataset; existing cases and snapshots are not overwritten.')}</p>}
     <div className="dataset-wizard" aria-busy={busy}>
       {discard && !created && <ConfirmDialog title={t("Discard unsaved changes?")} description={t("Closing discards the current draft edits. Saved draft versions and exported files are kept; no dataset has been created yet.")} cancelLabel={t("Keep editing")} confirmLabel={t("Discard and close")} onCancel={() => setDiscard(false)} onConfirm={onClose} />}
       {remove !== undefined && <ConfirmDialog title={t("Remove this task")} description={`${draft.tasks[remove].id} — ${t("Removing a task discards its prompt and test definition from this draft.")}`} confirmLabel={t("Confirm remove task")} onCancel={() => setRemove(undefined)} onConfirm={() => { update({ ...draft, tasks: draft.tasks.filter((_, index) => index !== remove) }); setSelected(Math.max(0, remove - 1)); setRemove(undefined); }} />}
@@ -105,7 +106,7 @@ export function DatasetWizard({ onClose, onComplete }: { onClose: () => void; on
             <p className="wizard-lead">{draft.name} · {t(draft.tasks.length === 1 ? "1 task" : "{count} tasks", { count: draft.tasks.length })} · {t("Custom")}</p>
             <div className="table-scroll"><table className="wizard-review"><thead><tr>{["Task ID", "Baseline / test image", "Private tests"].map((key) => <th key={key}>{t(key)}</th>)}</tr></thead><tbody>{draft.tasks.map((item, index) => {
               const env = item.override ?? draft.defaults;
-              return <tr key={index}><td><button className="text-button" onClick={() => { setSelected(index); go(2); }}>{item.id}</button></td><td><div>{env.repository}</div><code>{env.baseCommit.slice(0, 12)}</code><div>{env.mode === "image" ? env.image : `${env.context}/${env.dockerfile}`}</div></td><td>{t(item.hiddenPatch.trim() ? "Hidden patch" : "Command only")}</td></tr>;
+              return <tr key={index}><td><button className="text-button" onClick={() => { setSelected(index); go(2); }}>{item.id}</button></td><td><div>{env.repository}</div><code>{env.baseCommit.slice(0, 12)}</code><div>{env.mode === "image" ? env.image : `${env.context}/${env.dockerfile}`}</div></td><td>{t(item.ci ? 'Remote CI pipeline gates' : item.hiddenPatch.trim() ? "Hidden patch" : "Command only")}</td></tr>;
             })}</tbody></table></div>
             <p className="wizard-notice">{t("Validation checks only the definition: required fields, unique IDs, pinned commits and environment format. It does not clone repositories, pull images, apply patches or run tests. Verify baseline FAIL / correct-fix PASS before trusting scores.")}</p>
             <p>{t("Do not include credentials in prompts, patches, image URLs or build arguments. This dataset is frozen on creation and can be reused by multiple experiments.")}</p>

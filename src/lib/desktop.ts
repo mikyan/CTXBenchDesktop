@@ -26,7 +26,7 @@ export async function loadSnapshot(): Promise<DashboardSnapshot> {
   return { ...snapshot, metrics: aggregateDashboard(realRuns), armMetrics: aggregateArms(realRuns) };
 }
 
-export async function workerRequest<T>(path: string, method: "GET" | "POST" = "GET", body?: unknown): Promise<T> {
+export async function workerRequest<T>(path: string, method: "GET" | "POST" | "PUT" = "GET", body?: unknown): Promise<T> {
   if (isTauri()) return invoke<T>("worker_request", { method, path, body: body ?? null });
   const response = await fetch(`/worker${path}`, { method, headers: body ? { "Content-Type": "application/json" } : {}, body: body ? JSON.stringify(body) : undefined });
   let payload;

@@ -10,6 +10,7 @@ import { Pagination } from "../components/Pagination";
 import { pageWindow } from "../domain/pagination";
 import { TokenBudgets } from "../components/TokenBudgets";
 import { benchmarkLabel } from "../lib/benchmark-labels";
+import { DatasetSnapshotBadge } from '../components/DatasetSnapshotView';
 import { SectionNav } from "../components/SectionNav";
 import { experimentViews } from "../lib/navigation";
 import { ConfirmDialog } from "../components/Dialogs";
@@ -72,6 +73,7 @@ export function ExperimentsPage({ snapshot, onNewExperiment, onExport, onDataset
               </div>
               <div className="experiment-main">
                 <div className="experiment-heading"><h3>{experiment.name}</h3><StatusBadge status={experiment.status} /></div>
+                <DatasetSnapshotBadge snapshot={experiment.datasetSnapshot} />
                 {experiment.environmentPreparation && <p className="environment-progress" role="status">{t("Agent build environment")} · {experiment.environmentPreparation.taskId}: {t(experiment.environmentPreparation.message)}</p>}
                 <div className="experiment-meta">
                   <span>{benchmarkLabel(experiment.benchmark, t)}</span><i />

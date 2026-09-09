@@ -43,7 +43,7 @@ export function OperatorJobPanel({ initial, onCompleted, onStatusChange, control
     <p><code>{job.id}</code> · {t("Runs in the persistent local evaluation queue. Leaving this page does not stop it.")}</p>
     {controls && <div className="form-actions">{["queued", "running", "paused"].includes(job.status) && <button type="button" className="button secondary" disabled={busy} onClick={() => setCancel(true)}>{t(checkingImages ? "Cancel image check" : "Cancel installation")}</button>}{["failed", "cancelled", "paused"].includes(job.status) && <button type="button" className="button secondary" disabled={busy} onClick={() => void control(job.status === "paused" ? "resume" : "retry")}>{t(checkingImages ? "Retry image check" : "Retry / continue installation")}</button>}</div>}
     {job.kind === "intranet:standard-images" && <p>{t("Progress counts completed images, not downloaded bytes. Layer download and extraction details appear below; installed images have not yet passed project tests.")}</p>}
-    {!terminalOperatorJob(job.status) && <progress aria-label={t("Operation progress")} max={100} value={job.progress?.percent ?? 0} />}
+    {!terminalOperatorJob(job.status) && <progress aria-label={t("Operation progress")} max={100} value={job.kind === 'intranet:image-pull' ? undefined : job.progress?.percent ?? 0} />}
     {error && <p role="alert">{t("Progress connection lost; reconnecting. The operation may still be running.")} {error}</p>}
     {job.failure && (controls ? <FormError>{job.failure}</FormError> : <p className="form-error" role="alert">{job.failure}</p>)}
     {job.progress?.log && <details open={!terminalOperatorJob(job.status)}><summary>{t("Operation log")}</summary><pre>{job.progress.log}</pre></details>}

@@ -2,12 +2,15 @@
 
 ## 中文
 
-入口：**评测集 → 创建评测集**。无需手写 JSON，也不会在创建时调用模型。
+v0.1.7 入口：**评测用例 → 创建评测用例**。先独立保存用例，再去 **评测集 → 组合评测集** 勾选已有用例。无需手写 JSON，也不会在保存定义时调用模型。[完整流程、编辑和快照规则](case-library.md)。
 
-1. **评测集信息**：填写名称。一个任务是一个独立编码问题；任务中的多个测试断言不等于多次 Agent 运行。重复次数在实验中配置。
-2. **默认仓库与环境**：填写 Git 地址、修复前的完整 40 位提交号，以及测试镜像或基线 Dockerfile。Gitee、公司内网 Git 均可，不限 GitHub；Worker 必须能访问仓库。不要在 URL 中嵌入凭据。仓库路径必须是 Worker 容器可见的 Linux 路径。
-3. **任务与测试用例**：填写唯一任务 ID、给 Agent 的需求描述，以及判分用的测试命令。可添加、复制、删除任务；可单独覆盖任务的仓库、基线和环境。未覆盖的任务会随默认值更新，覆盖的任务独立保存。
-4. **检查并创建**：检查各任务的环境和隐藏测试来源，可校验定义、预览或导出 JSON，最后创建。创建后到“新建实验”选择它，再设置模型、知识库分支、编排和重复次数。
+使用公司自己的 Agent 时，在“任务与测试 → 编码 Agent”选择 **执行我自己的 Agent 命令**，单独填写 Agent 镜像和命令，无需 Pi。它与判分用的测试命令不同。测试／Agent 镜像旁可直接拉取远端镜像；安装依赖和修改默认配置见[四步镜像制作及接入指南](image-workshop.md)。自定义命令只覆盖编码角色，Token 用量未知不影响执行或判分；关联的共享预算只保护可统计角色，自定义命令阶段跳过 Token 记账和额度检查。
+
+自定义用例也可选择 **远程 CI 流水线门禁**，自动提交候选代码到 GitHub 并读取门禁／JUnit 统计；不再填写本地评分命令。[GitHub 操作步骤与安全要求](ci-grading.md)、[公司平台适配协议](ci-platform-adapter.md)。Agent 本身仍在本地 Docker 内编码，CI Token 不会传给它。
+
+1. 填写**用例名称**，在 **仓库与环境** 填写 Git 地址、修复前的完整 40 位提交号，以及测试镜像或基线 Dockerfile。Gitee、公司内网 Git 均可；评测服务必须能访问仓库。不要在 URL 中嵌入凭据。仓库路径必须是服务容器可见的 Linux 路径。
+2. 在 **任务与测试** 填写唯一任务 ID、给 Agent 的需求描述，以及判分用的测试命令。一个用例是一个独立编码问题；多个断言不等于多次 Agent 运行。重复次数在实验中配置。
+3. 在 **检查并保存** 检查定义；提供参考修复后可另行执行容器自检。保存后用例卡片可直接“生成知识库”或“新建实验”，也可加入多个评测集。
 
 ### 一个具体的用例怎么设计
 
@@ -32,9 +35,9 @@ def test_internal_spaces():
 
 测试命令填写 `python -m pytest -q tests`。模板只是填入常用命令，**不会自动创建测试文件或安装 pytest**。测试在隔离容器的 `/workspace` 中离线执行：退出码 0 表示通过，非 0 表示失败。断言必须能发现问题，不能只打印结果，也不能用 `|| true` 等方式掩盖失败。
 
-测试镜像与 Agent 镜像是两个用途不同的配置，但**可以复用同一个合适的镜像**。前者执行测试，在此向导设置；后者运行编码 Agent，在实验配置中选择。构建模式中的 Dockerfile 相对构建目录，构建目录相对仓库根目录，且 Dockerfile 必须存在于所选基线。不要向镜像写入密钥。
+测试镜像与 Agent 镜像是两个用途不同的配置，但**可以复用同一个合适的镜像**。前者执行测试，在此向导设置；后者运行编码 Agent，默认在实验配置中选择，也可在用例中用自定义镜像和命令覆盖。构建模式中的 Dockerfile 相对构建目录，构建目录相对仓库根目录，且 Dockerfile 必须存在于所选基线。不要向镜像写入密钥。
 
-### 已经导入四个基础镜像，测试镜像怎么选？（待发布）
+### 已经导入四个基础镜像，测试镜像怎么选？（v0.1.7）
 
 向导会读取“设置 → 运行环境”所选 WSL 的本地镜像，支持下拉选择、刷新和手填内网标签／摘要。列表只确认镜像已安装，不证明测试兼容性。
 
@@ -49,7 +52,7 @@ def test_internal_spaces():
 
 依赖请安装到 `/opt/venv` 等路径；评分时 `/workspace` 会被干净基线和待评测补丁的挂载遮盖。测试阶段无网络，不能临时联网安装依赖。不要把答案或隐藏测试打入共享镜像。最后一步可提供参考修复补丁并运行自测，确认基线因为行为断言失败、正确修复通过。
 
-关闭未完成表单、覆盖草稿、删除用例等操作会居中弹出确认，不再把提示放到表单顶部。Esc 只返回当前编辑；放弃必须明确确认。需要中途保存时，可使用顶部“保存或恢复评测集草稿”，无须先填完整个评测集。
+关闭有修改的用例或组合表单会居中弹出确认，包括只点击“从评测集移除”的修改。未提交表单不会自动保存。以前保存的多用例草稿可在“标准下载 → 旧版草稿导入（高级）”中恢复，旧向导的草稿版本、导出和恢复能力继续保留。
 
 ### 隐藏测试与参考修复
 
@@ -70,15 +73,17 @@ git diff --binary BASE -- tests/test_regression.py > hidden-tests.patch
 
 **定义校验不等于试跑通过**：这里只检查格式、完整提交号、ID 唯一性和环境配置，不检查仓库连通性、镜像存在性、补丁适用性或测试结果，也不消费模型 Token。约束挖掘、知识库生成和配对评测依然是独立流程。
 
-创建后按内容哈希冻结，不会修改旧实验的数据。导出的是可由现有“导入数据集 → 自定义”直接导入的 JSON 数组；它包含隐藏测试和参考修复，属于评测端材料，不能作为知识库提供给 Agent。当前未提交表单只保存在内存，关闭会提示放弃；需要保留时请在最后一步导出。导出与创建都需连接新版 Worker 完成校验。
+用例和评测集均可继续编辑。启动任务入队前会按内容哈希创建不可变快照；恢复和重试都用原快照，采用编辑后的定义需新建任务。共享用例修改会影响所有引用它的评测集的未来运行。JSON 定义及旧版草稿导出可能包含隐藏测试和参考修复，属于评测端材料，不能作为知识库提供给 Agent。
 
 新版实验会默认为知识库生成和编码准备项目依赖，不用再手动把 Pi 安装到每个测试镜像里。具体边界、缓存及内网说明见 [Agent 项目构建环境](project-environments.md)。
 
 ## English
 
+Cases optionally override the coding image/command under **Coding Agent → Run my own Agent command**, independently of grading. Pi is not required for that image. See [remote images and guided recipes](image-workshop.md) for prerequisites, prompt/environment handoff, runtime credentials and unknown-token limitations. Other Agent roles retain the experiment configuration.
+
 New experiments prepare project dependencies for builders and coding Agents by default. See [Project build environments](project-environments.md) for caching, offline use and compatibility limits.
 
-Open **Datasets → Create dataset**. The four steps cover dataset naming, shared repository/environment defaults, individual tasks and tests, then review/validation/creation. Add, duplicate or remove independent tasks and optionally override their repository, baseline and test environment. Unoverridden tasks inherit defaults live. Each task can contain multiple assertions; experiment repeats are a separate setting.
+v0.1.7: open **Evaluation cases → Create evaluation case**. Name the case, configure Repository and environment → Task and tests → Review and save. Run it directly or compose datasets from existing cases using **Datasets → Compose dataset**. Both cases and set membership are editable. Each case can contain multiple assertions; experiment repeats are separate. See the [case-library guide](case-library.md).
 
 Use a full pre-fix commit and a credential-free Git URL reachable by the worker (not necessarily GitHub). Worker-local paths must be absolute Linux paths visible inside the worker. The test image is separate from the coding Agent image. It must contain runtime/test dependencies; grading executes offline at `/workspace`. Alternatively, build from a Dockerfile at the baseline: the Dockerfile is relative to the build context, which is relative to the repository.
 
@@ -88,11 +93,11 @@ Tests committed at baseline are agent-visible. For private tests, author them in
 
 Definition validation is read-only and shares registration checks. It does **not** clone repositories, pull images, apply patches, run tests, validate the reference fix or spend model tokens. Independently verify baseline FAIL / correct-fix PASS for behavioral reasons before trusting scores. Repository connectivity and patch applicability still need runtime verification.
 
-Creation freezes the definition by content hash; existing experiment datasets are unchanged. Select it in **New experiment** to configure models, context arms, workflows and repeats. Export produces the existing custom-import JSON array and includes evaluator-only materials; handle it accordingly. Unsaved forms remain in memory and closing asks for confirmation. Use the final-step export to preserve completed definitions. Export and creation need an updated worker connection.
+Queueing an execution freezes its selected definitions by content hash. Edits affect future jobs only; queued work, completed results and retries retain their snapshot. Definition exports include evaluator-only materials; never provide them to Agents. Unsaved forms stay in memory and closing asks for confirmation. Legacy multi-case drafts remain accessible through Standard downloads → Legacy draft import (advanced).
 ## Draft versions and container self-tests / 草稿版本与容器自检
 
-The creation wizard now supports Worker-stored draft versions, JSON draft restoration, and copying a frozen custom dataset into an editable draft. Its review step can run actual baseline/reference tests without an Agent. Existing datasets can also be self-tested from Datasets → Self-test. Definitions and execution results remain separate; inspect baseline failures manually before trusting scores. See the [intranet workbench guide](intranet-workbench.md) for limits and the complete workflow.
+The legacy draft importer retains service-stored versions, JSON restoration and copying frozen custom datasets. Its review step and the independent case editor can run actual baseline/reference tests without an Agent. Existing cases and datasets can also be self-tested from Dataset self-test. Definitions and execution results remain separate; inspect baseline failures manually before trusting scores. See the [intranet workbench guide](intranet-workbench.md) for limits.
 
-Unreleased: choose an installed image from the configured WSL distribution, refresh the list, or type an internal tag/digest. The test and Agent roles may reuse a suitable image: the bundled Pi image supports Python standard-library tests using `python3 -m unittest discover -s tests -v` and dependency-free Node scripts, but has no pytest or project packages. The harness, service and proxy images have separate application roles and are not universal project environments. Custom grading overrides the image entrypoint; it does not launch Pi or pass Agent credentials. Install dependencies outside `/workspace` before offline grading. Centered dialogs now confirm unsaved close, draft replacement and task removal; Escape returns to editing, and saved versions remain intact.
+v0.1.7: choose an installed image from the configured WSL distribution, refresh the list, or type an internal tag/digest. The test and Agent roles may reuse a suitable image: the bundled Pi image supports Python standard-library tests using `python3 -m unittest discover -s tests -v` and dependency-free Node scripts, but has no pytest or project packages. The harness, service and proxy images have separate application roles and are not universal project environments. Custom grading overrides the image entrypoint; it does not launch Pi or pass Agent credentials. Install dependencies outside `/workspace` before offline grading. Centered dialogs now confirm unsaved close, draft replacement and task removal; Escape returns to editing, and saved versions remain intact.
 
 创建向导现支持 Worker 内的草稿版本、草稿 JSON 恢复、复制已有评测集继续编辑，以及无 Agent 的真实基线／参考修复测试。“评测集 → 用例自检”也可重新自检已有评测集。定义校验不等于执行通过，请人工确认基线失败原因。详见[内网适配工作台](intranet-workbench.md)。

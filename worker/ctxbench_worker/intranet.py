@@ -28,7 +28,7 @@ class IntranetWorkbench:
         self.profiles = EnvironmentProfiles(self.db, workbench.redact)
         from .standard_images import StandardImages
         self.standard_images = StandardImages(self)
-        for kind in ("probe", "image-build", "bundle-export", "bundle-import", "bundle-inspect", "standard-images", "image-check"):
+        for kind in ("probe", "image-build", "image-pull", "bundle-export", "bundle-import", "bundle-inspect", "standard-images", "image-check"):
             workbench.operation_handlers["intranet:" + kind] = self.execute
 
     def material(self, value):
@@ -48,27 +48,34 @@ class IntranetWorkbench:
                     self.db.put_document("intranetGrades", record["id"], record)
 
     def enqueue(self, kind, payload):
-        if kind not in {"probe", "image-build", "bundle-export", "bundle-import", "bundle-inspect", "standard-images", "image-check"}:
+        if kind not in {"probe", "image-build", "image-pull", "bundle-export", "bundle-import", "bundle-inspect", "standard-images", "image-check"}:
             raise ValueError("Unknown intranet operation.")
         self.material(payload)
         allowed = {
+            'image-pull': {'image', 'confirmed'},
             "probe": {"name", "benchmark", "rows", "profileId"},
             "image-build": {"name", "baseImage", "dockerfile", "files", "network", "profileId"},
-            "bundle-export": {"dataset", "images", "contextIds", "profileIds", "profileId"},
+            "bundle-export": {"dataset", "images", "contextIds", "profileIds", "profileId", "datasetRevision"},
             "bundle-import": {"filename", "expectedSha256", "trusted"},
             "bundle-inspect": {"filename"},
-            "standard-images": {"dataset", "taskIds", "confirmed", "profileId"},
-            "image-check": {"dataset", "taskIds", "confirmed", "profileId"},
+            "standard-images": {"dataset", "taskIds", "confirmed", "profileId", "datasetRevision", "imageSourcesRevision"},
+            "image-check": {"dataset", "taskIds", "confirmed", "profileId", "datasetRevision", "imageSourcesRevision"},
         }
         if not isinstance(payload, dict) or set(payload) - allowed[kind]:
             raise ValueError("Unsupported operator operation fields.")
+        if kind == 'image-pull':
+            image_reference(payload.get('image'))
+            if payload.get('confirmed') is not True or payload['image'].startswith('sha256:'):
+                raise ValueError('Confirm a remote repository:tag or repository@sha256:digest to download.')
         if kind in {"standard-images", "image-check"}:
             self.standard_images.validate(payload)
             if any(op["kind"] in {"intranet:standard-images", "intranet:image-check"} and op["status"] in {"queued", "running", "paused"}
-                   and op["payload"]["dataset"] == payload["dataset"] for op in self.db.list_documents("operations")):
+                   and op['payload'].get('sourceDataset', op['payload'].get('dataset')) == payload['dataset'] for op in self.db.list_documents("operations")):
                 raise ValueError("An image installation for this dataset is already queued, running or paused. Open its progress to cancel or resume it.")
         if kind == "probe":
             tasks = self.wb.catalog.validate(payload.get("name"), "custom", payload.get("rows"))
+            if any(task.ci for task in tasks):
+                raise ValueError('CI: the local self-test never uploads code. Run CI cases through an explicitly configured experiment.')
             if len(tasks) > 20:
                 raise ValueError("Self-test at most 20 tasks at a time.")
             if not all(task.gold_patch for task in tasks):
@@ -78,16 +85,27 @@ class IntranetWorkbench:
             for file in payload["files"]:
                 self.material_bytes(base64.b64decode(file["base64"], validate=True))
         if kind == "bundle-export":
-            dataset = self.wb.catalog.verify(payload.get("dataset", ""))
+            dataset = self.wb.library.definition(payload.get('dataset', ''))
             if dataset["benchmark"] != "custom":
                 raise ValueError("Portable v1 supports custom prebuilt-image datasets only.")
             for key in ("images", "contextIds", "profileIds"):
                 items = payload.get(key, [])
                 if not isinstance(items, list) or len(items) > 100 or not all(isinstance(i, str) for i in items) or len(items) != len(set(items)):
                     raise ValueError("Provide unique resource IDs (at most 100 of each kind).")
+        if kind in {'standard-images', 'image-check', 'bundle-export'} and self.wb.library.editable(payload.get('dataset')):
+            source = payload['dataset']
+            dataset, receipt = self.wb.library.freeze(source, payload.get('taskIds'), payload.get('datasetRevision'))
+            payload = {**payload, 'dataset': dataset, 'sourceDataset': source, 'datasetSnapshot': receipt}
+        if kind == 'probe':
+            frozen = self.wb.catalog.register(payload['name'], 'custom', payload['rows'], internal=True)
+            payload = {**payload, 'definitionSnapshot': frozen['id']}
         if payload.get("profileId"):
             # Queue the snapshot, not a mutable pointer to environment settings.
             payload = {**payload, "environment": self.profiles.get(payload["profileId"])}
+        if kind in {'standard-images', 'image-check'}:
+            environment = self.wb.image_sources.freeze(payload['dataset'], payload['taskIds'], payload.get('environment'), payload.get('imageSourcesRevision'))
+            if environment:
+                payload = {**payload, 'environment': environment}
         return self.wb.enqueue("intranet:" + kind, payload)
 
     def progress(self, operation, message, percent=None):
@@ -106,6 +124,8 @@ class IntranetWorkbench:
         if not operation["kind"].startswith("intranet:"):
             raise ValueError("Not an intranet operation.")
         result = {k: operation[k] for k in ("id", "kind", "status", "createdAt", "updatedAt", "failure", "result") if k in operation}
+        result['datasetSnapshot'] = operation['payload'].get('datasetSnapshot')
+        result['definitionSnapshot'] = operation['payload'].get('definitionSnapshot')
         try:
             result["progress"] = self.db.get_document("intranetProgress", key)
         except KeyError:
@@ -125,6 +145,8 @@ class IntranetWorkbench:
                     result = self.probe(operation, attempt)
                 elif kind == "image-build":
                     result = self.build(operation, attempt)
+                elif kind == 'image-pull':
+                    result = self.pull(operation)
                 elif kind == "standard-images":
                     result = self.standard_images.install(operation)
                 elif kind == "image-check":
@@ -179,6 +201,27 @@ class IntranetWorkbench:
         if any(any(parent.as_posix() in seen for parent in Path(path).parents) for path in seen):
             raise ValueError("A build file cannot be another file's parent directory.")
         return {**value, "files": files}
+
+    def pull(self, operation):
+        from .standard_images import DockerImages
+        from .preflight import storage_status
+        if not isinstance(self.wb.engine.runner, DockerRunner):
+            raise ValueError('Image downloads require the Docker worker.')
+        if not storage_status(self.wb.root)['ready']:
+            raise ValueError('Free disk space before downloading images.')
+        reference = operation['payload']['image']
+        with DockerImages() as images:
+            present = images.inspect(reference)
+            if present['installed'] and not present['compatible']:
+                raise ValueError('Existing image is not Linux amd64; choose another tag. It was not replaced.')
+            if not present['installed']:
+                self.progress(operation, 'Downloading ' + reference + '. Layer byte progress follows; extraction has no reliable percentage.')
+                images.pull(reference, lambda: self.wb._check(None), lambda message: self.progress(operation, message))
+            result = images.inspect(reference)
+            if not result['installed'] or not result['compatible']:
+                raise ValueError('The downloaded image is not a usable Linux amd64 image.')
+            self.progress(operation, 'Cached image reused.' if present['installed'] else 'Download verified.')
+            return {**result, 'tag': reference, 'cached': present['installed'], 'modelCalls': 0}
 
     def build(self, operation, attempt):
         import docker
@@ -299,8 +342,16 @@ def register_intranet_routes(app, service):
 
     @app.get("/v1/datasets/{key}/project-images")
     def standard_image_plan(key: str, profileId: str = ''):
-        with service.runtime.using_environment(service.profiles.get(profileId) if profileId else {}):
-            return service.standard_images.plan(key)
+        return service.standard_images.plan(key, service.profiles.get(profileId) if profileId else {})
+
+    @app.get('/v1/datasets/{key}/project-image-sources')
+    def project_image_sources(key: str, profileId: str = ''):
+        return service.wb.image_sources.view(key, service.profiles.get(profileId) if profileId else {})
+
+    @app.put('/v1/datasets/{key}/project-image-sources')
+    def save_project_image_sources(key: str, value: dict):
+        environment = service.profiles.get(value['profileId']) if value.get('profileId') else {}
+        return service.wb.image_sources.save(key, value, environment)
 
     @app.get("/v1/intranet/images/{key}")
     def image_recipe(key: str):
@@ -320,10 +371,10 @@ def register_intranet_routes(app, service):
 
     @app.get("/v1/intranet/datasets/{key}")
     def dataset_definition(key: str):
-        record = service.wb.catalog.verify(key)
+        record = service.wb.library.definition(key)
         if record["benchmark"] != "custom":
             raise ValueError("Self-test supports custom datasets only.")
-        return {"name": record["name"], "rows": json.loads(Path(record["path"]).read_text(encoding="utf-8"))}
+        return {"name": record["name"], "rows": record['rows']}
 
     @app.get("/v1/intranet/drafts/{key}")
     def get_draft(key: str):

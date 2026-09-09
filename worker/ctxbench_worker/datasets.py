@@ -1,7 +1,7 @@
 from __future__ import annotations
 
 import json
-from dataclasses import dataclass
+from dataclasses import asdict, dataclass
 from pathlib import Path
 from typing import Any, Iterable, Mapping
 from urllib.parse import urlparse
@@ -21,6 +21,8 @@ class TaskRecord:
     hidden_test_patch: str | None = None
     gold_patch: str | None = None
     source: str = "custom"
+    ci: Mapping[str, Any] | None = None
+    agent: Mapping[str, Any] | None = None
 
     def solver_payload(self) -> dict[str, object]:
         """Return the complete solver-visible task. Evaluator-only fields stay absent by construction."""
@@ -30,6 +32,16 @@ class TaskRecord:
             "baseCommit": self.base_commit,
             "prompt": self.prompt,
         }
+
+
+def task_document(task):
+    """Preserve pre-CI frozen catalog/checkpoint bytes for ordinary tasks."""
+    value = asdict(task)
+    if task.ci is None:
+        value.pop('ci')
+    if task.agent is None:
+        value.pop('agent')
+    return value
 
 
 def _repository(value: str) -> str:
@@ -42,7 +54,7 @@ def _repository(value: str) -> str:
 
 
 def custom_task(value: Mapping[str, Any]) -> TaskRecord:
-    if set(value) - {"id", "repository", "baseCommit", "prompt", "test", "image", "build", "goldPatch", "metadata"}:
+    if set(value) - {"id", "repository", "baseCommit", "prompt", "test", "image", "build", "goldPatch", "metadata", "agent"}:
         raise ValueError("Custom task contains unsupported fields; follow the custom task schema.")
     if "metadata" in value and not isinstance(value["metadata"], Mapping):
         raise ValueError("Custom task metadata must be an object.")
@@ -54,12 +66,22 @@ def custom_task(value: Mapping[str, Any]) -> TaskRecord:
         if not isinstance(value[key], str) or not value[key].strip() or "\0" in value[key]:
             raise ValueError(f"Custom task {key} must be nonempty text without NUL characters.")
     test = value["test"]
-    if not isinstance(test, Mapping) or not isinstance(test.get("command"), list):
+    if not isinstance(test, Mapping):
+        raise ValueError("Custom task test must be an object.")
+    ci = None
+    if 'ci' in test:
+        from .ci_config import ci_test
+        ci = ci_test(test['ci'])
+        if 'hiddenPatch' in test or 'goldPatch' in value:
+            raise ValueError('CI: hidden tests and reference patches must remain evaluator-only; do not attach local patches to a remote CI case.')
+        if 'command' in test:
+            raise ValueError('CI: choose either local command grading or remote CI grading, not both.')
+    if ci is None and not isinstance(test.get("command"), list):
         raise ValueError("Custom task test.command must be an argument array.")
-    if set(test) - {"command", "hiddenPatch"}:
+    if set(test) - {"command", "hiddenPatch", "ci"}:
         raise ValueError("Custom task test contains unsupported fields.")
-    command = test["command"]
-    if not command or not all(isinstance(arg, str) and "\0" not in arg for arg in command) or not command[0].strip():
+    command = test.get("command", [])
+    if ci is None and (not command or not all(isinstance(arg, str) and "\0" not in arg for arg in command) or not command[0].strip()):
         raise ValueError("Custom task test.command must be a nonempty string argument array without NUL characters.")
     for patch in (test.get("hiddenPatch"), value.get("goldPatch")):
         if patch is not None and (not isinstance(patch, str) or "\0" in patch):
@@ -82,16 +104,19 @@ def custom_task(value: Mapping[str, Any]) -> TaskRecord:
         args = build.get("args", {})
         if not isinstance(args, Mapping) or not all(isinstance(k, str) and isinstance(v, str) and "\0" not in k + v for k, v in args.items()):
             raise ValueError("Build arguments must be a JSON object with string values.")
+    from .command_agents import command_agent
     return TaskRecord(
+        agent=command_agent(value.get('agent')),
         id=str(value["id"]),
         repository=_repository(str(value["repository"])),
         base_commit=str(value["baseCommit"]),
         prompt=str(value["prompt"]),
         image=str(value["image"]) if value.get("image") else None,
         build=value.get("build"),
-        test_command=tuple(str(item) for item in test["command"]),
+        test_command=tuple(str(item) for item in command),
         hidden_test_patch=test.get("hiddenPatch"),
         gold_patch=value.get("goldPatch"),
+        ci=ci,
     )
 
 

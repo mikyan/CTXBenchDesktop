@@ -82,7 +82,8 @@ describe("task-oriented UX", () => {
     const snapshot = { ...createDemoSnapshot(), datasets: [] };
     const html = render(<DatasetsPage snapshot={snapshot} onImport={noop} onCreate={noop} onExperiment={noop} />);
     expect(html).toContain("No datasets yet");
-    expect(html).toContain("guided creator");
+    expect(html).toContain("Create a case or import standard cases first");
+    expect(html).toContain("Compose dataset");
   });
   it("never mixes a paused experiment's stale run into the active experiment card", () => {
     const snapshot = createDemoSnapshot();

@@ -3,6 +3,9 @@ import { z } from "zod";
 // Drafts are deliberately distinct from the evaluator manifest. Export is explicit;
 // neither prompts nor hidden tests are persisted to browser storage.
 const text = z.string().max(2_000_000).refine((value) => !value.includes("\0"));
+export const ciTestSchema = z.object({ connectionId: z.string(), requiredJobs: z.array(z.string()), reportArtifact: z.string(),
+  minTests: z.number().int().min(1).max(1_000_000), timeoutMinutes: z.number().int().min(1).max(1440), allowRemoteExecution: z.boolean() }).strict();
+export type CITest = z.infer<typeof ciTestSchema>;
 const environmentSchema = z.object({
   repository: text, baseCommit: text, mode: z.enum(["image", "build"]),
   image: text, dockerfile: text, context: text, buildArgs: text,
@@ -11,6 +14,8 @@ const taskSchema = z.object({
   id: text, prompt: text, override: environmentSchema.nullable(),
   commandMode: z.enum(["shell", "argv"]), command: text, hiddenPatch: text, goldPatch: text,
   metadata: z.record(z.string(), z.unknown()).optional(),
+  ci: ciTestSchema.optional(),
+  agent: z.object({ image: text, command: text, commandMode: z.enum(['shell', 'argv']) }).strict().optional(),
 }).strict();
 export const draftSchema = z.object({
   format: z.literal("ctxbench-dataset-draft"), version: z.literal(1), name: text,
@@ -22,8 +27,9 @@ export type EnvironmentDraft = z.infer<typeof environmentSchema>;
 export interface CustomTaskManifest {
   id: string; repository: string; baseCommit: string; prompt: string;
   image?: string; build?: { dockerfile: string; context: string; args: Record<string, string> };
-  test: { command: string[]; hiddenPatch?: string }; goldPatch?: string;
+  test: { command?: string[]; hiddenPatch?: string; ci?: CITest }; goldPatch?: string;
   metadata?: Record<string, unknown>;
+  agent?: { image: string; command: string[] };
 }
 export interface DraftIssue { step: number; message: string; task?: number }
 export function draftFromManifest(name: string, rows: CustomTaskManifest[]): DatasetDraft {
@@ -34,7 +40,8 @@ export function draftFromManifest(name: string, rows: CustomTaskManifest[]): Dat
     context: row.build?.context ?? ".", buildArgs: JSON.stringify(row.build?.args ?? {}, null, 2) });
   return draftSchema.parse({ format: "ctxbench-dataset-draft", version: 1, name, defaults: environment(rows[0]),
     tasks: rows.map((row) => ({ id: row.id, prompt: row.prompt, override: environment(row), commandMode: "argv",
-      command: JSON.stringify(row.test.command), hiddenPatch: row.test.hiddenPatch ?? "", goldPatch: row.goldPatch ?? "", ...(row.metadata ? { metadata: row.metadata } : {}) })) });
+      ...(row.agent ? { agent: { image: row.agent.image, commandMode: 'argv', command: JSON.stringify(row.agent.command) } } : {}),
+      command: JSON.stringify(row.test.command ?? []), hiddenPatch: row.test.hiddenPatch ?? "", goldPatch: row.goldPatch ?? "", ...(row.metadata ? { metadata: row.metadata } : {}), ...(row.test.ci ? { ci: Object.assign({ reportArtifact: '', minTests: 1, timeoutMinutes: 30 }, row.test.ci) } : {}) })) });
 }
 export function draftDifference(before: DatasetDraft, after: DatasetDraft) {
   const previous = new Map(before.tasks.map((task) => [task.id, task]));
@@ -49,6 +56,8 @@ export const testTemplates = {
   pytest: "python3 -m pytest -q tests",
   unittest: "python3 -m unittest discover -s tests -v",
   npm: "npm test",
+  maven: 'mvn -B test',
+  go: 'go test ./...',
 };
 export function newTask(tasks: TaskDraft[] = []): TaskDraft {
   let number = tasks.length + 1;
@@ -91,7 +100,7 @@ export function environmentErrors(env: EnvironmentDraft): string[] {
   }
   return errors;
 }
-export function commandArguments(task: TaskDraft): string[] {
+export function commandArguments(task: Pick<TaskDraft, 'commandMode' | 'command'>): string[] {
   if (!task.command.trim()) throw Error("Provide a test command that exits nonzero when an assertion fails.");
   if (task.commandMode === "shell") return ["/bin/sh", "-eu", "-c", task.command];
   let command: unknown;
@@ -112,7 +121,17 @@ export function draftIssues(draft: DatasetDraft): DraftIssue[] {
     else if (ids.get(task.id.trim())! > 1) add("Task IDs must be unique within this dataset.");
     if (!task.prompt.trim()) add("Describe the behavior the agent must implement.");
     if (task.override) environmentErrors(task.override).forEach(add);
-    try { commandArguments(task); } catch (error) { add((error as Error).message); }
+    if (task.agent) {
+      if (!task.agent.image.trim() || /\s/.test(task.agent.image.trim())) add('Provide the custom Agent image.');
+      try { commandArguments(task.agent); } catch { add('Provide a valid custom Agent command.'); }
+    }
+    if (task.ci) {
+      if (!/^[a-f0-9]{64}$/.test(task.ci.connectionId)) add('CI: select a saved platform connection.');
+      const jobs = task.ci.requiredJobs.map((name) => name.trim()).filter(Boolean);
+      if (!jobs.length || new Set(jobs).size !== jobs.length) add('CI: specify unique required job names, one per line.');
+      if (!task.ci.allowRemoteExecution) add('CI: acknowledge uploading candidate code and triggering remote workflows.');
+      if (task.hiddenPatch.trim() || task.goldPatch.trim()) add('CI: remove local hidden and reference patches before using remote grading.');
+    } else try { commandArguments(task); } catch (error) { add((error as Error).message); }
   });
   if (!draftSchema.safeParse(draft).success) issues.push({ step: 2, message: "Invalid draft: check task count, field sizes, and NUL characters." });
   return issues;
@@ -123,10 +142,11 @@ export function datasetRows(draft: DatasetDraft): CustomTaskManifest[] {
     const env = task.override ?? draft.defaults;
     return {
       id: task.id.trim(), repository: env.repository.trim(), baseCommit: env.baseCommit.trim(), prompt: task.prompt,
+      ...(task.agent ? { agent: { image: task.agent.image.trim(), command: commandArguments(task.agent) } } : {}),
       ...(env.mode === "image" ? { image: env.image.trim() } : { build: {
         dockerfile: env.dockerfile.trim(), context: env.context.trim(), args: JSON.parse(env.buildArgs),
       } }),
-      test: { command: commandArguments(task), ...(task.hiddenPatch.trim() ? { hiddenPatch: task.hiddenPatch } : {}) },
+      test: task.ci ? { ci: { ...task.ci, requiredJobs: task.ci.requiredJobs.map((name) => name.trim()).filter(Boolean) } } : { command: commandArguments(task), ...(task.hiddenPatch.trim() ? { hiddenPatch: task.hiddenPatch } : {}) },
       ...(task.goldPatch.trim() ? { goldPatch: task.goldPatch } : {}),
       ...(task.metadata ? { metadata: task.metadata } : {}),
     };

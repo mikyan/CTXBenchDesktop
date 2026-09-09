@@ -237,11 +237,7 @@ async fn worker_request(method: String, path: String, body: Option<Value>) -> Re
     if !path.starts_with('/') || path.contains("..") || path.contains('\\') || path.starts_with("//") {
         return Err("Invalid worker route.".into());
     }
-    let method = match method.as_str() {
-        "GET" => reqwest::Method::GET,
-        "POST" => reqwest::Method::POST,
-        _ => return Err("Unsupported worker method.".into()),
-    };
+    let method = worker_method(&method)?;
     let client = reqwest::Client::builder().no_proxy().timeout(Duration::from_secs(300)).build().map_err(|error| error.to_string())?;
     let mut request = client.request(method, format!("{WORKER_BASE_URL}{path}"));
     if let Some(body) = body { request = request.json(&body); }
@@ -249,6 +245,15 @@ async fn worker_request(method: String, path: String, body: Option<Value>) -> Re
     let status = response.status();
     let payload: Value = response.json().await.map_err(|_| "Worker returned an invalid response.".to_string())?;
     if status.is_success() { Ok(payload) } else { Err(payload.get("detail").map(|detail| detail.as_str().map(str::to_owned).unwrap_or_else(|| detail.to_string())).unwrap_or_else(|| format!("Worker error: {status}"))) }
+}
+
+fn worker_method(method: &str) -> Result<reqwest::Method, String> {
+    Ok(match method {
+        "GET" => reqwest::Method::GET,
+        "POST" => reqwest::Method::POST,
+        "PUT" => reqwest::Method::PUT,
+        _ => return Err("Unsupported worker method.".into()),
+    })
 }
 
 #[tauri::command]
@@ -395,6 +400,16 @@ pub fn run() {
 #[cfg(test)]
 mod tests {
     use super::{decode_command_output, diagnose_wsl, wsl};
+
+    #[test]
+    fn editable_library_put_is_allowed_without_enabling_other_methods() {
+        assert_eq!(super::worker_method("PUT").unwrap(), reqwest::Method::PUT);
+        assert_eq!(super::worker_method("GET").unwrap(), reqwest::Method::GET);
+        assert_eq!(super::worker_method("POST").unwrap(), reqwest::Method::POST);
+        for method in ["DELETE", "CONNECT", "TRACE", "PATCH"] {
+            assert!(super::worker_method(method).is_err());
+        }
+    }
 
     fn inventory() -> Result<wsl::Inventory, String> {
         let distributions = wsl::parse_distributions("NAME STATE VERSION\n* Ubuntu-24.04 Stopped 2\n  Legacy Running 1").unwrap();

@@ -6,6 +6,32 @@
 
 本功能从 v0.1.6 提供；使用旧安装包时，需要更新桌面端、本地评测服务和官方评测器镜像。旧评测器会明确提示升级，不会悄悄按公共镜像地址执行。安装、知识库准备、评测共用同一套镜像解析规则。
 
+## 直接填写单个镜像地址（v0.1.7）
+
+公司自定义测试／Agent 镜像不必经过官方镜像映射：**设置 → 镜像适配 → 拉取现成镜像** 可以按完整地址下载，旁边还有安装依赖和修改默认配置的四步向导。用例镜像字段也有快捷下载入口。见[公司镜像和自定义 Agent 指南](image-workshop.md)。此通用入口填写镜像名，而下文的官方逐镜像入口还支持粘贴 `docker pull …`。
+
+现在可以不去设置页写前缀规则，直接在 **评测用例／评测集 → 安装项目镜像** 操作，SWE-bench 和 CTXBench 都支持：
+
+1. 选择想跑的用例，在 **所选镜像的下载地址** 中找到对应的官方镜像名。
+2. 输入内网完整地址，也可以粘贴完整命令，例如：
+
+   ```text
+   docker pull harbor.company.example/bench/planbenchx86_opshin_opshin:latest
+   ```
+
+3. 点 **保存地址并刷新**，检查页面的“当前实际下载地址”和本机安装状态。
+4. 点 **安装所选项目镜像**，确认后下载。也可以先检查仓库可用性。
+
+软件只提取镜像名，通过 Docker 接口拉取，不执行粘贴的 Shell 命令。支持域名、端口、多层路径、标签或 `@sha256:…` 摘要；不接受 `docker login`、`--platform` 等附加参数、管道、凭据 URL 或多条命令。平台固定为 linux/amd64。留空并保存可恢复公司前缀映射或官方默认地址。
+
+未选择公司方案时，精确地址作为这些官方镜像的默认来源，其他评测集若使用同名镜像也会复用；选择了公司方案则只在该方案版本下生效。后续知识库准备、实验会自动复制对应地址到运行配置中，模型配置不变。已排队、已准备、恢复或重试的任务不追随新的地址修改。原始评测集和本机官方标签都不会被覆盖。
+
+优先级：**单个镜像的完整地址 → 公司最长前缀规则 → 官方原始名称**。存在有效的精确地址或公司规则时，未映射的缺失镜像不会自动从 Docker Hub 拉取；请为其指定允许使用的完整地址，或事先安装到本机。已指定地址拉取失败时不会退回官方名称。SWE 个别用例的编码环境与评分环境镜像不同，需分别指定页面列出的地址。
+
+应指定同一项目镜像在内网的对应副本，而不是任意基础镜像；工具会记录实际镜像 ID，但不会仅因地址替换就证明内容与官方等价。公司镜像改造之后仍需验证基线依赖与测试。私有仓库认证方式见下文，不要把登录口令填在镜像地址里。
+
+这项新入口需同时升级桌面端与本地评测服务镜像，旧版 v0.1.6 的前缀配置能力仍保留。
+
 ## 1. 配置公司地址
 
 在 **设置 → 公司配置 → 公司 Docker 镜像仓库** 中添加映射。例如公司提供的命令为：
@@ -71,6 +97,14 @@ SWE-bench [官方 Docker 指南](https://www.swebench.com/SWE-bench/guides/docke
 
 ## 开发验证
 
+### 单个完整地址入口（当前源码）
+
+`npm test` 141 项通过，`npm run build` 通过（保留已有大分包警告）；`npm run worker:test` 共 219 项，217 项通过、2 项因 Windows 符号链接权限跳过。新增镜像地址回归 11 项通过，覆盖完整命令提取、摘要地址、凭据／Shell 拒绝、乐观版本冲突、公司方案隔离、精确地址优先级、离线限制、恢复默认、未配置来源禁止自动拉取，以及修改前已排队任务保持原地址。中英文镜像安装、用例库和用例创建交互脚本均通过。
+
+`scripts/project-image-address-container-smoke.py` 在真实 WSL Docker 中通过：将本机已有的公开 `hello-world` 内容通过临时 HTTPS 镜像仓库提供给 Docker，CTX 镜像安装操作实际拉取用户指定的完整地址，SWE 操作复用同一目标；排队后修改配置不影响该操作，运行时解析得到已下载镜像的同一内容 ID。测试结束移除自己创建的下载／冻结标签及临时证书，原 `hello-world` 保留。不调用模型、不访问外部镜像源、不修改 Docker 守护进程配置，也不重启现有评测服务。这是镜像下载与配置传递验证，不是实际公司仓库连通性或官方全集评分测试。
+
+### 既有前缀映射与评分器验证
+
 2026-09-08：`npm test` 132 项通过，`npm run build` 通过（保留已有大分包警告）；`npm run worker:test` 191 项中 189 项通过、2 项因 Windows 符号链接权限跳过；脚本测试 49 项中 45 项通过、4 项跳过。中英文镜像安装、用例创建和维护交互脚本均通过。新增回归覆盖映射优先级、旧配置兼容、认证/缺失/网络区分、检查取消、固定 ID 恢复、缺少后续用例镜像时零 Agent 调用，以及独立知识库配置传递。
 
 真实 WSL Docker 检查（不调用模型、不拉公共镜像）：
@@ -82,6 +116,8 @@ SWE-bench [官方 Docker 指南](https://www.swebench.com/SWE-bench/guides/docke
 这些是镜像来源与评分集成验证，不代表完成 SWE 500／CTX 138 全集，也不代表模型通过率。
 
 ## English summary
+
+v0.1.7 adds per-image full address fields directly to the official image installer. Paste `registry/path:tag`, a digest reference, or a single `docker pull registry/path:tag` command; only the reference is used. Save and refresh before checking/installing. Exact addresses take priority over prefix mappings, are remembered by original image identity within the selected profile (or default scope), and are captured for new official experiments and independent context jobs. Existing jobs, custom cases, model settings and local official tags are unchanged. Empty values restore inherited defaults. Updates use optimistic revisions; queued operations retain their captured mapping even after edits.
 
 Save optional `imageMappings: [{source, target}]` in a versioned company profile. Select that profile in the project image installer, independent preparation or experiment. The longest prefix wins; non-empty mappings disable implicit Docker Hub fallback. Unmapped images must already exist locally. Registry checks are explicit metadata-only operations, distinguish missing/auth/network errors and expire after 15 minutes. Select and install an explicit subset, then carry its task IDs and profile into a new experiment.
 

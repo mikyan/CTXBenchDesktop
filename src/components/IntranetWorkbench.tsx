@@ -2,11 +2,14 @@ import { useEffect, useState } from "react";
 import type { DatasetRecord, KnowledgeArtifact } from "../domain/types";
 import { useI18n } from "../i18n";
 import { saveText, workerRequest } from "../lib/desktop";
+import { loadLibrary, librarySources } from "../lib/case-library";
 import { buildFiles, companyProfileSchema, defaultCompanyProfile, namesFromLines, operatorKindLabel, type CompanyProfileRecord, type IntranetInventory, type OperatorJob } from "../lib/intranet";
 import { AgentArgsField } from "./AgentArgsField";
 import { OperatorJobPanel } from "./OperatorJobPanel";
 import { DatasetSelfTest } from "./DatasetSelfTest";
 import { companyFeatureError } from "../lib/intranet";
+import { RemoteImagePull } from './RemoteImagePull';
+import { ImageRecipeGuide } from './ImageRecipeGuide';
 
 type Inspection = { filename: string; sha256: string; dataset: string; datasetId: string; images: number; baselines: number; contexts: number; conflicts: string[]; requiredBytes: number; freeBytes: number; ready: boolean };
 const emptyInventory: IntranetInventory = { profiles: [], drafts: [], adaptations: [], operations: [], transferDirectory: "" };
@@ -23,16 +26,17 @@ export function IntranetWorkbench({ distribution = "", section }: { distribution
   const [dockerfile, setDockerfile] = useState("RUN mkdir -p /opt/company\n# COPY requirements.txt /opt/company/requirements.txt\n# RUN pip install --no-cache-dir -r /opt/company/requirements.txt");
   const [files, setFiles] = useState<{ path: string; base64: string }[]>([]); const [buildNetwork, setBuildNetwork] = useState("none");
   const [trustBuild, setTrustBuild] = useState(false); const [job, setJob] = useState<OperatorJob>();
+  const [recipeOpen, setRecipeOpen] = useState(false);
   const [datasetId, setDatasetId] = useState(""); const [probe, setProbe] = useState("");
   const [extraImages, setExtraImages] = useState("ctxbench/agent-pi:0.1.0");
   const [contextIds, setContextIds] = useState<string[]>([]); const [contexts, setContexts] = useState<KnowledgeArtifact[]>([]);
   const [profileIds, setProfileIds] = useState<string[]>([]); const [trustExport, setTrustExport] = useState(false);
   const [filename, setFilename] = useState(""); const [inspection, setInspection] = useState<Inspection>(); const [trustImport, setTrustImport] = useState(false);
   const refresh = async () => {
-    const [value, rows] = await Promise.all([workerRequest<IntranetInventory>("/intranet"), workerRequest<DatasetRecord[]>("/datasets")]);
+    const [value, rows] = await Promise.all([workerRequest<IntranetInventory>("/intranet"), loadLibrary().then(librarySources)]);
     setInventory(value); setDatasets(rows);
   };
-  useEffect(() => { let alive = true; void Promise.all([workerRequest<IntranetInventory>("/intranet"), workerRequest<DatasetRecord[]>("/datasets")]).then(([value, rows]) => { if (alive) { setInventory(value); setDatasets(rows); } }).catch((cause) => { if (alive) setError(companyFeatureError(cause)); }); return () => { alive = false; }; }, []);
+  useEffect(() => { let alive = true; void Promise.all([workerRequest<IntranetInventory>("/intranet"), loadLibrary().then(librarySources)]).then(([value, rows]) => { if (alive) { setInventory(value); setDatasets(rows); } }).catch((cause) => { if (alive) setError(companyFeatureError(cause)); }); return () => { alive = false; }; }, []);
   const run = async (action: () => Promise<void>) => {
     if (busy) return; setBusy(true); setError(""); setMessage("");
     try { await action(); } catch (cause) { setError(companyFeatureError(cause)); } finally { setBusy(false); }
@@ -76,6 +80,9 @@ export function IntranetWorkbench({ distribution = "", section }: { distribution
         <label>{t("Import profile JSON")}<input type="file" accept=".json" onChange={(e) => { const file = e.target.files?.[0]; e.target.value = ""; if (file) void run(async () => { if (file.size > 1_000_000) throw Error("Profile exceeds 1 MB."); const document = companyProfileSchema.parse(JSON.parse(await file.text())); const row = await workerRequest<CompanyProfileRecord>("/intranet/profiles", "POST", document); loadProfile(row); await refresh(); }); }} /></label>
       </>}
       {tab === "Image adaptation" && <>
+        <RemoteImagePull onInstalled={setBase} />
+        <ImageRecipeGuide onApply={(recipe) => { setRecipeName(recipe.name); setBase(recipe.baseImage); setDockerfile(recipe.dockerfile); setFiles(recipe.files); setBuildNetwork(recipe.network); setTrustBuild(false); setRecipeOpen(true); setMessage(t('Recipe copied. Review and confirm the build below.')); }} />
+        <details open={recipeOpen} onToggle={(e) => setRecipeOpen(e.currentTarget.open)}><summary>{t('Build form / advanced Dockerfile')}</summary>
         <p>{t("Extend an existing local image without editing the benchmark baseline. FROM is pinned to its image ID automatically. The result gets a new unique tag; production tags are not replaced.")}</p>
         <div className="intranet-grid"><label>{t("Adaptation name")}<input value={recipeName} onChange={(e) => setRecipeName(e.target.value)} /></label><label>{t("Local base image")}<input value={base} onChange={(e) => setBase(e.target.value)} /></label></div>
         <label>{t("Dockerfile instructions after FROM")}<textarea rows={10} value={dockerfile} onChange={(e) => setDockerfile(e.target.value)} spellCheck={false} /></label>
@@ -86,6 +93,7 @@ export function IntranetWorkbench({ distribution = "", section }: { distribution
         <label className="check-line"><input type="checkbox" checked={trustBuild} onChange={(e) => setTrustBuild(e.target.checked)} />{t("I trust this recipe and base image. Build commands execute locally; I have checked that files and layers contain no credentials.")}</label>
         <button className="button primary" disabled={!trustBuild || !recipeName.trim() || !base.trim()} onClick={() => void run(() => queue("image-build", { name: recipeName, baseImage: base, dockerfile, files, network: buildNetwork }))}>{t("Build adapted image")}</button>
         <p>{t("Image metadata and compatibility labels are recorded, but are not a protocol test. Validate a custom Agent with a small benchmark before using it in a campaign.")}</p>
+        </details>
         {inventory.adaptations.length > 0 && <details><summary>{t("Saved image recipes")}</summary>{inventory.adaptations.map((a) => <div key={a.id}><p>{a.name}: <code>{a.tag}</code></p><button className="button secondary" onClick={() => void run(async () => { const record = await workerRequest<{ recipe: unknown }>(`/intranet/images/${a.id}`); await saveText("ctxbench-image-recipe.json", JSON.stringify(record, null, 2)); })}>{t("Export recipe and image receipt")}</button></div>)}</details>}
       </>}
       {tab === "Dataset self-test" && <>

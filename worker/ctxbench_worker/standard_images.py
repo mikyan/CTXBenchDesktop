@@ -126,10 +126,11 @@ class StandardImages:
         self.operator, self.wb, self.store = operator, operator.wb, store
 
     def requirements(self, dataset, task_ids=None):
-        record = self.wb.catalog.verify(dataset)
+        record = self.wb.library.definition(dataset) if self.wb.library.editable(dataset) else self.wb.catalog.verify(dataset)
         if record["benchmark"] not in {"ctxbench", "swebench"}:
             raise ValueError("Select an imported CTXBench or SWE-bench dataset.")
-        index = self.wb.catalog.index(dataset)
+        from .datasets import TaskRecord
+        index = {task['id']: TaskRecord(**{**task, 'test_command': tuple(task['test_command'])}) for task in record['tasks']}
         if task_ids is None:
             task_ids = list(index)
         if (not isinstance(task_ids, list) or not 1 <= len(task_ids) <= 10000
@@ -165,7 +166,15 @@ class StandardImages:
     def check_key(self, reference):
         return fingerprint({'environment': self.wb.runtime.environment, 'reference': reference})
 
-    def plan(self, dataset):
+    def plan(self, dataset, environment=None):
+        environment = self.wb.runtime.environment if environment is None else environment
+        settings = self.wb.image_sources.view(dataset, environment)
+        frozen = self.wb.image_sources.freeze(dataset, environment=environment, expected_revision=settings['revision'])
+        with self.wb.runtime.using_environment(frozen):
+            return {**self._plan(dataset, self.wb.image_sources.scope(environment)),
+                    'imageSources': settings}
+
+    def _plan(self, dataset, profile_id):
         record, tasks, references = self.resolved_requirements(dataset)
         with self.store() as store:
             images = []
@@ -176,18 +185,19 @@ class StandardImages:
                     remote = {'status': 'unchecked'}
                 images.append({**item, **store.inspect(ref), 'remote': remote})
         operations = [self.operator.status(op["id"]) for op in self.wb.db.list_documents("operations")
-                      if op["kind"] in {"intranet:standard-images", "intranet:image-check"} and op["payload"].get("dataset") == dataset
-                      and op['payload'].get('environment', {}).get('document', {}) == self.wb.runtime.environment]
-        return {"dataset": dataset, "benchmark": record["benchmark"], "tasks": tasks, "images": images,
+                      if op["kind"] in {"intranet:standard-images", "intranet:image-check"} and op["payload"].get('sourceDataset', op['payload'].get('dataset')) == dataset
+                      and op['payload'].get('profileId', '') == profile_id]
+        return {"dataset": dataset, 'datasetRevision': record.get('contentRevision', dataset), "benchmark": record["benchmark"], "tasks": tasks, "images": images,
                 "storage": storage_status(self.wb.root), "operations": operations[-10:]}
 
     def validate(self, payload):
-        if not {'dataset', 'taskIds', 'confirmed'} <= set(payload) or set(payload) - {'dataset', 'taskIds', 'confirmed', 'profileId'} or payload.get("confirmed") is not True:
+        if not {'dataset', 'taskIds', 'confirmed'} <= set(payload) or set(payload) - {'dataset', 'taskIds', 'confirmed', 'profileId', 'datasetRevision', 'imageSourcesRevision'} or payload.get("confirmed") is not True:
             raise ValueError("Confirm the selected project image downloads and disk-space warning first.")
         self.requirements(payload["dataset"], payload["taskIds"])
 
     def install(self, operation):
-        self.validate({key: value for key, value in operation['payload'].items() if key != 'environment'})
+        self.validate({key: value for key, value in operation['payload'].items()
+                       if key not in {'environment', 'sourceDataset', 'datasetSnapshot'}})
         _, tasks, references = self.resolved_requirements(operation["payload"]["dataset"], operation["payload"]["taskIds"])
         images = []
         with self.store() as store:
@@ -216,7 +226,8 @@ class StandardImages:
 
     def check(self, operation):
         """Explicit, cancellable metadata-only check; a 404 never changes a dataset."""
-        self.validate({key: value for key, value in operation['payload'].items() if key != 'environment'})
+        self.validate({key: value for key, value in operation['payload'].items()
+                       if key not in {'environment', 'sourceDataset', 'datasetSnapshot'}})
         _, tasks, references = self.resolved_requirements(operation['payload']['dataset'], operation['payload']['taskIds'])
         results = []
         with self.store() as store:

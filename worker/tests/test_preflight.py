@@ -28,3 +28,15 @@ class PreflightTests(unittest.TestCase):
         with tempfile.TemporaryDirectory() as directory, patch.dict('os.environ', {'CTXBENCH_MIN_FREE_GB': '5'}):
             with patch('worker.ctxbench_worker.preflight.shutil.disk_usage', return_value=SimpleNamespace(free=1024, total=2048)):
                 self.assertFalse(storage_status(Path(directory))['ready'])
+
+    def test_custom_commands_are_not_treated_as_metered_token_allowance(self):
+        model = ModelConfig('mock', 'fixture', 'off', 100)
+        spec = ExperimentSpec('Mixed', 'custom', 'dataset', ('none', 'skill-generated'), 2,
+            ('one', 'two'), model, 'image', ResourcePolicy(), 1, evaluate_constraints=True)
+        tasks = [SimpleNamespace(id=name, repository='repo', base_commit='a' * 40, agent={'image': 'custom'} if name == 'one' else None) for name in spec.task_ids]
+        result = estimate(spec, tasks)
+        self.assertEqual((result['runs'], result['unmeteredSolverRuns']), (8, 4))
+        self.assertEqual(result['tokensByRole']['solver'], 400)
+        self.assertEqual(result['configuredTokenAllowance'], 3000)
+        self.assertTrue(result['tokenAllowanceExcludesCustomCommands'])
+        self.assertEqual(result['customCommandTokenUsage'], 'unknown')

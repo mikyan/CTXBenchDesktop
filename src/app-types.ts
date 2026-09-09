@@ -1,1 +1,1 @@
-export type Page = "overview" | "experiments" | "datasets" | "knowledge" | "constraints" | "infrastructure";
+export type Page = "overview" | "experiments" | "cases" | "datasets" | "knowledge" | "constraints" | "infrastructure";

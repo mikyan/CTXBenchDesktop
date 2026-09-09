@@ -52,6 +52,10 @@ class ExperimentSpec:
     company_environment: dict[str, Any] = field(default_factory=dict)
     # Old persisted plans deliberately retain their original Agent environment.
     project_environment: bool = False
+    # Editable library selections are resolved before queueing; workers only use
+    # dataset (the immutable content hash), never sourceId from this receipt.
+    dataset_revision: str = ''
+    dataset_snapshot: dict[str, Any] = field(default_factory=dict)
 
 
 @dataclass(frozen=True)

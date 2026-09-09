@@ -60,6 +60,29 @@ class StandardImageTests(unittest.TestCase):
         self.assertEqual(self.store.pulls, [])
         self.assertEqual(self.engine.database.list_documents("operations"), [])
 
+    def test_editable_selection_freezes_images_before_queue_and_rejects_stale_plan(self):
+        collection = self.wb.library.adopt(self.dataset)
+        plan = self.service.plan(collection['id'])
+        payload = {**self.payload, 'dataset': collection['id'], 'datasetRevision': plan['datasetRevision']}
+        operation = self.op.enqueue('standard-images', payload)
+        case = self.wb.library.case(collection['caseIds'][0])
+        self.wb.library.save_case({'name': case['name'], 'benchmark': 'ctxbench', 'expectedRevision': 1,
+            'row': {**case['row'], 'docker_image': 'company/future:v2'}}, case['id'])
+        self.assertNotEqual(operation['payload']['dataset'], collection['id'])
+        self.assertEqual(operation['payload']['datasetSnapshot']['members'][0]['revision'], 1)
+        result = self.service.install(operation)
+        self.assertEqual(self.store.pulls, ['org/project:v1'])
+        self.assertTrue(result)
+        checked = self.service.check(operation)
+        self.assertEqual(checked['images'][0]['reference'], 'org/project:v1')
+        self.assertEqual(checked['images'][0]['status'], 'local')
+        operation['status'] = 'completed'
+        self.engine.database.put_document('operations', operation['id'], operation)
+        from worker.ctxbench_worker.case_library import LibraryConflict
+        with self.assertRaises(LibraryConflict):
+            self.op.enqueue('standard-images', payload)
+        self.assertEqual(len(self.engine.database.list_documents('operations')), 1)
+
     def test_install_uses_one_image_then_reuses_cache_without_model(self):
         operation = self.op.enqueue("standard-images", self.payload)
         self.wb.runtime.checkout = Mock(side_effect=AssertionError("no clone"))

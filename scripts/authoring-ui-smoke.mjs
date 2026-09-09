@@ -31,6 +31,8 @@ try {
         if (args.path === "/intranet/datasets/fixture") return { name: "Copied dataset", rows: [{ id: task.id, repository: env.repository, baseCommit: env.baseCommit, image: env.image, prompt: task.prompt, test: { command: ["python3", "-m", "unittest"] } }] };
         if (args.path === "/datasets" && args.method === "POST") return { id: "new-dataset", count: args.body.rows.length, benchmark: "custom", name: args.body.name };
         if (args.path === "/datasets") return [{ id: "fixture", name: "Fixture dataset", benchmark: "custom", count: 1 }];
+        if (args.path === "/library") return { version: 1, cases: [], sets: [{ id: "fixture", name: "Fixture dataset", benchmark: "custom", count: 1, caseIds: [], revision: 1 }] };
+        if (args.path === "/library/selections/fixture") return { dataset: { id: "fixture", name: "Fixture dataset", benchmark: "custom", count: 1 }, revision: "fixture-v1", tasks: [{ id: "task-1", repository: env.repository, baseCommit: env.baseCommit }] };
         if (args.path === "/datasets/fixture/tasks") return [{ id: "task-1", repository: env.repository, baseCommit: env.baseCommit }];
         if (args.path === "/runtime") return { credentials: [], projectEnvironmentVersion: window.fixture.projectEnvironmentVersion };
         if (args.path === "/prepare/context") return { id: "new-preparation" };
@@ -75,7 +77,7 @@ try {
     const button = async (key) => page.getByRole("button", { name: await t(key), exact: true });
     const click = async (key) => (await button(key)).click();
     const field = async (key) => key === "Restore draft JSON (replaces current draft)" ? page.getByLabel(await t(key), { exact: true })
-      : page.getByRole(["Test environment", "Choose an installed image", "Test command template", "Editing task", "Saved draft versions", "Copy an existing custom dataset into a draft", "Dataset or manifest"].includes(key) ? "combobox" : "textbox", { name: await t(key), exact: true });
+      : page.getByRole(["Test environment", "Choose an installed image", "Test command template", "Editing task", "Saved draft versions", "Copy an existing custom dataset into a draft", "Evaluation source"].includes(key) ? "combobox" : "textbox", { name: await t(key), exact: true });
     const alert = () => page.getByRole("alertdialog");
     const confirmVisible = async () => {
       await alert().waitFor();
@@ -149,7 +151,7 @@ try {
     for (const panel of ["preparation", "composer"]) {
       await go(panel);
       if (panel === "composer") await (await field("Experiment name")).fill("Edited experiment");
-      else await (await field("Dataset or manifest")).selectOption("fixture");
+      else await (await field("Evaluation source")).selectOption("fixture");
       await click("Close"); await confirmVisible(); await page.keyboard.press("Escape");
       assert.equal(await page.locator("dialog[open]").count(), 1);
       await click("Close"); await click("Discard and close"); assert.equal(await page.locator("dialog[open]").count(), 0);
@@ -157,7 +159,7 @@ try {
     await go("preparation");
     const environmentChoice = () => page.getByRole("checkbox", { name: locale === "en" ? "Prepare project dependencies for knowledge generation and coding (recommended)" : "为知识库生成和编码准备项目依赖（推荐）", exact: true });
     assert(await environmentChoice().isChecked());
-    await (await field("Dataset or manifest")).selectOption("fixture");
+    await (await field("Evaluation source")).selectOption("fixture");
     await page.getByRole("combobox", { name: await t("Task"), exact: true }).selectOption("task-1");
     await page.evaluate(() => { window.fixture.projectEnvironmentVersion = undefined; });
     await click("Submit");
@@ -168,7 +170,7 @@ try {
     await page.getByText("Closed fixture", { exact: true }).waitFor();
     assert(await page.evaluate(() => window.fixture.calls.find(call => call.path === "/prepare/context").body.projectEnvironment === true));
     await go("composer"); await (await field("Experiment name")).fill("Project-ready experiment");
-    await (await field("Dataset or manifest")).selectOption("fixture"); await click("Select filtered tasks"); await click("Continue to execution");
+    await (await field("Evaluation source")).selectOption("fixture"); await click("Select filtered tasks"); await click("Continue to execution");
     assert(await environmentChoice().isChecked());
     await environmentChoice().uncheck();
     await page.getByText(await t("Advanced as-is mode: the selected Agent image must already contain your build dependencies. Nothing is added automatically. Use this for company Agents with their own prepared adapter; old experiments retain their original mode."), { exact: true }).waitFor();

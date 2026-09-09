@@ -6,6 +6,7 @@ import { relativeTime } from "../lib/format";
 import { StatusBadge } from "./shared";
 import { WorkflowLogs } from "./WorkflowLogs";
 import { ConfirmDialog, FormError } from "./Dialogs";
+import { DatasetSnapshotBadge } from './DatasetSnapshotView';
 
 export function PreparationQueue({ operations, kind }: { operations: OperationRecord[]; kind: "context" | "constraints" }) {
   const { t, locale } = useI18n();
@@ -31,7 +32,7 @@ export function PreparationQueue({ operations, kind }: { operations: OperationRe
     {cancelTarget && <ConfirmDialog title={t("Cancel preparation task?")} description={`${cancelTarget.taskId ?? cancelTarget.id} — ${t("Pause takes effect at a stage boundary. Cancel stops the active agent; completed stages and frozen packages remain reusable.")}`} confirmLabel={t("Confirm cancellation")} cancelLabel={t("Keep running")} disabled={!!busy || !["queued", "running", "paused"].includes(cancelTarget.status)} onCancel={() => setCancelling(undefined)} onConfirm={() => { setCancelling(undefined); void act(cancelTarget.id, "cancel"); }} />}
     <div className="compact-table-wrap"><table className="data-table"><thead><tr><th>{t("Task")}</th><th>{t("Status")}</th><th>{t("Updated")}</th><th>{t("Actions")}</th></tr></thead><tbody>
       {(showAll ? selected : selected.slice(0, 8)).map((item) => <tr key={item.id}>
-        <td><strong>{item.taskId ?? item.id}</strong><small className="muted">{item.id}</small>{item.failure && <p className="form-error">{item.failure}</p>}</td>
+        <td><strong>{item.taskId ?? item.id}</strong><small className="muted">{item.id}</small><DatasetSnapshotBadge snapshot={item.datasetSnapshot} />{item.failure && <p className="form-error">{item.failure}</p>}</td>
         <td><StatusBadge status={item.status} /></td><td>{relativeTime(item.updatedAt, locale)}</td>
         <td><div className="toolbar">
           <button className="button secondary" onClick={() => setLogs(item.id)}>{t("Workflow logs")}</button>

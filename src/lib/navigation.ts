@@ -1,7 +1,7 @@
 import type { Page } from "../app-types";
 
 export const pageLabels: Record<Page, string> = {
-  overview: "Overview", experiments: "Experiments", datasets: "Datasets",
+  overview: "Overview", experiments: "Experiments", cases: "Evaluation cases", datasets: "Datasets",
   knowledge: "Knowledge", constraints: "Constraints", infrastructure: "Settings",
 };
 export const settingsSections = [

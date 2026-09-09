@@ -155,6 +155,7 @@ class PortableResources:
                 put(f"contexts/{key}/files/{name}", data)
             manifest["contexts"].append(key)
         refs = {task.image for task in tasks.values()}
+        refs.update(task.agent['image'] for task in tasks.values() if task.agent)
         # Include prepared Agent environments automatically, not just the four app images.
         for prepared in self.wb.db.list_documents('projectEnvironments'):
             if (prepared['repository'], prepared['baseCommit']) in baseline_ids:
@@ -262,7 +263,7 @@ class PortableResources:
                     if reference in references or (reference.startswith("sha256:") and reference != image["id"]):
                         raise ValueError("Duplicate or inconsistent image reference.")
                     references.add(reference)
-            if not {t.image for t in tasks}.issubset(references):
+            if not ({t.image for t in tasks} | {t.agent['image'] for t in tasks if t.agent}).issubset(references):
                 raise ValueError("Resource bundle is missing task images.")
             for profile in manifest["profiles"]:
                 document = validate_profile(json.loads(archive.read(profile["path"])), self.wb.redact)

@@ -197,13 +197,23 @@ class DockerRunner:
         if any(value and value in arg for name in self.env_allowlist
                if (value := os.environ.get(name)) for arg in args):
             raise ValueError('Do not embed runtime credentials in agent startup arguments; use selected environment variables.')
-        self.validate_agent_args_image(spec.image, args)
+        from .command_agents import command_agent
+        custom = command_agent(spec.metadata.get('commandAgent'))
+        if custom and (spec.mode != 'solve' or args):
+            raise ValueError('Custom commands are for coding only; put all startup arguments in the case command.')
+        if custom:
+            from .environments import public_material
+            public_material(custom, lambda text: '[REDACTED]' if any(value and value in text
+                for name in self.env_allowlist if (value := os.environ.get(name))) else text)
+        else:
+            self.validate_agent_args_image(spec.image, args)
         workspace = _within(self.repositories_root, spec.workspace)
         workflow = workflow_request(spec.workflow, spec.prompt)
         if workflow:
             if spec.mode not in {'solve', 'generate-context'}:
                 raise ValueError('Custom workflows are only supported for context generation and solving.')
-            self.validate_workflow_image(spec.image)
+            if not custom:
+                self.validate_workflow_image(spec.image)
         output = _within(self.artifacts_root, spec.output_dir)
         output.mkdir(parents=True, exist_ok=True)
         request_path = _within(self.request_root, str(self.request_root / f"{spec.run_id}.json"))
@@ -253,6 +263,16 @@ class DockerRunner:
             self._mount_source(output): {"bind": "/ctxbench/output", "mode": "rw"},
             self._mount_source(request_path): {"bind": "/ctxbench/request.json", "mode": "ro"},
         }
+        adapter_path = None
+        if custom:
+            adapter_bytes = Path(__file__).with_name('command_adapter.py').read_bytes()
+            expected_adapter = spec.metadata.get('commandAdapterHash')
+            if expected_adapter and hashlib.sha256(adapter_bytes).hexdigest() != expected_adapter:
+                request_path.unlink(missing_ok=True)
+                raise ValueError('The frozen custom Agent adapter changed. Restore the matching worker or create a new experiment.')
+            adapter_path = self.request_root / (spec.run_id + '-adapter.py')
+            adapter_path.write_bytes(adapter_bytes)
+            volumes[self._mount_source(adapter_path)] = {'bind': '/ctxbench/command_adapter.py', 'mode': 'ro'}
         if spec.skill_path:
             skill = Path(spec.skill_path).resolve()
             if spec.mode != "generate-context":
@@ -289,6 +309,7 @@ class DockerRunner:
                 security_opt=["no-new-privileges:true"],
                 cap_drop=["ALL"],
                 labels={"io.ctxbench.run": spec.run_id, "io.ctxbench.mode": spec.mode},
+                **({'entrypoint': ['python3'], 'command': ['/ctxbench/command_adapter.py']} if custom else {}),
             )
             wait = container.wait(timeout=spec.resources.timeout_minutes * 60 + 30)
             exit_code = int(wait.get("StatusCode", 1))
@@ -327,6 +348,8 @@ class DockerRunner:
             )
         finally:
             request_path.unlink(missing_ok=True)
+            if adapter_path:
+                adapter_path.unlink(missing_ok=True)
             if container is not None:
                 try:
                     container.remove(force=True)

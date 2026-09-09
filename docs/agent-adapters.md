@@ -2,6 +2,8 @@
 
 Pi is the preinstalled reference adapter, but the worker depends on an image contract rather than Pi internals. A company-internal coding agent can be added as another image without changing experiment planning, pairing, artifact storage, or grading.
 
+For **coding-only** integration, v0.1.7 offers a simpler alternative: configure a case's `agent.image` and `agent.command` and let the service inject its standalone Python command adapter. See [the guided image/custom-command instructions](image-workshop.md). It requires no Pi or image protocol labels, replaces ENTRYPOINT/CMD, and reports unknown usage rather than implementing the Pi token guard. The full adapter contract below remains necessary for other roles or verified model-usage integration. Command-image and service-adapter hashes are frozen alongside each case; setup cannot change the frozen repository, and grading still uses its own commands or CI adapter.
+
 The reference image also recognizes `provider: mock`. That path runs a deterministic JSONL-RPC stand-in inside the same container, mounts, network, resource, and output contract as Pi. It is for infrastructure smoke tests only and is always labeled as mock output.
 
 ## Runtime contract

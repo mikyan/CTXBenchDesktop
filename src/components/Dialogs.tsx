@@ -15,14 +15,14 @@ function keepTabInDialog(event: KeyboardEvent<HTMLDialogElement>) {
 }
 
 /** Native top-layer dialogs keep decisions visible even inside a scrolled form. */
-export function Modal({ title, children, onClose, busy = false, warnOnClose = false }: {
-  title: string; children: ReactNode; onClose: () => void; busy?: boolean; warnOnClose?: boolean;
+export function Modal({ title, children, onClose, busy = false, warnOnClose = false, dirty }: {
+  title: string; children: ReactNode; onClose: () => void; busy?: boolean; warnOnClose?: boolean; dirty?: boolean;
 }) {
   const { t } = useI18n();
   const ref = useRef<HTMLDialogElement>(null); const titleId = useId();
   const [edited, setEdited] = useState(false); const [discard, setDiscard] = useState(false);
   useEffect(() => { const dialog = ref.current!; dialog.showModal(); return () => dialog.close(); }, []);
-  const close = () => { if (!busy) { if (warnOnClose && edited) setDiscard(true); else onClose(); } };
+  const close = () => { if (!busy) { if (warnOnClose && (dirty ?? edited)) setDiscard(true); else onClose(); } };
   return <dialog ref={ref} aria-labelledby={titleId} className="workbench-dialog" onKeyDown={keepTabInDialog} onCancel={(event) => { event.preventDefault(); event.stopPropagation(); close(); }}>
     <header><div><h2 id={titleId}>{title}</h2>{busy && <p className="dialog-busy" role="status">{t("Working — please wait before closing.")}</p>}</div>
       <button type="button" className="icon-button" aria-label={t("Close")} disabled={busy} title={busy ? t("Working — please wait before closing.") : t("Close")} onClick={close}><X size={18} /></button>

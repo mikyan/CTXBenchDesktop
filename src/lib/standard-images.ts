@@ -8,10 +8,27 @@ export interface ProjectImage {
   remote?: { status: string; checkedAt?: string };
 }
 export interface StandardImagePlan {
+  imageSources?: { revision: number; profileId: string; overrides: { source: string; target: string }[] };
+  datasetRevision?: string;
   dataset: string; benchmark: string;
   tasks: { id: string; repository: string; images: string[] }[];
   images: ProjectImage[]; operations: OperatorJob[];
   storage: { freeBytes: number; ready: boolean };
+}
+export function normalizeProjectImageAddress(value: string): string {
+  let text = value.trim();
+  if (!text) return '';
+  if (text.startsWith('docker ')) {
+    const match = /^docker[ \t]+pull[ \t]+([^\s]+)$/.exec(text);
+    if (!match) throw Error('Enter one complete image address or docker pull command, without options or shell commands.');
+    text = match[1];
+  }
+  if (text.length > 256 || !/^[A-Za-z0-9][A-Za-z0-9._:/@-]*$/.test(text) || text.includes('://') || text.includes('//') || text.includes('..') || (text.includes('@') && !/^[^@]+@sha256:[a-f0-9]{64}$/.test(text)))
+    throw Error('Use a complete registry/repository image name, optionally with a tag or SHA-256 digest.');
+  const host = text.split('/')[0];
+  if (!text.includes('/') || !(host.includes('.') || host.includes(':') || host === 'localhost'))
+    throw Error('Enter the complete image address including the registry hostname and repository path.');
+  return text;
 }
 export function selectedProjectImages(plan: StandardImagePlan, taskIds: string[]) {
   const selected = new Set(taskIds);

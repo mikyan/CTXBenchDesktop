@@ -6,10 +6,11 @@ import json
 import re
 from dataclasses import asdict
 from pathlib import Path
+from tempfile import NamedTemporaryFile
 from urllib.parse import urlparse
 
 from .database import Database, utc_now
-from .datasets import TaskRecord, custom_task, import_agentbench, import_swebench
+from .datasets import TaskRecord, custom_task, import_agentbench, import_swebench, task_document
 from .safe_files import safe_file
 
 
@@ -45,22 +46,36 @@ class Catalog:
                 raise ValueError("Repository URLs must not embed credentials.")
             if task.source == "custom" and parsed.scheme and (parsed.query or parsed.fragment):
                 raise ValueError("Repository URLs must not contain query strings or fragments.")
-            if task.source == "custom" and not task.test_command:
+            if task.source == "custom" and not task.test_command and not task.ci:
                 raise ValueError("Custom tasks need a nonempty test command.")
         return tasks
 
-    def register(self, name: str, benchmark: str, rows: list[dict]) -> dict:
+    def register(self, name: str, benchmark: str, rows: list[dict], *, internal: bool = False) -> dict:
         tasks = self.validate(name, benchmark, rows)
         key = fingerprint({"benchmark": benchmark, "rows": rows})
-        try:
-            return self.public(self.verify(key))
-        except KeyError:
-            pass
-        path = self.root / "datasets" / f"{key}.json"
-        path.write_text(json.dumps(rows), encoding="utf-8")
-        record = {"id": key, "name": name, "benchmark": benchmark, "count": len(tasks),
-                  "createdAt": utc_now(), "path": str(path), "tasks": [asdict(task) for task in tasks]}
-        self.database.put_document("datasets", key, record)
+        with self.database.connect() as connection:
+            connection.execute('BEGIN IMMEDIATE')
+            existing = connection.execute("SELECT 1 FROM documents WHERE kind='datasets' AND id=?", (key,)).fetchone()
+            if existing:
+                record = self.verify(key)
+                if not internal and record.pop('internalSnapshot', False):
+                    connection.execute("UPDATE documents SET payload_json=? WHERE kind='datasets' AND id=?", (json.dumps(record), key))
+                return self.public(record)
+            path = self.root / 'datasets' / f'{key}.json'
+            temporary = None
+            try:
+                with NamedTemporaryFile(mode='w', encoding='utf-8', prefix='snapshot-', suffix='.tmp', dir=path.parent, delete=False) as output:
+                    temporary = Path(output.name)
+                    json.dump(rows, output)
+                temporary.replace(path)
+            finally:
+                if temporary is not None:
+                    temporary.unlink(missing_ok=True)
+            record = {'id': key, 'name': name, 'benchmark': benchmark, 'count': len(tasks),
+                      'createdAt': utc_now(), 'path': str(path), 'tasks': [task_document(task) for task in tasks]}
+            if internal:
+                record['internalSnapshot'] = True
+            connection.execute('INSERT INTO documents VALUES (?, ?, ?)', ('datasets', key, json.dumps(record)))
         return self.public(record)
 
     @staticmethod
@@ -68,11 +83,13 @@ class Catalog:
         return {key: record[key] for key in ("id", "name", "benchmark", "count", "createdAt")}
 
     def list(self) -> list[dict]:
-        return self.database.list_document_summaries('datasets', ('id', 'name', 'benchmark', 'count', 'createdAt'))
+        records = self.database.list_document_summaries('datasets', ('id', 'name', 'benchmark', 'count', 'createdAt', 'internalSnapshot'))
+        return [{k: v for k, v in record.items() if k != 'internalSnapshot'} for record in records if not record['internalSnapshot']]
 
     def tasks(self, dataset: str) -> list[dict]:
         return [{"id": task["id"], "repository": task["repository"], "baseCommit": task["base_commit"],
-                 "prompt": task["prompt"], "image": task["image"]}
+                 "prompt": task["prompt"], "image": task["image"],
+                 **({'customAgentImage': task['agent']['image']} if task.get('agent') else {})}
                 for task in self.verify(dataset)["tasks"]]
 
     def verify(self, dataset: str) -> dict:
@@ -81,6 +98,9 @@ class Catalog:
         rows = json.loads(path.read_text(encoding='utf-8'))
         if fingerprint({'benchmark': record['benchmark'], 'rows': rows}) != dataset:
             raise ValueError('Frozen dataset contents have changed; import as a new dataset instead.')
+        expected_tasks = json.loads(json.dumps([task_document(task) for task in self.validate(record['name'], record['benchmark'], rows)]))
+        if record['tasks'] != expected_tasks or record['id'] != dataset or record['count'] != len(expected_tasks) or Path(record['path']).resolve() != path.resolve():
+            raise ValueError('Frozen dataset metadata has changed; restore the original snapshot before running.')
         return record
 
     def task(self, dataset: str, task_id: str) -> TaskRecord:

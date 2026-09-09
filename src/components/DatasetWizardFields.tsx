@@ -1,18 +1,24 @@
 import { useI18n } from "../i18n";
 import { testTemplates, type EnvironmentDraft, type TaskDraft } from "../lib/dataset-authoring";
 import { TestImagePicker } from "./TestImagePicker";
+import { CIGradingFields, defaultCITest } from './CIGradingFields';
+import { CustomAgentFields } from './CustomAgentFields';
 
-export function TaskFields({ task, defaults, onChange, onUpload }: {
+export function TaskFields({ task, defaults, onChange, onUpload, standalone = false }: {
   task: TaskDraft; defaults: EnvironmentDraft; onChange: (changes: Partial<TaskDraft>) => void;
   onUpload: (file: File | undefined, field: "hiddenPatch" | "goldPatch") => void;
+  standalone?: boolean;
 }) {
   const { t } = useI18n();
   return <>
     <label>{t("Task ID")}<input value={task.id} placeholder="task-1" onChange={(e) => onChange({ id: e.target.value })} /></label>
     <label>{t("Task prompt · agent-visible")}<textarea rows={6} value={task.prompt} placeholder={t("Example: Fix normalize_name so leading and trailing whitespace is removed. Preserve internal spaces and handle empty input. Describe requirements, not the answer.")} onChange={(e) => onChange({ prompt: e.target.value })} /></label>
-    <label className="check-line"><input type="checkbox" checked={!!task.override} onChange={(e) => onChange({ override: e.target.checked ? { ...defaults } : null })} />{t("Override repository and test environment for this task")}</label>
-    {task.override ? <EnvironmentFields value={task.override} onChange={(override) => onChange({ override })} /> : <p className="wizard-inherited">{t("Using shared defaults")} · {defaults.repository} · <code>{defaults.baseCommit.slice(0, 12)}</code></p>}
+    <CustomAgentFields value={task.agent} onChange={(agent) => onChange({ agent })} />
+    {!standalone && <><label className="check-line"><input type="checkbox" checked={!!task.override} onChange={(e) => onChange({ override: e.target.checked ? { ...defaults } : null })} />{t("Override repository and test environment for this task")}</label>
+    {task.override ? <EnvironmentFields value={task.override} onChange={(override) => onChange({ override })} /> : <p className="wizard-inherited">{t("Using shared defaults")} · {defaults.repository} · <code>{defaults.baseCommit.slice(0, 12)}</code></p>}</>}
     <fieldset><legend>{t("Pass/fail tests · evaluator-only")}</legend>
+      <label>{t('Grading method')}<select value={task.ci ? 'ci' : 'local'} onChange={(e) => onChange({ ci: e.target.value === 'ci' ? defaultCITest() : undefined })}><option value="local">{t('Local Docker test command')}</option><option value="ci">{t('Remote CI pipeline gates')}</option></select></label>
+      {task.ci ? <><CIGradingFields value={task.ci} onChange={(ci) => onChange({ ci })} />{(task.hiddenPatch.trim() || task.goldPatch.trim()) && <p role="alert" className="form-error">{t('CI: remove local hidden and reference patches before using remote grading.')} <button type="button" className="text-button" onClick={() => onChange({ ci: undefined })}>{t('Return to local grading to edit patches')}</button></p>}</> : <>
       <p>{t("Tests run at /workspace in an isolated container with no network. Exit code 0 means PASS; any nonzero exit means FAIL. Preinstall all dependencies in the test image.")}</p>
       <div className="form-grid two"><label>{t("Command format")}<select value={task.commandMode} onChange={(e) => {
         const mode = e.target.value as TaskDraft["commandMode"];
@@ -29,7 +35,7 @@ export function TaskFields({ task, defaults, onChange, onUpload }: {
         }
       }}><option value="shell">{t("Shell script (/bin/sh)")}</option><option value="argv">{t("Argument array (JSON)")}</option></select></label>
       <label>{t("Test command template")}<select value="" onChange={(e) => { const template = testTemplates[e.target.value as keyof typeof testTemplates]; if (template) onChange({ commandMode: "shell", command: template }); }}>
-        <option value="">{t("Select to replace the command")}</option><option value="pytest">Python · pytest</option><option value="unittest">Python · unittest</option><option value="npm">Node.js · npm test</option>
+        <option value="">{t("Select to replace the command")}</option><option value="pytest">Python · pytest</option><option value="unittest">Python · unittest</option><option value="npm">Node.js · npm test</option><option value="maven">Java · Maven</option><option value="go">Go · go test</option>
       </select></label></div>
       <label>{t("Test command")}<textarea rows={4} spellCheck={false} value={task.command} placeholder={task.commandMode === "shell" ? "python -m pytest -q tests" : '["python", "-m", "pytest", "-q", "tests"]'} onChange={(e) => onChange({ command: e.target.value })} /></label>
       <p>{t("Templates only fill the command; they do not create assertions or install dependencies. Use argv for images without /bin/sh. Never hide failures with exit 0 or || true.")}</p>
@@ -46,6 +52,7 @@ export function TaskFields({ task, defaults, onChange, onUpload }: {
         <label>{t("Upload reference fix patch")}<input type="file" accept=".patch,.diff,.txt" onChange={(e) => { onUpload(e.target.files?.[0], "goldPatch"); e.target.value = ""; }} /></label>
         <p>{t("The reference fix is stored as evaluator material. This wizard does not execute or verify it.")}</p>
       </details>
+      </>}
     </fieldset>
   </>;
 }

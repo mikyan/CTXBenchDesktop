@@ -1,6 +1,10 @@
 # CTXBench Desktop
 
-v0.1.6 新增本地评测集文件导入、可复用项目构建环境、项目镜像按需安装与可选公司仓库映射。详见[版本说明](docs/releases/v0.1.6.md)、[工作台使用指南](docs/workspace-navigation.md)及[真实 CTXBench 验收记录](docs/ctx-live-acceptance.md)，注意区分导入验证、容器验证与模型全集跑分。
+v0.1.7 新增可编辑的用例库与评测集组合、不可变运行快照、GitHub CI 判分、自定义非 Pi 编码命令、远端镜像下载和四步镜像制作向导。自定义 Agent 的 Token 用量未知不影响功能测试。升级方式和验收边界详见[版本说明](docs/releases/v0.1.7.md)及[工作台使用指南](docs/workspace-navigation.md)。
+
+v0.1.7 新增：**独立创建和编辑评测用例 → 从已有用例组合评测集 → 启动时自动冻结快照**。修改只影响未来任务，排队中、已完成及重试任务保持原定义。单个用例也可直接生成知识库或创建实验。[查看操作指南](docs/case-library.md)。需同时更新桌面端与评测服务镜像。
+
+官方评测集的“安装项目镜像”也支持为每个镜像直接填写内网完整地址，或粘贴 `docker pull …`；保存后下载和后续新任务共用该地址，不改动官方数据。[镜像地址配置说明](docs/company-image-registry.md)。
 
 [English](README.md) | [简体中文](README.zh-CN.md)
 
@@ -13,7 +17,7 @@ CTXBench Desktop 是本地优先的 Windows 桌面代码 Agent 评测工作台�
 - **SWE-bench**：导入官方任务，执行代码修复，使用官方测试评分。
 - **CTXBench（原 AGENTBench）**：对比无知识库、Skill 生成、人工导入和基线自带上下文。适配 [CTXBench 论文](https://arxiv.org/abs/2602.11988)及[官方仓库](https://github.com/eth-sri/agentbench)的数据和评分工具。
 - **SWE-Shield 风格约束评测**：从基线截止日期之前的历史 PR 评审中挖掘设计约束，再由三个独立评审会话判断候选补丁是否满足约束；支持测试通过后仍违反约束的统计。这是有来源证据的兼容实现，不是论文的逐项完整复现。
-- **自定义任务**：可在 **评测集 → 创建评测集** 中按四步向导添加任务，设置默认或独立仓库环境、测试命令及隐藏测试；支持定义校验和 JSON 导出，也保留 manifest 导入。[查看用例设计与创建指南](docs/custom-datasets.md)。
+- **自定义任务**：在 **评测用例 → 创建评测用例** 中独立添加任务，设置仓库、测试环境、提示词和测试；在 **评测集 → 组合评测集** 中勾选已有用例。用例与组合都可编辑，支持直接生成知识库，也保留 manifest 和旧版草稿导入。[查看用例设计与创建指南](docs/custom-datasets.md)。
 
 知识库是被动的仓库文件，例如 `AGENTS.md` 或文档目录。工具不会修改任务提示词、插入检索提示或强制 Agent 阅读知识库。生成只依赖指定基线，不得接触目标 PR、标准答案、隐藏测试、未来历史或挖掘出的约束。
 
@@ -21,6 +25,8 @@ CTXBench Desktop 是本地优先的 Windows 桌面代码 Agent 评测工作台�
 
 ## 当前工作台能力
 
+- [拉取现成镜像、引导制作镜像、自定义 Agent 命令](docs/image-workshop.md)（v0.1.7）：下载公司镜像，分步安装依赖和默认配置，在用例中配置自己的编码 Agent，不要求 Pi；编码命令与判分测试命令独立。任意 CLI 的 Token 用量记为未知，不是零。
+- [自定义用例接入 CI 门禁](docs/ci-grading.md)（v0.1.7）：自动提交到 GitHub 专用评测分支，读取指定门禁，并可选统计 JUnit 单测数量。平台令牌仅保存在评测服务内存；内置[公司 HTTP 网关适配协议](docs/ci-platform-adapter.md)，便于替换为内部平台。[真实 GitHub 正反例与恢复观察](docs/ci-live-acceptance.md)、[Docker Pi + MiMo 自行编码到 CI 判分的全链路](docs/ci-agent-live-acceptance.md)均已验证；后者未生成知识库，不代表知识库效果结论。
 - [公司镜像仓库与部分用例下载](docs/company-image-registry.md)：安装、知识库准备、评测共用镜像地址映射；可先检查仓库、只选镜像可用的用例、安装后直接创建子集实验，不自动退回 Docker Hub。npm／pip／Maven 源仍需单独适配。
 - [内网适配工作台](docs/intranet-workbench.md)（v0.1.4）：公司环境方案与 Git 镜像映射、独立镜像构建配方、草稿保存与已有用例复制编辑、无模型消耗的真实容器自检，以及**自定义评测集**完整资源 ZIP。暂不包含 SWE／CTX 官方动态环境的完整迁移；桌面端和 Worker 需一起更新。
 - 预装 Pi 的 Agent 容器、Provider / 模型选择、按角色设置 Token 额度，以及显式白名单环境变量注入。
@@ -65,7 +71,7 @@ npm run tauri dev
 **发行版自动检测**：“设置 → 运行环境”页面通过 `wsl --list --verbose` 列出本机已安装的发行版及 WSL 版本，可下拉选择，也可手动输入 `Ubuntu-24.04` 等准确名称。软件会记住你的选择；首次使用优先选 WSL 2，条件相同时优先系统默认发行版，不会自动选中 Docker Desktop 的内部发行版。安装或导入新发行版后可点击“刷新发行版”。版本判断不再依赖内核名称；启动失败会保留具体错误。此功能仅在桌面应用中可用。
 
 1. 在**设置 → 运行环境**选择 WSL 发行版；到**应用镜像**导入或构建镜像，再返回运行环境启动 Worker。**模型凭据**中的 Agent 环境变量支持**添加变量**，填写多组名称和值后**保存全部环境变量**（仅保留到 Worker 重启），或通过部署环境变量配置；不要把密钥写入仓库、镜像或知识库。在实验、知识库生成和约束挖掘窗口中，可勾选多个已配置变量，或输入以换行、空格、逗号分隔的变量名；此处只填名称，不填值。只有选中的变量会传入 Agent，地址等配置是否生效取决于 Agent 是否识别对应变量名。
-2. 在**评测集 → 导入数据集**中导入 JSON / JSONL；parquet 文件须先放入 Worker 的 `/var/lib/ctxbench/datasets`。官方来源：[CTXBench（原 AGENTBench）](https://huggingface.co/datasets/eth-sri/agentbench)、[SWE-bench Verified](https://huggingface.co/datasets/princeton-nlp/SWE-bench_Verified)。导入内容会计算哈希并冻结。
+2. 在**评测用例／评测集 → 导入用例**中选择本机 Parquet、JSON 或 JSONL 文件，检查后确认导入，无需手动复制到 WSL 或 Docker。官方来源：[CTXBench（原 AGENTBench）](https://huggingface.co/datasets/eth-sri/agentbench)、[SWE-bench Verified](https://huggingface.co/datasets/princeton-nlp/SWE-bench_Verified)。原始导入保留，并产生独立用例和初始评测集；从卡片按需安装项目镜像，任务启动时冻结所选定义。
 3. 选择实际任务、Provider / 模型、各角色额度、资源、重复次数及上下文分支。选择**先准备全部上下文**可停在 `ready` 状态，之后显式恢复求解。
 4. 跨模型复用时选择**冻结包**。支持 JSON 包和文档目录，仓库与基线 commit 必须完全匹配。人工提供的基线声明是作者声明，并不能证明文档确实基于该版本生成。
 5. 按需开启历史 PR 约束挖掘。自动生成的约束包标为银级（silver）；三个评审会话相互独立，可配置不同模型。评审失败会明确报错，不会伪造为中立票。

@@ -310,6 +310,7 @@ class Database:
             "name": row["name"],
             "benchmark": row["benchmark"],
             "dataset": row["dataset"],
+            "datasetSnapshot": spec.get('dataset_snapshot', {}),
             "status": row["status"],
             "arms": spec["arms"],
             "repeats": spec["repeats"],

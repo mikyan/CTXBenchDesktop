@@ -1,0 +1,35 @@
+# Copy to .github/workflows/ctxbench.yml in your dedicated evaluation repository.
+# Replace the image placeholder with an approved, digest-pinned Maven/JDK image.
+# Commit this workflow on the default branch BEFORE recording the case baseline.
+name: CTXBench Maven tests
+on:
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  test:
+    name: test
+    runs-on: ubuntu-24.04
+    timeout-minutes: 30
+    container:
+      image: REPLACE_WITH_YOUR_APPROVED_MAVEN_JDK_IMAGE_AT_SHA256_DIGEST
+      options: --cpus 2 --memory 4g
+    steps:
+      - name: Check out exactly the evaluation commit
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
+        with:
+          ref: ${{ github.sha }}
+          persist-credentials: false
+          fetch-depth: 1
+      - name: Run tests
+        run: mvn -B test
+      - name: Upload JUnit evidence even when tests fail
+        if: always()
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7, GitHub.com
+        with:
+          name: test-results
+          path: '**/target/surefire-reports/TEST-*.xml'
+          if-no-files-found: error
+          retention-days: 14

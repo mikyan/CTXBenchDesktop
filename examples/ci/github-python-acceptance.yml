@@ -1,0 +1,37 @@
+# Used only on an explicitly created acceptance baseline branch, not main/master.
+name: CTXBench CI grading acceptance
+on:
+  workflow_dispatch:
+permissions:
+  contents: read
+jobs:
+  backend-tests:
+    name: backend-tests
+    runs-on: ubuntu-24.04
+    timeout-minutes: 15
+    container:
+      image: python:3.13.11-slim-bookworm@sha256:ac76900038d8606cc99b413d4ede77bc7152f1e42b94cf5d50d4b80a999652fe
+      options: --cpus 2 --memory 4g
+    env:
+      CTXBENCH_RUNNER: mock
+      CTXBENCH_MIN_FREE_GB: '0'
+    steps:
+      - name: Install Git for fixture repositories
+        run: apt-get update && apt-get install -y --no-install-recommends git ca-certificates
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
+        with:
+          ref: ${{ github.sha }}
+          persist-credentials: false
+          fetch-depth: 1
+      - name: Install test dependencies
+        run: python -m pip install -r worker/requirements-dev.txt pytest==8.4.2
+      - name: Run real backend unit tests
+        run: python -m pytest worker/tests -q --junitxml=reports/backend.xml
+      - name: Upload test evidence even on failure
+        if: always()
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7
+        with:
+          name: ctxbench-junit
+          path: reports/backend.xml
+          if-no-files-found: error
+          retention-days: 7

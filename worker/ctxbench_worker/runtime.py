@@ -298,6 +298,8 @@ class Runtime:
     def grade(self, task: TaskRecord, dataset_path: Path, patch: Path, output: Path,
               resources: ResourcePolicy, harness_image: str, *, environment_image: str | None = None) -> dict:
         started = time.monotonic()
+        if task.ci:
+            raise ValueError('CI: remote cases require the dedicated CI grader, not the local test runner.')
         if task.source in {"swebench", "agentbench"}:
             # Legacy experiments may also have digest-pinned original images;
             # only an explicit prepared environment enables the new protocol.
