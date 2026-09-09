@@ -22,6 +22,7 @@ class LibraryConflict(ValueError):
 
 CASE_FIELDS = ('id', 'name', 'benchmark', 'revision', 'taskId', 'repository', 'baseCommit',
                'prompt', 'image', 'createdAt', 'updatedAt', 'originDataset', 'modified')
+MAX_CASE_BYTES = 32 * 1024 * 1024
 
 
 class CaseLibrary:
@@ -55,9 +56,12 @@ class CaseLibrary:
             raise ValueError('Enter a name between 1 and 160 characters.')
         return value.strip()
 
-    def _case(self, key, name, benchmark, row, previous=None):
-        if len(json.dumps(row)) > 10_000_000:
-            raise ValueError('A case definition must not exceed 10 MB.')
+    def _case(self, key, name, benchmark, row, previous=None, *, imported=False):
+        # The editor's write quota is not a migration filter. Official compressed
+        # datasets contain larger grading rows already accepted by the catalog.
+        # Preserve their exact contents; never truncate or drop grading material.
+        if not imported and len(json.dumps(row, ensure_ascii=False, separators=(',', ':')).encode('utf-8')) > MAX_CASE_BYTES:
+            raise ValueError('A case definition must not exceed 32 MiB.')
         task = self.catalog.validate(name, benchmark, [row])[0]
         now = utc_now()
         return {'id': key, 'name': name, 'benchmark': benchmark, 'row': row,
@@ -171,12 +175,25 @@ class CaseLibrary:
             self._put(connection, 'librarySets', record)
         return record
 
-    def sets(self):
+    def sets(self, *, warnings=None):
         # Idempotent lazy migration also discovers datasets imported by old CLIs.
         # Immutable source records and files are never edited or removed.
         for record in self.catalog.list():
-            self.adopt(record['id'])
+            try:
+                self.adopt(record['id'])
+            except (ValueError, KeyError, OSError):
+                # A damaged legacy source must not hide unrelated cases or make
+                # independent creation impossible. Each adoption is atomic.
+                if warnings is not None:
+                    warnings.append({'datasetId': record['id'], 'name': self.redact(record['name']),
+                        'code': 'import-source-unavailable',
+                        'message': 'This imported dataset could not be loaded. Its source is missing or failed validation. Restore the original data directory and refresh; other cases remain available.'})
         return self.db.list_documents('librarySets')
+
+    def inventory(self):
+        warnings = []
+        collections = self.sets(warnings=warnings)
+        return {'version': 1, 'sets': collections, 'cases': self.cases(), 'importWarnings': warnings}
 
     def adopt(self, dataset):
         key = 'set-' + dataset
@@ -196,7 +213,7 @@ class CaseLibrary:
             for index, row in enumerate(rows):
                 case_id = 'case-' + fingerprint({'dataset': dataset, 'index': index})
                 task = source['tasks'][index]
-                record = self._case(case_id, task['id'], source['benchmark'], row)
+                record = self._case(case_id, task['id'], source['benchmark'], row, imported=True)
                 record['originDataset'] = dataset
                 self._put(connection, 'libraryCases', record)
                 ids.append(case_id)

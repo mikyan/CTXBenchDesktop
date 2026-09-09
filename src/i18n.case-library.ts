@@ -68,6 +68,11 @@ export const caseLibraryChinese: Record<string, string> = {
   'Select between 1 and 10,000 unique existing cases.': '请选择 1 至 10,000 个已有用例，不能重复引用同一个用例。',
   'Enter a name between 1 and 160 characters.': '请输入 1 至 160 个字符的名称。',
   'A case definition must not exceed 10 MB.': '单个用例定义不能超过 10 MB。',
+  'A case definition must not exceed 32 MiB.': '手动保存的单个用例定义不能超过 32 MiB（按 UTF-8 字节计算）。',
+  'Could not load existing cases. This is a library loading error, not an error in a new case. You can still open the case editor; saving requires a working evaluation service. Use Refresh to try loading again.': '已有用例列表加载失败，不是你正在创建的用例有误。仍可打开创建表单，保存时需要评测服务正常响应。可点击“刷新”重试加载。',
+  'Some imported datasets could not be loaded': '部分已导入评测集暂时无法载入',
+  'Available cases and independent case creation are unaffected. No source data or historical results were deleted.': '不影响其他可用用例和独立创建用例。原始数据及历史结果没有删除。',
+  'This imported dataset could not be loaded. Its source is missing or failed validation. Restore the original data directory and refresh; other cases remain available.': '源数据缺失或校验未通过。请恢复原始数据目录后刷新；其他用例仍可使用。',
   'Credentials are not allowed in shared configuration or resources.': '不能在共享配置或用例定义中保存密钥，请在模型凭据中配置。',
   'The editable case library requires matching desktop and evaluation service images. Update the application images and restart the service safely; existing results are preserved.': '可编辑用例库需要配套的新版桌面端和评测服务镜像。请更新应用镜像后安全重启服务，已有结果会保留。',
 };

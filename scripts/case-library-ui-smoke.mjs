@@ -22,7 +22,7 @@ try {
       const cases = [make('one', 'Backend API'), make('two', 'Backend validation')];
       const sets = [{ id: 'set-main', name: 'Backend suite', revision: 1, caseIds: ['case-one', 'case-two'], benchmark: 'custom', count: 2, createdAt: '2026-09-08', updatedAt: '2026-09-08' }];
       const snapshot = { id: 'snapshot-original', sourceId: 'case-one', name: 'Original snapshot', sourceRevision: 1, contentRevision: 'revision-one', dataset: 'frozen-hash', benchmark: 'custom', createdAt: '2026-09-08', members: [{ caseId: 'case-one', revision: 1, taskId: 'one', rowHash: 'row-hash', modified: false }] };
-      window.fixture = { cases, sets, calls: [], conflict: false, staleRun: false };
+      window.fixture = { cases, sets, calls: [], conflict: false, staleRun: false, libraryUnavailable: true, importWarnings: [] };
       localStorage.setItem('ctxbench-distribution', 'Ubuntu');
       window.__TAURI_INTERNALS__ = { invoke: async (command, args) => {
         window.fixture.calls.push({ command, ...structuredClone(args) });
@@ -31,7 +31,10 @@ try {
         if (command !== 'worker_request') throw Error('Unexpected native call: ' + command);
         const { path, method, body } = args;
         const publicCase = ({ row, usedBy, ...item }) => item;
-        if (path === '/library') return { version: 1, cases: cases.map(publicCase), sets };
+        if (path === '/library') {
+          if (window.fixture.libraryUnavailable) throw Error('A case definition must not exceed 10 MB.');
+          return { version: 1, cases: cases.map(publicCase), sets, importWarnings: window.fixture.importWarnings };
+        }
         if (path.startsWith('/library/cases/')) {
           const item = cases.find((value) => value.id === path.split('/').at(-1));
           if (method === 'GET') return { ...item, usedBy: sets.filter((value) => value.caseIds.includes(item.id)).map(({ id, name }) => ({ id, name })) };
@@ -78,7 +81,9 @@ try {
     const button = async (key) => (await page.locator('dialog[open]').count() ? page.locator('dialog[open]').last() : page).getByRole('button', { name: await t(key), exact: true });
     const click = async (key) => (await button(key)).click();
     const field = async (key) => page.getByRole(['Choose an installed image', 'Test environment', 'Evaluation source'].includes(key) ? 'combobox' : 'textbox', { name: await t(key), exact: true });
-    await page.getByRole('heading', { name: 'Backend API', exact: true }).waitFor();
+    await page.getByRole('alert').filter({ hasText: await t('A case definition must not exceed 10 MB.') }).waitFor();
+    assert(await (await button('Create evaluation case')).isEnabled());
+    assert.equal(await page.getByRole('heading', { name: await t('No evaluation cases yet'), exact: true }).count(), 0, 'A load failure is not an empty library');
     assert(!(await page.locator('body').innerText()).includes('EVAL_ONLY_GOLD'));
     await click('Create evaluation case');
     await (await field('Case name')).fill('New service case');
@@ -90,7 +95,21 @@ try {
     await (await field('Task prompt · agent-visible')).fill('Fix the API response validation.');
     await (await field('Test command')).fill('python3 -m unittest');
     await click('Next'); await click('Save evaluation case');
+    await page.locator('dialog[open]').waitFor({ state: 'hidden' });
+    assert.equal(await page.evaluate(() => window.fixture.cases.length), 3, 'Independent creation must work despite a library listing failure');
+    await page.evaluate(() => {
+      window.fixture.libraryUnavailable = false;
+      window.fixture.importWarnings = [{ datasetId: 'broken-source', name: 'Unavailable imported suite', code: 'import-source-unavailable', message: 'This imported dataset could not be loaded. Its source is missing or failed validation. Restore the original data directory and refresh; other cases remain available.' }];
+    });
+    await click('Refresh');
     await page.getByRole('heading', { name: 'New service case', exact: true }).waitFor();
+    await page.getByRole('status').filter({ hasText: await t('Some imported datasets could not be loaded') }).waitFor();
+    assert((await page.locator('body').innerText()).includes('Unavailable imported suite'));
+    assert.equal(await page.getByRole('alert').count(), 0, 'Refresh clears the old load error');
+    assert(await (await button('Create evaluation case')).isEnabled());
+    await page.evaluate(() => { window.fixture.importWarnings = []; });
+    await click('Refresh');
+    await page.getByRole('status').filter({ hasText: await t('Some imported datasets could not be loaded') }).waitFor({ state: 'hidden' });
     assert.equal(await page.evaluate(() => window.fixture.sets.length), 1, 'Creating a case must not create a set');
     const card = (name) => page.locator('article.dataset-card').filter({ has: page.getByRole('heading', { name, exact: true }) });
     await card('Backend API').getByRole('button', { name: await t('Edit evaluation case'), exact: true }).click();
@@ -167,8 +186,15 @@ try {
     assert(await page.evaluate(() => document.documentElement.scrollWidth <= innerWidth), 'No horizontal clipping at minimum desktop size');
     await mkdir(resolve('artifacts/case-library-ui'), { recursive: true });
     await page.screenshot({ path: resolve(`artifacts/case-library-ui/${locale}.png`), fullPage: true });
+    await page.evaluate(() => { window.fixture.cases.length = 0; window.fixture.sets.length = 0; });
+    await click('Refresh');
+    await page.getByRole('heading', { name: await t('No evaluation cases yet'), exact: true }).waitFor();
+    assert(await (await button('Create evaluation case')).isEnabled());
+    await click('Datasets');
+    await page.getByRole('heading', { name: await t('No datasets yet'), exact: true }).waitFor();
+    await page.getByText(await t('Create a case or import standard cases first, then compose a dataset here.'), { exact: true }).waitFor();
     assert.deepEqual(errors, []);
-    console.log(JSON.stringify({ locale, passed: true, createsIndependentCase: true, editsWithRevision: true, composesReferences: true, directGeneration: true, snapshotBoundExperiment: true }));
+    console.log(JSON.stringify({ locale, passed: true, createsDespiteListFailure: true, partialImportWarnings: true, refreshRecovers: true, emptyLibraryUsable: true, createsIndependentCase: true, editsWithRevision: true, composesReferences: true, directGeneration: true, snapshotBoundExperiment: true }));
     await page.close();
   }
 } catch (error) {

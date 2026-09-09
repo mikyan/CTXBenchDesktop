@@ -27,6 +27,10 @@ v0.1.7 新增。桌面端与评测服务镜像必须一起更新；只安装旧�
 
 已导入的旧数据会首次打开用例库时自动迁移。原始数据文件、旧实验及结果不变；旧任务继续使用原有内容哈希，后续编辑不覆盖原始导入。新快照不会重新导入成一套重复用例。
 
+如果 v0.1.7 刚打开页面就提示“单个用例定义不能超过 10MB”，这是旧数据自动载入误用了编辑限额：官方 CTXBench 中有超过 10MB 的测试材料，不是你创建操作有误。此修复需要同时更新桌面端和评测服务镜像；不用删除或重新下载官方数据。已验证的原始导入会完整迁移，不裁剪测试或参考修复；手工保存定义按 UTF-8 JSON 实际字节计算，上限 32 MiB。
+
+单份旧数据丢失或校验失败时，页面会列出受影响的评测集，其余用例与独立创建入口仍可用；恢复该评测服务原有的数据目录后点 **刷新** 重试。列表服务整体不可用时，会明确提示“用例库加载失败”，而不是误报新建用例太大或显示空库；仍可打开创建表单，但保存需要评测服务正常响应。不要通过清空数据目录解决载入错误。
+
 未提交表单不会自动保存，关闭时会居中确认。以前保存的多用例草稿仍可从 **标准下载 → 旧版草稿导入（高级）** 恢复；导入会新增用例与初始组合，而非覆盖现有用例。已保存用例的自检仍在 **用例自检**；自定义资源迁移在 **设置 → 资源迁移**。
 
 ## API / storage boundary
@@ -35,7 +39,7 @@ The editable library is separate from the immutable catalog. `CaseLibrary.freeze
 
 | Endpoint | Purpose |
 | --- | --- |
-| `GET /v1/library` | Migrate legacy imports idempotently; list public cases and sets |
+| `GET /v1/library` | Migrate legacy imports idempotently; list public cases/sets and nonblocking `importWarnings` per unavailable source |
 | `POST /v1/library/cases` | Create `{name, benchmark, row}` without a set |
 | `GET/PUT /v1/library/cases/{id}` | Operator-only full definition / save with `expectedRevision` |
 | `POST /v1/library/sets` | Compose `{name, caseIds}` referencing existing cases |
@@ -51,5 +55,8 @@ No Docker image layers or repository clones are duplicated just to save a defini
 ## Verification
 
 - `npm test`, `npm run build`, `npm run worker:test`; native `cargo test --manifest-path src-tauri/Cargo.toml --locked`.
-- `scripts/case-library-ui-smoke.mjs`: headless English/Chinese creation, revision conflict, composition changes, unsaved-close confirmation, direct preparation/experiment and historical snapshot interactions. Uses fixture API responses.
+- `scripts/case-library-ui-smoke.mjs`: headless English/Chinese creation during list failures, partial-import warnings and recovery, genuine empty states, revision conflict, composition changes, unsaved-close confirmation, direct preparation/experiment and historical snapshot interactions. Uses fixture API responses.
+- `scripts/case-library-import-smoke.py SOURCE.json EMPTY_OUTPUT_DIR`: real legacy dataset migration into an isolated fresh database; checks all rows, the largest case's editing/frozen grading data, independent creation, restart idempotence and unchanged source hash. Supports `--benchmark ctxbench|swebench|custom`; no model calls or live database changes. Mount the source read-only in Docker.
 - `scripts/case-library-container-smoke.py`: real WSL Docker execution in a unique scratch directory. Edits baseline/prompt/grader/membership after queue capture, independently generates context, restarts coordination, cancels/retries, completes four paired runs and verifies context reuse and future edits. Deterministic mock Agent mode, not a real Provider or full official benchmark run. Existing production services and images are untouched.
+
+2026-09-09 startup regression acceptance: all 138 locally available official CTXBench rows loaded in an isolated WSL Docker container, with zero warnings. Two rows exceeded 10 MB; the largest was 12,635,007 UTF-8 JSON bytes. Its rename/save and frozen row equality passed, as did independent creation and restart without duplicates. The source was mounted read-only and its SHA-256 stayed unchanged. This verifies library startup/import, not execution of all official benchmark tasks; no model calls were made.

@@ -1,6 +1,8 @@
 # CTXBench Desktop
 
-v0.1.7 adds editable case libraries and dataset composition, immutable run snapshots, optional GitHub CI grading, custom coding commands without Pi, remote image downloads and guided image recipes. Missing custom Agent token usage never blocks functional testing. See the [release notes](docs/releases/v0.1.7.md) and [navigation guide](docs/workspace-navigation.md) for upgrade instructions and verified limits.
+v0.1.8 fixes the startup “case definition must not exceed 10 MB” error with large official CTXBench cases and keeps independent case creation available when the library list fails. Update both the desktop and application images; keep your existing data directory. See the [release notes](docs/releases/v0.1.8.md).
+
+v0.1.7 introduced editable case libraries and dataset composition, immutable run snapshots, optional GitHub CI grading, custom coding commands without Pi, remote image downloads and guided image recipes. Missing custom Agent token usage never blocks functional testing. See the [v0.1.7 notes](docs/releases/v0.1.7.md) and [navigation guide](docs/workspace-navigation.md) for verified limits.
 
 v0.1.7: independent editable **Evaluation cases**, **Datasets** composed from existing cases, and automatic immutable run snapshots. Editing the library affects future runs only; queued work and retries keep their original definitions. See the [case-library guide](docs/case-library.md). Update the desktop and evaluation service images together.
 

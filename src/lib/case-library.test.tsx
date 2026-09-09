@@ -10,6 +10,8 @@ import { SetEditor } from '../components/SetEditor';
 import { LibrarySourcePicker } from '../components/LibrarySourcePicker';
 import { DatasetSnapshotBadge } from '../components/DatasetSnapshotView';
 import { Sidebar } from '../components/Sidebar';
+import { DatasetsPage } from '../pages/DatasetsPage';
+import type { DashboardSnapshot } from '../domain/types';
 
 const noop = () => {};
 function render(element: ReactNode, locale: 'en' | 'zh-CN' = 'en') {
@@ -35,6 +37,18 @@ describe('editable case library', () => {
     expect(html).toContain('创建评测用例'); expect(html).toContain('仓库与环境');
     expect(html).toContain('任务与测试'); expect(html).not.toContain('评测集名称');
     expect(html).not.toContain('共享默认值');
+  });
+  it('allows independent creation before the library has loaded, but waits to compose references', () => {
+    const snapshot = { datasets: [] } as unknown as DashboardSnapshot;
+    const cases = render(<DatasetsPage initialView="cases" snapshot={snapshot} onImport={noop} onExperiment={noop} />);
+    const creation = Array.from(cases.matchAll(/<button\b[^>]*>[\s\S]*?<\/button>/g)).find(([html]) => html.includes('Create evaluation case'))?.[0];
+    expect(creation).toBeDefined();
+    expect(creation).not.toContain('disabled=""');
+    expect(cases).toContain('Loading…');
+    expect(cases).not.toContain('No evaluation cases yet');
+    const sets = render(<DatasetsPage snapshot={snapshot} onImport={noop} onExperiment={noop} />);
+    expect(sets).toMatch(/<button[^>]*disabled=""[^>]*>[^]*?Compose dataset<\/button>/);
+    expect(sets).not.toContain('No datasets yet');
   });
   it('composes references and disables incompatible grading protocols', () => {
     const html = render(<SetEditor collection={inventory.sets[0]} library={inventory} onClose={noop} onSaved={noop} />);

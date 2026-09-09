@@ -28,6 +28,7 @@ export function DatasetsPage({ snapshot, onImport, onExperiment, onGenerate, ini
   const [view, setView] = useState<typeof views[number]['id']>(initialView);
   const [library, setLibrary] = useState(emptyLibrary); const [ready, setReady] = useState(false);
   const [query, setQuery] = useState(''); const [page, setPage] = useState(0); const [error, setError] = useState('');
+  const [loadError, setLoadError] = useState('');
   const [editCase, setEditCase] = useState<{ id?: string }>();
   const [editSet, setEditSet] = useState<{ record?: LibrarySet }>();
   const [installDataset, setInstallDataset] = useState<{ id: string; name: string }>();
@@ -36,8 +37,8 @@ export function DatasetsPage({ snapshot, onImport, onExperiment, onGenerate, ini
   const [legacyDraft, setLegacyDraft] = useState(false);
   const imports = (snapshot.datasets ?? []).map((item) => item.id).join(',');
   const refresh = () => setRevision((current) => current + 1);
-  useEffect(() => { let active = true; setError('');
-    void loadLibrary().then((value) => { if (active) { setLibrary(value); setReady(true); } }).catch((cause) => { if (active) setError(libraryError(cause)); });
+  useEffect(() => { let active = true; setError(''); setLoadError('');
+    void loadLibrary().then((value) => { if (active) { setLibrary(value); setReady(true); } }).catch((cause) => { if (active) setLoadError(libraryError(cause)); });
     return () => { active = false; };
   }, [imports, revision]);
   useEffect(() => { let active = true;
@@ -51,17 +52,21 @@ export function DatasetsPage({ snapshot, onImport, onExperiment, onGenerate, ini
     <PageTitle eyebrow={t('CASE LIBRARY')} title={t(initialView === 'cases' ? 'Evaluation cases' : 'Datasets')}
       description={t('Create cases independently. Compose datasets from existing cases. Freeze a snapshot automatically before each execution.')}
       actions={<><button className="button secondary" onClick={() => onImport()}><Download size={16} />{t('Import cases')}</button>
-        <button className="button primary" disabled={!ready} onClick={() => initialView === 'cases' ? setEditCase({}) : setEditSet({})}><Plus size={16} />{t(initialView === 'cases' ? 'Create evaluation case' : 'Compose dataset')}</button></>} />
+        <button className="button primary" disabled={initialView === 'sets' && !ready} onClick={() => initialView === 'cases' ? setEditCase({}) : setEditSet({})}><Plus size={16} />{t(initialView === 'cases' ? 'Create evaluation case' : 'Compose dataset')}</button></>} />
     <SectionNav label="Case library views" items={views} value={view} onChange={(value) => { setView(value); setQuery(''); setPage(0); }} />
     {error && <FormError>{t(error)}</FormError>}
+    {loadError && <FormError>{`${t('Could not load existing cases. This is a library loading error, not an error in a new case. You can still open the case editor; saving requires a working evaluation service. Use Refresh to try loading again.')} ${t(loadError)}`}</FormError>}
+    {!!library.importWarnings?.length && <aside className="wizard-notice" role="status"><strong>{t('Some imported datasets could not be loaded')}</strong><p>{t('Available cases and independent case creation are unaffected. No source data or historical results were deleted.')}</p>
+      <ul>{library.importWarnings.map((warning) => <li key={warning.datasetId}>{warning.name} · {t(warning.message)}</li>)}</ul>
+    </aside>}
     <div className="toolbar"><button className="button secondary" onClick={refresh}><RefreshCw size={16} />{t('Refresh')}</button>
       {(view === 'cases' || view === 'sets') && <label className="table-search"><Search size={16} /><input aria-label={t(view === 'cases' ? 'Search evaluation cases' : 'Search datasets')} placeholder={t(view === 'cases' ? 'Search evaluation cases' : 'Search datasets')} value={query} onChange={(e) => { setQuery(e.target.value); setPage(0); }} /></label>}
-      {view === 'cases' && initialView !== 'cases' && <button className="button primary" disabled={!ready} onClick={() => setEditCase({})}>{t('Create evaluation case')}</button>}
+      {view === 'cases' && initialView !== 'cases' && <button className="button primary" onClick={() => setEditCase({})}>{t('Create evaluation case')}</button>}
       {view === 'sets' && initialView !== 'sets' && <button className="button primary" disabled={!ready} onClick={() => setEditSet({})}>{t('Compose dataset')}</button>}
     </div>
-    {!ready && !error && <p role="status">{t('Loading…')}</p>}
+    {!ready && !loadError && <p role="status">{t('Loading…')}</p>}
     {view === 'cases' && <>
-      {!cases.length && <section className="panel empty-state"><h2>{t('No evaluation cases yet')}</h2><p>{t('Create a case or import standard cases first, then compose a dataset here.')}</p></section>}
+      {ready && !cases.length && <section className="panel empty-state"><h2>{t('No evaluation cases yet')}</h2><p>{t('Create a case or import standard cases first, then compose a dataset here.')}</p></section>}
       <div className="dataset-library">{cases.slice(range.start, range.end).map((item) => <article className="panel dataset-card" key={item.id}>
         <span className="panel-kicker">{benchmarkLabel(item.benchmark, t)} · v{item.revision}{item.modified && ` · ${t('Locally modified')}`}</span>
         <h2>{item.name}</h2><p>{item.repository}</p><code>{item.taskId} · {item.baseCommit.slice(0, 12)}</code>
@@ -75,7 +80,7 @@ export function DatasetsPage({ snapshot, onImport, onExperiment, onGenerate, ini
       <Pagination total={cases.length} page={page} size={20} onChange={setPage} />
     </>}
     {view === 'sets' && <>
-      {!sets.length && <section className="panel empty-state"><h2>{t('No datasets yet')}</h2><p>{t('Create a case or import standard cases first, then compose a dataset here.')}</p><button className="button secondary" onClick={() => setView('cases')}>{t('Evaluation cases')}</button></section>}
+      {ready && !sets.length && <section className="panel empty-state"><h2>{t('No datasets yet')}</h2><p>{t('Create a case or import standard cases first, then compose a dataset here.')}</p><button className="button secondary" onClick={() => setView('cases')}>{t('Evaluation cases')}</button></section>}
       <div className="dataset-library">{sets.slice(range.start, range.end).map((item) => <article className="panel dataset-card" key={item.id}>
         <span className="panel-kicker">{benchmarkLabel(item.benchmark, t)} · v{item.revision}</span><h2>{item.name}</h2><p>{item.count} {t('Tasks')} · {t('Editable composition')}</p>
         <details><summary>{t('Browse tasks')}</summary>{selectionCases(library, item).map((member) => <div className="collection-member" key={member.id}><span>{member.name} · v{member.revision}</span><button className="text-button" onClick={() => setEditCase({ id: member.id })}>{t('Edit evaluation case')}</button></div>)}</details>

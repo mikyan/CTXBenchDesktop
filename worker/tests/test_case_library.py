@@ -184,6 +184,105 @@ class CaseLibraryTests(unittest.TestCase):
         restarted = Workbench(self.engine, GitHubClient(None))
         self.assertEqual(restarted.library.sets(), first)
 
+    def test_large_official_ctxbench_row_loads_edits_and_freezes_without_truncation(self):
+        row = {'instance_id': 'org_repo-1', 'base_repo': 'org/repo', 'base_sha': 'a' * 40,
+               'problem_description': 'Repair behavior', 'clean_pr_patch': 'PRIVATE_ANSWER',
+               'test_patch': 'PRIVATE_TESTS\n' + 'x' * 12_635_000}
+        imported = self.wb.catalog.register('Official CTXBench', 'ctxbench', [row])
+        path = self.root / 'datasets' / (imported['id'] + '.json')
+        original = path.read_bytes()
+        response = self.client.get('/v1/library')
+        self.assertEqual(response.status_code, 200, response.text[:1000])
+        inventory = response.json()
+        self.assertEqual(inventory['importWarnings'], [])
+        self.assertEqual(len(inventory['cases']), 1)
+        self.assertEqual(inventory['sets'][0]['count'], 1)
+        self.assertLess(len(response.content), 5000)  # List summaries never carry grading material.
+        self.assertNotIn('PRIVATE_', response.text)
+        case = inventory['cases'][0]
+        self.assertEqual(self.library.case(case['id'])['row'], row)
+        saved = self.client.put('/v1/library/cases/' + case['id'], json={
+            'name': 'Renamed large case', 'benchmark': 'ctxbench', 'row': row, 'expectedRevision': 1})
+        self.assertEqual(saved.status_code, 200, saved.text[:1000])
+        frozen, _ = self.library.freeze(case['id'])
+        self.assertEqual(json.loads((self.root / 'datasets' / (frozen + '.json')).read_text()), [row])
+        self.assertEqual(self.wb.catalog.task(frozen, row['instance_id']).hidden_test_patch, row['test_patch'])
+        created = self.client.post('/v1/library/cases', json={
+            'name': 'Independent case', 'benchmark': 'custom', 'row': manifest()['rows'][0]})
+        self.assertEqual(created.status_code, 201, created.text)
+        restarted = Workbench(self.engine, GitHubClient(None)).library.inventory()
+        self.assertEqual(len(restarted['cases']), 2)
+        self.assertEqual(len(restarted['sets']), 1)
+        self.assertEqual(path.read_bytes(), original)
+
+    def test_editor_quota_counts_utf8_bytes_and_is_not_a_legacy_import_filter(self):
+        row = {**manifest()['rows'][0], 'prompt': '\u4e2d\u6587' * 500}
+        size = len(json.dumps(row, ensure_ascii=False, separators=(',', ':')).encode('utf-8'))
+        self.assertGreater(len(json.dumps(row)), size)
+        with patch('worker.ctxbench_worker.case_library.MAX_CASE_BYTES', size):
+            saved = self.library.save_case({'name': 'Unicode', 'benchmark': 'custom', 'row': row})
+        with patch('worker.ctxbench_worker.case_library.MAX_CASE_BYTES', size - 1):
+            with self.assertRaisesRegex(ValueError, '32 MiB'):
+                self.library.save_case({'name': 'Too large', 'benchmark': 'custom', 'row': row})
+            self.wb.catalog.register('Already verified import', 'custom', [row])
+            inventory = self.library.inventory()
+        self.assertEqual(inventory['importWarnings'], [])
+        self.assertEqual(len(inventory['cases']), 2)
+        self.assertEqual(self.library.case(saved['id'])['row'], row)
+
+    def test_unavailable_legacy_source_warns_without_hiding_other_cases_or_blocking_creation(self):
+        existing = self.case('existing')
+        row = manifest()['rows'][0]
+        good = self.wb.catalog.register('Good import', 'custom', [{**row, 'id': 'good'}])
+        for mode in ('missing', 'corrupt'):
+            imported = self.wb.catalog.register(mode, 'custom', [{**row, 'id': mode}])
+            source = self.root / 'datasets' / (imported['id'] + '.json')
+            original = source.read_bytes()
+            if mode == 'missing':
+                source.rename(source.with_suffix('.backup'))
+            else:
+                source.write_text('PRIVATE_EVALUATOR_ERROR_CONTENT', encoding='utf-8')
+            response = self.client.get('/v1/library')
+            self.assertEqual(response.status_code, 200, response.text)
+            result = response.json()
+            self.assertIn(existing['id'], [item['id'] for item in result['cases']])
+            self.assertIn('set-' + good['id'], [item['id'] for item in result['sets']])
+            self.assertEqual(result['importWarnings'][0]['datasetId'], imported['id'])
+            self.assertEqual(result['importWarnings'][0]['code'], 'import-source-unavailable')
+            self.assertNotIn('PRIVATE_', response.text)
+            self.assertNotIn('private reference patch', response.text)
+            created = self.client.post('/v1/library/cases', json={
+                'name': 'Independent during ' + mode, 'benchmark': 'custom', 'row': {**row, 'id': 'new-' + mode}})
+            self.assertEqual(created.status_code, 201, created.text)
+            source.write_bytes(original)
+            recovered = self.client.get('/v1/library').json()
+            self.assertEqual(recovered['importWarnings'], [])
+            self.assertIn('set-' + imported['id'], [item['id'] for item in recovered['sets']])
+
+    def test_failed_adoption_rolls_back_the_whole_dataset_and_refresh_retries(self):
+        row = manifest()['rows'][0]
+        self.wb.catalog.register('Two rows', 'custom', [row, {**row, 'id': 'task-2'}])
+        original = self.library._case
+        def fail_second(*args, **kwargs):
+            if args[3]['id'] == 'task-2':
+                raise ValueError('PRIVATE_EVALUATOR_ERROR_CONTENT')
+            return original(*args, **kwargs)
+        with patch.object(self.library, '_case', side_effect=fail_second):
+            result = self.library.inventory()
+        self.assertEqual(result['cases'], [])
+        self.assertEqual(result['sets'], [])
+        self.assertEqual(len(result['importWarnings']), 1)
+        self.assertNotIn('PRIVATE_', json.dumps(result))
+        recovered = self.library.inventory()
+        self.assertEqual(len(recovered['cases']), 2)
+        self.assertEqual(len(recovered['sets']), 1)
+        self.assertEqual(recovered['importWarnings'], [])
+
+    def test_empty_library_loads_without_warnings(self):
+        response = self.client.get('/v1/library')
+        self.assertEqual(response.status_code, 200, response.text)
+        self.assertEqual(response.json(), {'version': 1, 'cases': [], 'sets': [], 'importWarnings': []})
+
     def test_preflight_does_not_write_and_experiment_captures_before_queueing(self):
         case = self.case()
         collection = self.collection(case)

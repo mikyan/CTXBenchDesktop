@@ -78,11 +78,12 @@ describe("task-oriented UX", () => {
     expect(html).not.toContain("No active experiment");
     expect(html).not.toContain("NaN");
   });
-  it("provides useful empty-dataset guidance", () => {
+  it("provides creation guidance while waiting for the independent case library", () => {
     const snapshot = { ...createDemoSnapshot(), datasets: [] };
     const html = render(<DatasetsPage snapshot={snapshot} onImport={noop} onCreate={noop} onExperiment={noop} />);
-    expect(html).toContain("No datasets yet");
-    expect(html).toContain("Create a case or import standard cases first");
+    expect(html).not.toContain("No datasets yet");
+    expect(html).toContain("Loading…");
+    expect(html).toContain("Create cases independently. Compose datasets from existing cases.");
     expect(html).toContain("Compose dataset");
   });
   it("never mixes a paused experiment's stale run into the active experiment card", () => {

@@ -376,8 +376,7 @@ def create_app(
 
     @app.get('/v1/library')
     def case_library():
-        sets = workbench.library.sets()
-        return {'version': 1, 'sets': sets, 'cases': workbench.library.cases()}
+        return workbench.library.inventory()
 
     @app.get('/v1/library/selections/{key}')
     def library_selection(key: str):

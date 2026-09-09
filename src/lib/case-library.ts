@@ -10,7 +10,10 @@ export interface LibraryCaseDetail extends LibraryCase {
   row: Record<string, unknown>; usedBy: { id: string; name: string }[];
 }
 export interface LibrarySet extends DatasetRecord { caseIds: string[]; revision: number; updatedAt: string; originDataset?: string }
-export interface LibraryInventory { version: number; sets: LibrarySet[]; cases: LibraryCase[] }
+export interface LibraryInventory {
+  version: number; sets: LibrarySet[]; cases: LibraryCase[];
+  importWarnings?: { datasetId: string; name: string; code: string; message: string }[];
+}
 export interface LibrarySelection { dataset: DatasetRecord; tasks: TaskSummary[]; revision: string }
 export interface DatasetSnapshot {
   id: string; sourceId: string; name: string; sourceRevision: number; contentRevision: string;
