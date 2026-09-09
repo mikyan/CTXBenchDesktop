@@ -1,0 +1,72 @@
+docs/releases/v0.1.8.md
+  s_160ecc294b79e0::t_fbae3adb100e92 1-42
+scripts/case-library-import-smoke.py
+  s_160ecc294b79e0::t_58cb155c470597 1-71
+src-tauri/Cargo.toml
+  s_160ecc294b79e0::t_fbae3adb100e92 3
+scripts/case-library-ui-smoke.mjs
+  s_160ecc294b79e0::t_58cb155c470597 193-195
+  s_160ecc294b79e0::t_0cc03962891d3a 25,34-37,84,86,98-104,106-112,189-192,197
+  s_160ecc294b79e0::t_93c33a9f9a9f34 85
+scripts/stage-deployment.mjs
+  s_160ecc294b79e0::t_fbae3adb100e92 21
+README.zh-CN.md
+  s_160ecc294b79e0::t_fbae3adb100e92 3-5
+src-tauri/tauri.conf.json
+  s_160ecc294b79e0::t_fbae3adb100e92 4
+docs/case-library.md
+  s_160ecc294b79e0::t_0b29f0f165dbd2 61-62
+  s_160ecc294b79e0::t_58cb155c470597 30-33,42,58-59
+src/lib/ux.test.tsx
+  s_160ecc294b79e0::t_58cb155c470597 81,84-86
+src/i18n.case-library.ts
+  s_160ecc294b79e0::t_568f21c3f0ae21 71-75
+worker/ctxbench_worker/api.py
+  s_160ecc294b79e0::t_568f21c3f0ae21 379
+package.json
+  s_160ecc294b79e0::t_fbae3adb100e92 4
+src/lib/case-library.test.tsx
+  s_160ecc294b79e0::t_93c33a9f9a9f34 44-46
+  s_160ecc294b79e0::t_27e787d5934c2b 13-14,41-43,47-51
+  s_160ecc294b79e0::t_9d6a9422464ab3 52
+src/pages/DatasetsPage.tsx
+  s_160ecc294b79e0::t_568f21c3f0ae21 31,41,55,59-61,64,67,69,83
+  s_160ecc294b79e0::t_0b29f0f165dbd2 40
+  s_160ecc294b79e0::t_27e787d5934c2b 58
+worker/ctxbench_worker/case_library.py
+  s_160ecc294b79e0::t_568f21c3f0ae21 25,59-64,178,182-190,193-197,216
+README.md
+  s_160ecc294b79e0::t_fbae3adb100e92 3-5
+worker/tests/test_case_library.py
+  s_160ecc294b79e0::t_27e787d5934c2b 187-285
+src/lib/case-library.ts
+  s_160ecc294b79e0::t_568f21c3f0ae21 13-16
+package-lock.json
+  s_93c984b7787ad2::t_3094f21ea5d295 3,9
+src-tauri/Cargo.lock
+  s_93c984b7787ad2::t_c9139d29f92714 725
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "development:1.7.3",
+  "base_commit_sha": "4d2eb5b088c255196e344f99cfbcc1bf70591988",
+  "prompts": {},
+  "sessions": {
+    "s_160ecc294b79e0": {
+      "agent_id": {
+        "tool": "codex",
+        "id": "01a06b47-944f-76f3-8380-74bb83cda689",
+        "model": "gpt-6-astra"
+      },
+      "human_author": "AI_BA <ai_ball@outlook.com>"
+    },
+    "s_93c984b7787ad2": {
+      "agent_id": {
+        "tool": "codex",
+        "id": "01a06b4f-963e-70a0-83ed-c8febc51fb4a",
+        "model": "unknown"
+      },
+      "human_author": "AI_BA <ai_ball@outlook.com>"
+    }
+  }
+}
