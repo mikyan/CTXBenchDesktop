@@ -1,0 +1,419 @@
+docs/ci-live-acceptance.md
+  s_160ecc294b79e0::t_319ae0240e3e79 1-2,5-51
+  s_160ecc294b79e0::t_c8a5576ff00d85 3-4
+src/domain/metrics.test.ts
+  s_160ecc294b79e0::t_a4da35fe02ca30 29-39
+src/lib/case-library.ts
+  s_160ecc294b79e0::t_d2bbd33315db2a 1-36
+scripts/ci-grading-ui-smoke.mjs
+  s_160ecc294b79e0::t_d16275343fe3f4 1-16,18-50,54-90
+  s_160ecc294b79e0::t_c9fc74bf43d42f 17,51
+  s_160ecc294b79e0::t_0d015e9abe6071 52-53
+scripts/authoring-ui-smoke.mjs
+  s_160ecc294b79e0::t_f93ed97d805627 34-35
+  s_160ecc294b79e0::t_e955d8a9a7d3b6 80,154,162,173
+README.zh-CN.md
+  s_160ecc294b79e0::t_e7baab0a7ad19e 5,28-29
+  s_160ecc294b79e0::t_b7d916ff2fdfaf 3
+  s_160ecc294b79e0::t_f9c9962e64e9dc 7
+  s_160ecc294b79e0::t_ab8e3c1e4a338f 6,20,74
+  s_160ecc294b79e0::t_ac300f62787010 4
+src/components/RemoteImagePull.tsx
+  s_160ecc294b79e0::t_9b1f4aff7b939e 1-32
+src/components/OperatorJobPanel.tsx
+  s_160ecc294b79e0::t_53ea7d884d71e9 46
+worker/tests/test_preflight.py
+  s_160ecc294b79e0::t_a4da35fe02ca30 31-42
+src/pages/DatasetsPage.tsx
+  s_160ecc294b79e0::t_f756259a96727b 1-17,22-26,28-32,34-35,37-48,51-60,62-88,93-94,97-98,100-101
+  s_160ecc294b79e0::t_9de044e65bd2e2 18-19,21,36,49,89-92,95-96,99
+worker/ctxbench_worker/case_library.py
+  s_160ecc294b79e0::t_9cac917662587d 1-131,133-231
+  s_160ecc294b79e0::t_e57ad25416f137 132
+worker/tests/test_command_agents.py
+  s_160ecc294b79e0::t_207aca22fd5a8c 35-36
+  s_160ecc294b79e0::t_a989ac2f811a32 2-11,13,15-34,37-39,41-58,62-63,118-153
+  s_160ecc294b79e0::t_a4da35fe02ca30 1,12,14,59-61,64-117
+  s_160ecc294b79e0::t_024f24d38d2d3f 40
+src/components/LibrarySourcePicker.tsx
+  s_160ecc294b79e0::t_d2bbd33315db2a 1-22
+src/lib/image-recipes.ts
+  s_160ecc294b79e0::t_9b1f4aff7b939e 1-14,17-28
+  s_160ecc294b79e0::t_78464253467cea 15-16
+src-tauri/Cargo.toml
+  s_160ecc294b79e0::t_b7d916ff2fdfaf 3
+src/components/DatasetSnapshotView.tsx
+  s_160ecc294b79e0::t_7801ae00308524 1-26
+src/components/ExperimentComposer.tsx
+  s_160ecc294b79e0::t_1b5bcacdad7ffe 17,57-58,84,94,174
+  s_160ecc294b79e0::t_adb6a070d4115e 19,114
+  s_160ecc294b79e0::t_963eff33c9dae8 71-72,118,141,143,158
+  s_160ecc294b79e0::t_548be963e16b3f 53,66-67,74
+  s_160ecc294b79e0::t_e57ad25416f137 116-117,119
+  s_160ecc294b79e0::t_9f58e4ec62500a 18,54,68-69,113,120,161
+  s_160ecc294b79e0::t_7f46e997f5906b 20,115,162
+worker/ctxbench_worker/command_agents.py
+  s_160ecc294b79e0::t_f153cdb5ac3fd0 1-2,4-17
+  s_160ecc294b79e0::t_024f24d38d2d3f 3,18-22
+worker/ctxbench_worker/runner.py
+  s_160ecc294b79e0::t_4342a09bc2f9bd 206-207
+  s_160ecc294b79e0::t_f153cdb5ac3fd0 200-205,208-209,215-216,266-267,273,275,312,351-352
+  s_160ecc294b79e0::t_024f24d38d2d3f 268-272,274
+worker/ctxbench_worker/catalog.py
+  s_160ecc294b79e0::t_b7d051af579aed 9,56-74,76-78,103
+  s_160ecc294b79e0::t_22b7faca64094d 102
+  s_160ecc294b79e0::t_707487e76c396c 13,49,75,101
+  s_160ecc294b79e0::t_9cac917662587d 53,86-87
+  s_160ecc294b79e0::t_e57ad25416f137 91-92
+src/lib/case-library.test.tsx
+  s_160ecc294b79e0::t_d586a16c4ae60c 1-66
+worker/tests/test_intranet.py
+  s_160ecc294b79e0::t_f93ed97d805627 266-272,283
+worker/ctxbench_worker/runtime.py
+  s_160ecc294b79e0::t_707487e76c396c 301-302
+worker/ctxbench_worker/portable.py
+  s_160ecc294b79e0::t_a386a2624fcd5a 158,266
+scripts/command-agent-container-smoke.py
+  s_160ecc294b79e0::t_207aca22fd5a8c 116-126
+  s_160ecc294b79e0::t_a4da35fe02ca30 13,80-85,89,105-111,137-138
+  s_160ecc294b79e0::t_dd65361129a96a 26
+  s_160ecc294b79e0::t_aba69955d7a072 1-12,14-25,27-39,41-44,46-63,67-79,86-88,90-104,112-115,134-135,139-142
+  s_160ecc294b79e0::t_15051a9ba494bf 40,45,64-66,127-133,136
+src/components/PreparationQueue.tsx
+  s_160ecc294b79e0::t_1754e9f370e512 9,35
+src/pages/ExperimentsPage.tsx
+  s_160ecc294b79e0::t_1754e9f370e512 13,76
+src-tauri/tauri.conf.json
+  s_160ecc294b79e0::t_b7d916ff2fdfaf 4
+docs/image-workshop.md
+  s_160ecc294b79e0::t_93d94ef6d37b83 1-2,4-114,116-120,122-126,129-130,132-134
+  s_160ecc294b79e0::t_10424c2e66420d 115,135
+  s_160ecc294b79e0::t_073da2b137518e 121
+  s_160ecc294b79e0::t_3a261b5e54248e 127-128
+  s_160ecc294b79e0::t_7ae899a2ad8e8d 3,131
+src/components/IntranetWorkbench.tsx
+  s_160ecc294b79e0::t_9b1f4aff7b939e 11-12,29,83-85,96
+  s_160ecc294b79e0::t_c12f055c351b9a 5,36,39
+docs/ci-agent-live-acceptance.md
+  s_160ecc294b79e0::t_c8a5576ff00d85 1-66
+src/components/CaseEditor.tsx
+  s_160ecc294b79e0::t_7c145e501869e7 38
+  s_160ecc294b79e0::t_8e242a579c2e70 16,26-32,37,75,77,94-96
+  s_160ecc294b79e0::t_a1db5ba29bf779 39
+  s_160ecc294b79e0::t_7801ae00308524 1-15,17-25,33-36,40-74,76,78-93,97-103
+src/lib/navigation.ts
+  s_160ecc294b79e0::t_26f6df2a27083b 4
+src/i18n.ci.ts
+  s_160ecc294b79e0::t_7f46e997f5906b 2-4
+  s_160ecc294b79e0::t_29830e14504968 23-48
+  s_160ecc294b79e0::t_13722295c57ba8 7-8
+  s_160ecc294b79e0::t_be5c6157478274 1,5-6,9-22,49-59
+examples/ci/github-python-acceptance.yml
+  s_160ecc294b79e0::t_3476d5f7d72254 1-37
+src/components/CustomAgentFields.tsx
+  s_160ecc294b79e0::t_963eff33c9dae8 23-24
+  s_160ecc294b79e0::t_9cb19038d24005 1-22,25-29
+src/lib/standard-images.ts
+  s_160ecc294b79e0::t_b5f63a4f80166f 11,18-31
+  s_160ecc294b79e0::t_1770d649b76562 12
+  s_e0acd8710ab6e3::t_10589119a149ba 32
+docs/ci-platform-adapter.md
+  s_160ecc294b79e0::t_29830e14504968 1-113
+src/components/ProjectImageSourceNotice.tsx
+  s_160ecc294b79e0::t_adb6a070d4115e 1-18
+worker/ctxbench_worker/database.py
+  s_160ecc294b79e0::t_6d6c17ecf9682c 313
+worker/ctxbench_worker/datasets.py
+  s_160ecc294b79e0::t_f153cdb5ac3fd0 25,42-43,57,107,109
+  s_160ecc294b79e0::t_707487e76c396c 4,24,37-41,44-46,69-74,76-79,81,83-84,116,119
+  s_160ecc294b79e0::t_e76d3dca3a1a2e 75
+src/components/DatasetSelfTest.tsx
+  s_160ecc294b79e0::t_e10cebda711cfb 18-20
+src-tauri/src/lib.rs
+  s_160ecc294b79e0::t_22b7faca64094d 240,250-258,404-412
+  s_160ecc294b79e0::t_ca9efcce50f998 413
+src/components/ImageRecipeGuide.tsx
+  s_160ecc294b79e0::t_9b1f4aff7b939e 1-46
+src/lib/ux.test.tsx
+  s_160ecc294b79e0::t_1770d649b76562 85-86
+worker/tests/test_ci_adapters.py
+  s_160ecc294b79e0::t_e76d3dca3a1a2e 120-130
+  s_160ecc294b79e0::t_e26690efe3f5e4 1-119,131-142
+worker/ctxbench_worker/ci_http.py
+  s_160ecc294b79e0::t_0da3a63237a94e 1-18,22-38
+  s_160ecc294b79e0::t_e76d3dca3a1a2e 19-21
+worker/ctxbench_worker/api.py
+  s_160ecc294b79e0::t_53ea7d884d71e9 524
+  s_160ecc294b79e0::t_707487e76c396c 227-228,523
+  s_160ecc294b79e0::t_6d6c17ecf9682c 26,82,140,251-254,273-274,375-413,485-486,492
+src/domain/types.ts
+  s_160ecc294b79e0::t_d2bbd33315db2a 31,185
+  s_160ecc294b79e0::t_bb4a55a05fef84 214
+  s_160ecc294b79e0::t_be5c6157478274 89
+  s_160ecc294b79e0::t_e57ad25416f137 213
+src/App.tsx
+  s_160ecc294b79e0::t_26f6df2a27083b 39-40,126-127,134
+worker/tests/test_ci_grading.py
+  s_160ecc294b79e0::t_e76d3dca3a1a2e 13,92-93,142-143,201-215,270-280
+  s_160ecc294b79e0::t_570e9df164b5c9 1-12,14-20,22-91,94-116,118-141,144-154,200,216-221,231,234-269,281-283
+  s_160ecc294b79e0::t_fbc8c923e95251 21,155-199
+  s_160ecc294b79e0::t_fb2cfd54dfdd1f 117
+  s_160ecc294b79e0::t_4b090089330ff2 232-233
+  s_160ecc294b79e0::t_13722295c57ba8 222-230
+src/lib/ci-grading.test.tsx
+  s_160ecc294b79e0::t_d16275343fe3f4 1-54
+worker/ctxbench_worker/models.py
+  s_160ecc294b79e0::t_6d6c17ecf9682c 55-58
+worker/tests/test_case_library.py
+  s_160ecc294b79e0::t_138ad435221b2d 1-89,119-248
+  s_160ecc294b79e0::t_83aea5ea10ea4e 90-118
+src/app-types.ts
+  s_160ecc294b79e0::t_26f6df2a27083b 1
+src/components/CIGradingFields.tsx
+  s_160ecc294b79e0::t_13722295c57ba8 31,35
+  s_160ecc294b79e0::t_e10cebda711cfb 1-30,32-34,36-49
+docs/workspace-navigation.md
+  s_160ecc294b79e0::t_d8f529336aaeff 5
+  s_160ecc294b79e0::t_ab8e3c1e4a338f 6
+docs/company-image-registry.md
+  s_160ecc294b79e0::t_2ca8e87c27bfa0 102
+  s_160ecc294b79e0::t_23a4073ba298f2 9,120
+  s_160ecc294b79e0::t_1d0515ae650172 100-101,103-107
+  s_160ecc294b79e0::t_f9c9962e64e9dc 10,13-34
+  s_160ecc294b79e0::t_93d94ef6d37b83 11-12
+  s_160ecc294b79e0::t_9b9990b7fd8f6c 121
+worker/ctxbench_worker/intranet.py
+  s_160ecc294b79e0::t_7bd6e319a35f03 61-62,105-108,345-354
+  s_160ecc294b79e0::t_cc7a6f3ca894de 58,73,88,95-101,127-128,374,377
+  s_160ecc294b79e0::t_4342a09bc2f9bd 31,51,55,66-69,148-149,205-224
+  s_160ecc294b79e0::t_707487e76c396c 77-78
+  s_160ecc294b79e0::t_72c32da796523c 225
+src/lib/dataset-authoring.ts
+  s_160ecc294b79e0::t_8af261a2498776 44
+  s_160ecc294b79e0::t_d16275343fe3f4 130-131,149
+  s_160ecc294b79e0::t_e10cebda711cfb 6-8,17,30,128-129,132-134
+  s_160ecc294b79e0::t_9cb19038d24005 18,32,43,59-60,103,124-127,145
+package.json
+  s_160ecc294b79e0::t_b7d916ff2fdfaf 4
+src/components/StandardImageInstaller.tsx
+  s_160ecc294b79e0::t_b5f63a4f80166f 4,17-18,41,43-51,54-56,67,72-83,90-92
+src/components/Sidebar.tsx
+  s_160ecc294b79e0::t_26f6df2a27083b 17,40
+src/components/Dialogs.tsx
+  s_160ecc294b79e0::t_8e242a579c2e70 18-19,25
+worker/ctxbench_worker/workbench.py
+  s_160ecc294b79e0::t_707487e76c396c 18,73-74,202-205,256,414-415,671-674,687-692,808-809,837,847-848
+  s_160ecc294b79e0::t_e76d3dca3a1a2e 693-695
+  s_160ecc294b79e0::t_7bd6e319a35f03 61-62,124-127,161
+  s_160ecc294b79e0::t_6d6c17ecf9682c 59-60,121-123,157-160,170,177,238,556-558,929
+  s_160ecc294b79e0::t_13722295c57ba8 255,839-840
+  s_160ecc294b79e0::t_963eff33c9dae8 37-38,181-194,199-200,448-449,528
+  s_160ecc294b79e0::t_024f24d38d2d3f 424,469,473-474,676,812-814,826-827
+  s_160ecc294b79e0::t_a386a2624fcd5a 660,664-665,678-685
+  s_160ecc294b79e0::t_4342a09bc2f9bd 195-198,201,437,476-479,675,677,686,739,786-790,810-811
+worker/ctxbench_worker/ci_config.py
+  s_160ecc294b79e0::t_456da2e0bddb4e 1-40
+docs/case-library.md
+  s_160ecc294b79e0::t_29830e14504968 16-17
+  s_160ecc294b79e0::t_ab8e3c1e4a338f 1-2,4-15,18-55
+  s_160ecc294b79e0::t_ed179158662789 3
+scripts/tests/test_ci_agent_live_acceptance.py
+  s_160ecc294b79e0::t_c8a5576ff00d85 1-35
+src/components/TestImagePicker.tsx
+  s_160ecc294b79e0::t_9b1f4aff7b939e 6,33
+src/components/DatasetWizard.tsx
+  s_160ecc294b79e0::t_9de044e65bd2e2 13,61-62
+  s_160ecc294b79e0::t_e10cebda711cfb 109
+worker/ctxbench_worker/ci_protocol.py
+  s_160ecc294b79e0::t_50ffe5535df667 11-13,47
+  s_160ecc294b79e0::t_456da2e0bddb4e 1-10,14-15,22-33,35-36,38-43,45-46,48-72,74-76,78-83
+  s_160ecc294b79e0::t_7f46e997f5906b 34,37
+  s_160ecc294b79e0::t_e76d3dca3a1a2e 16-21,44,73,77
+worker/ctxbench_worker/ci_reports.py
+  s_160ecc294b79e0::t_50ffe5535df667 9-13,19,26
+  s_160ecc294b79e0::t_456da2e0bddb4e 1-8,14-18,20-25,27-39
+scripts/ci-agent-live-acceptance.py
+  s_160ecc294b79e0::t_8baaaa4b6c6812 73
+  s_160ecc294b79e0::t_7cd1878058682d 1-39,45-59,61-72,74-234,236-287
+  s_160ecc294b79e0::t_c8a5576ff00d85 40-44,60,235
+src/lib/desktop.ts
+  s_160ecc294b79e0::t_d2bbd33315db2a 29
+src/components/CIGradingResult.tsx
+  s_160ecc294b79e0::t_be5c6157478274 1-19
+src/lib/intranet.ts
+  s_160ecc294b79e0::t_9b1f4aff7b939e 36
+src/i18n.image-workshop.ts
+  s_160ecc294b79e0::t_e57ad25416f137 2
+  s_160ecc294b79e0::t_963eff33c9dae8 3,15-16,50
+  s_160ecc294b79e0::t_78464253467cea 1,4-14,17-49,51
+scripts/stage-deployment.mjs
+  s_160ecc294b79e0::t_b7d916ff2fdfaf 19-21
+scripts/image-workshop-ui-smoke.mjs
+  s_160ecc294b79e0::t_2ac166011760bd 1-9,11-13,15-24,32-48,50-51,54,57-76,78-79,81-99,101,104-111,126,128-130
+  s_160ecc294b79e0::t_e2f3d931bcf24f 25-31,49,52-53,55-56,112-125,127
+  s_160ecc294b79e0::t_88b6372a57b760 10
+  s_160ecc294b79e0::t_53ea7d884d71e9 80,102
+  s_160ecc294b79e0::t_48915238f5af68 14,77,100,103
+src/components/SetEditor.tsx
+  s_160ecc294b79e0::t_7801ae00308524 1-25,28-46
+  s_160ecc294b79e0::t_8e242a579c2e70 26-27
+scripts/project-image-address-container-smoke.py
+  s_160ecc294b79e0::t_ec546a125f5f29 88-89,93
+  s_160ecc294b79e0::t_12c0c103f0aa34 25-27
+  s_160ecc294b79e0::t_fc7453e7a34a29 13-14,76-85,162-163
+  s_160ecc294b79e0::t_37991834e91cac 90,134-136,153-156
+  s_160ecc294b79e0::t_b0a1a3e4353b5b 1-12,15-24,28-75,86-87,91-92,94-111,124-125,132-133,137,139-143,145-151,158-161
+  s_160ecc294b79e0::t_e287e1cd8eae8a 112-123
+  s_160ecc294b79e0::t_6c9c9d5b97ef9b 126-131,138,144,152,157
+scripts/standard-images-ui-smoke.mjs
+  s_160ecc294b79e0::t_da317601d90962 36,77
+  s_160ecc294b79e0::t_e9222a1f00122a 17,24-29,33,35,37-38,97,113-147,152
+worker/ctxbench_worker/image_sources.py
+  s_160ecc294b79e0::t_30e14ae256b05e 11-58,86,90,98-99,109
+src/components/WorkbenchDialogs.tsx
+  s_160ecc294b79e0::t_e76d3dca3a1a2e 103
+  s_160ecc294b79e0::t_be5c6157478274 104
+  s_160ecc294b79e0::t_0083e149186d52 18,54,56,67,76,78,83,98,109,111,119,121,123
+  s_160ecc294b79e0::t_adb6a070d4115e 20,70
+  s_160ecc294b79e0::t_9f58e4ec62500a 19,33,35-36,45-51,55,57-58,64-65,69
+  s_160ecc294b79e0::t_fb2cfd54dfdd1f 2
+worker/tests/test_project_image_sources.py
+  s_160ecc294b79e0::t_b95d09918b1995 1-111,138-194
+  s_160ecc294b79e0::t_2e4bdcc6be897f 112-137
+worker/ctxbench_worker/standard_images.py
+  s_160ecc294b79e0::t_9de044e65bd2e2 229-230
+  s_160ecc294b79e0::t_b5f63a4f80166f 171-172,175
+  s_160ecc294b79e0::t_9eb7eac0bdacd7 199-200
+  s_160ecc294b79e0::t_cc7a6f3ca894de 129,132-133,188,190
+  s_160ecc294b79e0::t_7bd6e319a35f03 169-170,173-174,176-177,189,194
+worker/tests/test_standard_images.py
+  s_160ecc294b79e0::t_9eb7eac0bdacd7 63-75,79-85
+  s_160ecc294b79e0::t_7c145e501869e7 76-78
+worker/ctxbench_worker/command_adapter.py
+  s_160ecc294b79e0::t_024f24d38d2d3f 28,74-77
+  s_160ecc294b79e0::t_207aca22fd5a8c 37-43,52,57-58,83,91-95,120-123
+  s_160ecc294b79e0::t_f153cdb5ac3fd0 1-27,29-36,44-51,53-56,59-73,78-82,84-90,96-119,124-133
+src/components/DatasetWizardFields.tsx
+  s_160ecc294b79e0::t_e10cebda711cfb 4,20-21,55
+  s_160ecc294b79e0::t_d2bbd33315db2a 7,10,17-18
+  s_160ecc294b79e0::t_9cb19038d24005 5,16,38
+docs/custom-datasets.md
+  s_160ecc294b79e0::t_e79ebb6b669e03 11-13,55,76,96,99
+  s_160ecc294b79e0::t_38874a4b7a2010 5,40,86,101
+  s_160ecc294b79e0::t_93d94ef6d37b83 8,38,82
+  s_160ecc294b79e0::t_10424c2e66420d 7
+  s_160ecc294b79e0::t_29830e14504968 9-10
+  s_160ecc294b79e0::t_f8e4e7848468a5 83
+src/lib/image-workshop.test.tsx
+  s_160ecc294b79e0::t_a989ac2f811a32 1-2,5-32,34-38
+  s_160ecc294b79e0::t_aba69955d7a072 3-4,33
+README.md
+  s_160ecc294b79e0::t_ab8e3c1e4a338f 6,21
+  s_160ecc294b79e0::t_4d8387e8fe4ae7 5,17,22
+  s_160ecc294b79e0::t_f9c9962e64e9dc 7
+  s_160ecc294b79e0::t_b7d916ff2fdfaf 3
+  s_160ecc294b79e0::t_c81d842465fa82 4
+worker/ctxbench_worker/ci_grading.py
+  s_160ecc294b79e0::t_7f46e997f5906b 130-131,147,153,175,183-194
+  s_160ecc294b79e0::t_e76d3dca3a1a2e 89-90
+  s_160ecc294b79e0::t_a1db5ba29bf779 118,158-160,164-165
+  s_160ecc294b79e0::t_fb2cfd54dfdd1f 84-85,124,163
+  s_160ecc294b79e0::t_85459d098a8b09 1-83,86-88,91-117,119-123,125-129,132-146,148-152,154-157,161-162,166-174,176-182,195-203
+scripts/ci-live-acceptance.py
+  s_160ecc294b79e0::t_d1182a0567eacd 43,126-127,130-134,157-158
+  s_160ecc294b79e0::t_3476d5f7d72254 1-42,44-125,128-129,135-156,159-172
+examples/ci/github-maven.yml
+  s_160ecc294b79e0::t_29830e14504968 1-35
+worker/ctxbench_worker/ci_github.py
+  s_160ecc294b79e0::t_0da3a63237a94e 1-53,60-66,68-100,102-114,119-121,123-124
+  s_160ecc294b79e0::t_50ffe5535df667 54-59,67,101,115-116,118
+  s_160ecc294b79e0::t_a1db5ba29bf779 117
+  s_160ecc294b79e0::t_7f46e997f5906b 122
+schemas/custom-task.schema.json
+  s_160ecc294b79e0::t_9cb19038d24005 14-20
+  s_160ecc294b79e0::t_be5c6157478274 34,37-49,58-60
+worker/requirements.txt
+  s_160ecc294b79e0::t_4b090089330ff2 5
+src/i18n.case-library.ts
+  s_160ecc294b79e0::t_1754e9f370e512 1,9-19,21-73
+  s_160ecc294b79e0::t_c27654b6661967 20
+  s_160ecc294b79e0::t_7c145e501869e7 2
+  s_160ecc294b79e0::t_9de044e65bd2e2 3-5
+  s_160ecc294b79e0::t_ba37e3cee53749 6-8
+scripts/case-library-ui-smoke.mjs
+  s_160ecc294b79e0::t_7c145e501869e7 151-165
+  s_160ecc294b79e0::t_8b33a38ab247e7 52,115-118,126-131
+  s_160ecc294b79e0::t_1ecd8fc38e8779 16,80,174-177
+  s_160ecc294b79e0::t_8168d6f5c4ae39 78
+  s_160ecc294b79e0::t_f21d4346f20bba 1-15,17-51,53-77,79,81-114,119-125,132-150,166-173,178
+docs/agent-adapters.md
+  s_160ecc294b79e0::t_93d94ef6d37b83 6
+  s_160ecc294b79e0::t_d8a57530135f3b 5
+scripts/case-library-container-smoke.py
+  s_160ecc294b79e0::t_09fda3be4f500a 1-72,74-103
+  s_160ecc294b79e0::t_8b33a38ab247e7 73
+src/components/CISelectionNotice.tsx
+  s_160ecc294b79e0::t_7f46e997f5906b 1-15
+src/i18n.standard-images.ts
+  s_160ecc294b79e0::t_adb6a070d4115e 2-24
+docs/releases/v0.1.7.md
+  s_160ecc294b79e0::t_b7d916ff2fdfaf 1-47
+src/ux.css
+  s_160ecc294b79e0::t_2ac166011760bd 273,275
+  s_160ecc294b79e0::t_7f46e997f5906b 270
+  s_160ecc294b79e0::t_b95d09918b1995 264-269
+  s_160ecc294b79e0::t_be5c6157478274 271-272
+  s_160ecc294b79e0::t_9b1f4aff7b939e 274
+  s_160ecc294b79e0::t_1770d649b76562 245-263
+src/lib/standard-images.test.tsx
+  s_160ecc294b79e0::t_adb6a070d4115e 9,13-22
+worker/ctxbench_worker/preflight.py
+  s_160ecc294b79e0::t_963eff33c9dae8 29-30,35,39-41
+src/i18n.tsx
+  s_160ecc294b79e0::t_1754e9f370e512 13,35
+  s_160ecc294b79e0::t_be5c6157478274 14,36
+  s_160ecc294b79e0::t_78464253467cea 15,37
+docs/ci-grading.md
+  s_160ecc294b79e0::t_319ae0240e3e79 60,66
+  s_160ecc294b79e0::t_9b853c2da89a76 3
+  s_160ecc294b79e0::t_29830e14504968 1-2,4-59,61,64-65,67-68
+  s_160ecc294b79e0::t_13722295c57ba8 62-63
+worker/ctxbench_worker/project_image_sources.py
+  s_160ecc294b79e0::t_30e14ae256b05e 1-119
+package-lock.json
+  s_93c984b7787ad2::t_6d7d117c42b685 3,9
+src-tauri/Cargo.lock
+  s_93c984b7787ad2::t_c4fc3cd0139293 725
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "development:1.7.3",
+  "base_commit_sha": "e3b13ff9bc037a6601e999b63d1febb99760a7a6",
+  "prompts": {},
+  "sessions": {
+    "s_160ecc294b79e0": {
+      "agent_id": {
+        "tool": "codex",
+        "id": "01a06b47-944f-76f3-8380-74bb83cda689",
+        "model": "gpt-6-astra"
+      },
+      "human_author": "AI_BA <ai_ball@outlook.com>"
+    },
+    "s_93c984b7787ad2": {
+      "agent_id": {
+        "tool": "codex",
+        "id": "01a06b4f-963e-70a0-83ed-c8febc51fb4a",
+        "model": "unknown"
+      },
+      "human_author": "AI_BA <ai_ball@outlook.com>"
+    },
+    "s_e0acd8710ab6e3": {
+      "agent_id": {
+        "tool": "codex",
+        "id": "01a07f2d-a143-7d70-94a2-8c0bf0a1bcc4",
+        "model": "gpt-5.6-sol"
+      },
+      "human_author": "AI_BA <ai_ball@outlook.com>"
+    }
+  }
+}
