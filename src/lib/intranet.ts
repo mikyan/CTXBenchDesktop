@@ -11,6 +11,7 @@ export const companyProfileSchema = z.object({
 export type CompanyProfile = z.infer<typeof companyProfileSchema>;
 export interface CompanyProfileRecord { id: string; createdAt: string; document: CompanyProfile }
 export interface OperatorJob {
+  diagnostic?: import('../domain/types').FailureDiagnostic;
   id: string; kind: string; status: string; failure?: string;
   progress?: { percent?: number; log: string; updatedAt: string };
   result?: { filename?: string; path?: string; sha256?: string; imageId?: string; tag?: string; note?: string;

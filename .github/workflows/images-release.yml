@@ -44,7 +44,7 @@ jobs:
           harness_image=$(python3 -c 'import json; print(next(i["archiveReference"] for i in json.load(open("artifacts/offline-images/ctxbench-images-manifest.json"))["images"] if i["service"] == "official-harness-image"))')
           proxy_image=$(python3 -c 'import json; print(next(i["archiveReference"] for i in json.load(open("artifacts/offline-images/ctxbench-images-manifest.json"))["images"] if i["service"] == "ctxbench-egress-proxy"))')
           docker run --rm --network none --entrypoint python "$worker_image" -c 'import ctxbench_worker.api'
-          docker run --rm --network none --entrypoint node --mount "type=bind,src=$PWD,dst=/source,readonly" "$agent_image" --test /source/docker/agent-pi/workflow-runtime.integration.mjs
+          docker run --rm --network none --entrypoint node --mount "type=bind,src=$PWD,dst=/source,readonly" "$agent_image" --test /source/docker/agent-pi/workflow-runtime.integration.mjs /source/docker/agent-pi/console-stream.integration.mjs
           docker run --rm --network none "$harness_image" --help
           docker run --rm --network none --entrypoint squid "$proxy_image" -k parse
       - uses: actions/upload-artifact@v7

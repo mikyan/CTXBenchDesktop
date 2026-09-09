@@ -273,3 +273,16 @@ dialog :focus-visible { outline:2px solid #71ddd2; outline-offset:4px; }
 .image-recipe-guide, .custom-agent-fields { margin: 18px 0; padding: 18px; border: 1px solid var(--line); border-radius: 12px; }
 .image-recipe-guide p, .remote-image-pull p, .custom-agent-fields p { font-size: 14px; line-height: 1.65; }
 .image-recipe-preview { white-space: pre-wrap; overflow-wrap: anywhere; max-height: 400px; overflow: auto; padding: 16px; background: var(--bg); border: 1px solid var(--line); }
+/* Readable, bounded operator console. Never interpret log text as HTML. */
+.container-log-viewer { min-width: 0; padding: 16px; border: 1px solid var(--line); border-radius: 10px; }
+.container-log-viewer .toolbar { flex-wrap: wrap; gap: 10px; }
+.container-log-viewer .live-container-output { height: 340px; max-height: 50vh; overflow: auto; background: #09111b; color: #e8eef7; font: 14px/1.65 Consolas, monospace; white-space: pre-wrap; overflow-wrap: anywhere; padding: 14px; }
+.container-log-viewer .container-log-time { font-size: 13px; color: #b8c7d8; }
+.container-log-viewer > label { display: grid; gap: 8px; margin: 16px 0; }
+.container-log-viewer select { width: 100%; min-height: 40px; padding: 8px 12px; border: 1px solid var(--line); border-radius: 7px; color: var(--text); background: #101b27; font-size: 14px; }
+.container-log-viewer .toolbar > label.checkbox-line { display: inline-flex; flex-direction: row; align-items: center; gap: 8px; margin: 0; min-width: 0; }
+.container-log-viewer .checkbox-line input { width: 18px; height: 18px; min-height: 0; margin: 0; padding: 0; accent-color: var(--cyan); }
+.container-log-viewer p, .container-log-viewer label, .container-log-viewer summary { font-size: 14px; line-height: 1.7; }
+.failure-details { min-width: 0; margin: 12px 0; padding: 16px; border: 1px solid #864b51; border-left: 4px solid #f09196; border-radius: 8px; background: #291b23; color: #f1dfe4; font-size: 14px; line-height: 1.65; }
+.failure-details pre { white-space: pre-wrap; overflow-wrap: anywhere; font: 14px/1.65 Consolas, monospace; max-height: 220px; overflow: auto; }
+.experiment-row > .failure-details { grid-column: 1 / -1; order: 5; }

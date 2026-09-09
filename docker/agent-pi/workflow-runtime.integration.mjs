@@ -54,6 +54,22 @@ test("startup timeout reaps the shell and its child", async () => {
   assert.ok(result.durationSeconds < 3);
 });
 
+test('startup console is visible before completion, redacted, without the environment handoff', async () => {
+  let completed = false, output = '';
+  let ready;
+  const firstOutput = new Promise((resolve) => { ready = resolve; });
+  const running = runStartup(['printf "READY %s\\n" "$FIXTURE_SECRET"', 'sleep 1', 'printf "DONE\\n"'], {
+    ...options, secrets: ['synthetic-secret'], onOutput: (text) => { output += text; ready(); },
+  }).then((result) => { completed = true; return result; });
+  await firstOutput;
+  assert.equal(completed, false);
+  assert(output.startsWith('READY [REDACTED]'));
+  const result = await running;
+  assert.equal(result.status, 'completed');
+  assert.equal(output, 'READY [REDACTED]\nDONE\n');
+  assert(!output.includes('FIXTURE_SECRET='));
+});
+
 test("agent timeout terminates a fresh session", async () => {
   const result = await runPiStep({ request: { mode: 'grade', model: { provider: 'mock', model: 'deterministic', thinking: 'off' } },
     prompt: 'timeout fixture', env: { ...process.env, CTXBENCH_TEST_DELAY_SECONDS: '10' }, cwd: '/tmp',

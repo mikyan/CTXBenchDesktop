@@ -27,7 +27,15 @@ export interface ResourcePolicy {
   network: "offline" | "api-only" | "unrestricted";
 }
 
+export interface FailureDiagnostic {
+  failedAt?: string;
+  logSessionId: string; stage: string; category: string; hint: string;
+  agentStarted: boolean; summary: string;
+}
+
 export interface Experiment {
+  failure?: string;
+  diagnostic?: FailureDiagnostic;
   datasetSnapshot?: import('../lib/case-library').DatasetSnapshot;
   projectEnvironment?: boolean;
   environmentPreparation?: { message: string; status: string; taskId: string };
@@ -63,6 +71,7 @@ export interface PlannedRun {
 }
 
 export interface BenchmarkRun extends PlannedRun {
+  diagnostic?: FailureDiagnostic;
   repository: string;
   commit: string;
   startedAt?: string;
@@ -211,6 +220,6 @@ export interface CreateExperimentRequest {
 export interface DatasetRecord { id: string; name: string; benchmark: BenchmarkKind; count: number; createdAt: string }
 export interface TokenBudgetRecord { id: string; provider: string; model: string; limitTokens: number; reportedTokens: number; chargedTokens: number; reservedTokens: number; unconfirmedTokens: number; remainingTokens: number; limitChanges?: { fromTokens: number; toTokens: number; reason: string; createdAt: string }[] }
 export interface TaskSummary { id: string; repository: string; baseCommit: string; prompt: string; image?: string; customAgentImage?: string }
-export interface OperationRecord { datasetSnapshot?: import('../lib/case-library').DatasetSnapshot; id: string; kind: string; status: "queued" | "running" | "paused" | "completed" | "failed" | "cancelled"; createdAt: string; updatedAt: string; failure?: string; taskId?: string; dataset?: string; resultId?: string; progress?: { message: string; status: string; taskId: string } }
+export interface OperationRecord { diagnostic?: FailureDiagnostic; datasetSnapshot?: import('../lib/case-library').DatasetSnapshot; id: string; kind: string; status: "queued" | "running" | "paused" | "completed" | "failed" | "cancelled"; createdAt: string; updatedAt: string; failure?: string; taskId?: string; dataset?: string; resultId?: string; progress?: { message: string; status: string; taskId: string } }
 export interface AgentWorkflow { setupCommands: string[]; steps: { name: string; prompt: string | null }[] }
 export interface RuntimeSettings { runner: string; dataDirectory: string; credentials: { name: string; configured: boolean }[]; datasetFiles: string[]; defaultPrompts?: { builder: string }; projectEnvironmentVersion?: number }

@@ -1,12 +1,13 @@
 import { spawn } from "node:child_process";
 import { StringDecoder } from "node:string_decoder";
 import { piAgentArgs } from "./agent-args.mjs";
+import { consoleStream } from './console-stream.mjs';
 
 const killTree = (child) => {
   try { process.kill(-child.pid, "SIGKILL"); } catch { child.kill("SIGKILL"); }
 };
 
-export async function runStartup(commands, { cwd, env, timeoutMs, redact }) {
+export async function runStartup(commands, { cwd, env, timeoutMs, redact, secrets = [], onOutput }) {
   if (!commands.length) return { status: "skipped", env, log: "", durationSeconds: 0 };
   const started = Date.now();
   // FD 3 is an in-memory environment handoff, never part of logs or artifacts.
@@ -14,14 +15,16 @@ export async function runStartup(commands, { cwd, env, timeoutMs, redact }) {
     { cwd, env, detached: true, stdio: ["ignore", "pipe", "pipe", "pipe"] });
   let stdout = "", stderr = "", environment = "", timedOut = false, failure;
   const outDecoder = new StringDecoder("utf8"), errDecoder = new StringDecoder("utf8"), envDecoder = new StringDecoder("utf8");
-  child.stdout.on("data", (chunk) => { stdout += outDecoder.write(chunk); });
-  child.stderr.on("data", (chunk) => { stderr += errDecoder.write(chunk); });
+  const liveOut = consoleStream(secrets, onOutput), liveErr = consoleStream(secrets, onOutput);
+  child.stdout.on("data", (chunk) => { stdout += outDecoder.write(chunk); liveOut.write(chunk); });
+  child.stderr.on("data", (chunk) => { stderr += errDecoder.write(chunk); liveErr.write(chunk); });
   child.stdio[3].on("data", (chunk) => { environment += envDecoder.write(chunk); });
   child.on("error", (error) => { failure = redact(error.message); });
   const timer = setTimeout(() => { timedOut = true; killTree(child); }, Math.max(1, timeoutMs));
   const exitCode = await new Promise((resolve) => child.on("close", (code) => resolve(code ?? 1)));
   clearTimeout(timer);
   stdout += outDecoder.end(); stderr += errDecoder.end();
+  liveOut.end(); liveErr.end();
   environment += envDecoder.end();
   const nextEnv = Object.fromEntries(environment.split("\0").filter(Boolean).map((item) => {
     const separator = item.indexOf("=");
@@ -33,7 +36,7 @@ export async function runStartup(commands, { cwd, env, timeoutMs, redact }) {
     error: failure ?? (status === "failed" ? "Startup commands failed or did not return their environment." : null) };
 }
 
-export async function runPiStep({ request, prompt, env, cwd, timeoutMs, remainingTokens, redact, onRecord }) {
+export async function runPiStep({ request, prompt, env, cwd, timeoutMs, remainingTokens, redact, onRecord, secrets = [], onOutput }) {
   let executable = "pi";
   let args = ["--mode", "rpc", "--no-session", "--no-extensions", "--no-skills", "--no-prompt-templates",
     "--no-approve", "--offline", "--provider", request.model.provider, "--model", request.model.model];
@@ -48,6 +51,7 @@ export async function runPiStep({ request, prompt, env, cwd, timeoutMs, remainin
   const agent = spawn(executable, args, { cwd, env, detached: true, stdio: ["pipe", "pipe", "pipe"] });
   const send = (command) => { if (!agent.stdin.destroyed) agent.stdin.write(`${JSON.stringify(command)}\n`); };
   const decoder = new StringDecoder("utf8"), errDecoder = new StringDecoder("utf8");
+  const liveErr = consoleStream(secrets, onOutput);
   let buffer = "", stderr = "", sessionStats = null, settled = false, timedOut = false;
   let cumulativeTokens = 0, budgetExceeded = false, budgetInterrupted = false, promptError = null;
   agent.stdin.on("error", () => {});
@@ -88,7 +92,7 @@ export async function runPiStep({ request, prompt, env, cwd, timeoutMs, remainin
       consume(buffer.slice(0, newline).replace(/\r$/, "")); buffer = buffer.slice(newline + 1);
     }
   });
-  agent.stderr.on("data", (chunk) => { stderr += errDecoder.write(chunk); });
+  agent.stderr.on("data", (chunk) => { stderr += errDecoder.write(chunk); liveErr.write(chunk); });
   const timer = setTimeout(() => { timedOut = true; killTree(agent); }, Math.max(1, timeoutMs));
   if (request.model.thinking) send({ type: "set_thinking_level", level: request.model.thinking });
   send({ id: "ctxbench-prompt", type: "prompt", message: prompt });
@@ -98,6 +102,7 @@ export async function runPiStep({ request, prompt, env, cwd, timeoutMs, remainin
   killTree(agent);
   buffer += decoder.end(); if (buffer) consume(buffer.replace(/\r$/, ""));
   stderr += errDecoder.end();
+  liveErr.end();
   return { status: timedOut ? "timed-out" : promptError || budgetInterrupted || !(exitCode === 0 || settled) ? "failed" : "completed",
     exitCode, settled, timedOut, budgetExceeded, budgetInterrupted, cumulativeTokens,
     promptError: promptError ? redact(String(promptError)) : null, sessionStats,

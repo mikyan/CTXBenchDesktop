@@ -23,7 +23,7 @@ if (!/^[0-9a-f]{40}$/.test(initialCommit ?? "")) throw new Error("Workspace must
 
 const secretValues = Object.entries(process.env)
   .filter(([name, value]) => value && ((request.envNames ?? []).includes(name) || /(KEY|TOKEN|SECRET|PASSWORD|CREDENTIAL)/i.test(name)))
-  .map(([, value]) => value)
+  .flatMap(([, value]) => [value, JSON.stringify(value).slice(1, -1)])
   .sort((left, right) => right.length - left.length);
 
 const redact = (value) => secretValues.reduce((text, secret) => text.replaceAll(secret, "[REDACTED]"), value);
@@ -47,7 +47,14 @@ const persistWorkflow = () => writeFile(path.join(outputRoot, "workflow.json"), 
   version: 1, setup: { ...setup, env: undefined, log: undefined }, steps,
   plannedSteps: workflow.steps.length, cumulativeTokens, error: workflowError,
 }, null, 2)), "utf8");
-const setup = await runStartup(workflowError ? [] : workflow.setupCommands, { cwd: workspace, env: process.env, timeoutMs: deadline - Date.now(), redact });
+const onOutput = (text) => { try { process.stdout.write(text); } catch { /* Console observation is best-effort. */ } };
+const setup = await runStartup(workflowError ? [] : workflow.setupCommands, { cwd: workspace, env: process.env,
+  timeoutMs: deadline - Date.now(), redact, secrets: secretValues, onOutput });
+// Startup exports may introduce new credentials. Keep them out of subsequent logs too.
+for (const [name, value] of Object.entries(setup.env)) {
+  if (value && /(KEY|TOKEN|SECRET|PASSWORD|CREDENTIAL)/i.test(name)) secretValues.push(value, JSON.stringify(value).slice(1, -1));
+}
+secretValues.sort((left, right) => right.length - left.length);
 await writeFile(path.join(outputRoot, "setup.log"), setup.log, "utf8");
 if (!["skipped", "completed"].includes(setup.status)) workflowError = setup.error ?? "Startup commands timed out.";
 if (!workflowError && workflow.setupCommands.length) {
@@ -68,13 +75,15 @@ for (const [index, step] of workflow.steps.entries()) {
   steps.push(record); await persistWorkflow();
   if (request.workflow) {
     const marker = JSON.stringify({ type: "workflow_step_start", step: index + 1, name: step.name, promptHash: record.promptHash });
-    trajectory.push(marker);
-    liveWrites = liveWrites.then(() => appendFile(liveTrajectoryPath, `${marker}\n`, "utf8"));
+    trajectory.push(redact(marker));
+    onOutput(`${redact(marker)}\n`);
+    liveWrites = liveWrites.then(() => appendFile(liveTrajectoryPath, `${redact(marker)}\n`, "utf8"));
   }
   const completed = await runPiStep({ request, prompt: step.prompt, env: setup.env, cwd: workspace,
-    timeoutMs: deadline - Date.now(), remainingTokens: request.model.max_tokens - cumulativeTokens, redact,
+    timeoutMs: deadline - Date.now(), remainingTokens: request.model.max_tokens - cumulativeTokens, redact, secrets: secretValues, onOutput,
     onRecord: (line) => {
       trajectory.push(line);
+      onOutput(`${line}\n`);
       liveWrites = liveWrites.then(() => appendFile(liveTrajectoryPath, `${line}\n`, "utf8"));
     },
   });

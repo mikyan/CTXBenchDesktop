@@ -238,13 +238,21 @@ async fn worker_request(method: String, path: String, body: Option<Value>) -> Re
         return Err("Invalid worker route.".into());
     }
     let method = worker_method(&method)?;
-    let client = reqwest::Client::builder().no_proxy().timeout(Duration::from_secs(300)).build().map_err(|error| error.to_string())?;
+    let client = reqwest::Client::builder().no_proxy().timeout(worker_request_timeout(&method, &path)).build().map_err(|error| error.to_string())?;
     let mut request = client.request(method, format!("{WORKER_BASE_URL}{path}"));
     if let Some(body) = body { request = request.json(&body); }
     let response = request.send().await.map_err(|_| "The WSL worker is unavailable. Start it from Infrastructure and retry.".to_string())?;
     let status = response.status();
     let payload: Value = response.json().await.map_err(|_| "Worker returned an invalid response.".to_string())?;
     if status.is_success() { Ok(payload) } else { Err(payload.get("detail").map(|detail| detail.as_str().map(str::to_owned).unwrap_or_else(|| detail.to_string())).unwrap_or_else(|| format!("Worker error: {status}"))) }
+}
+
+fn worker_request_timeout(method: &reqwest::Method, path: &str) -> Duration {
+    let route = path.split('?').next().unwrap_or(path);
+    let live_logs = route == "/container-logs" || route.starts_with("/container-logs/");
+    // Fast read-only observation must reconnect promptly, without shortening
+    // the existing allowance for imports or other potentially long operations.
+    Duration::from_secs(if *method == reqwest::Method::GET && live_logs { 10 } else { 300 })
 }
 
 fn worker_method(method: &str) -> Result<reqwest::Method, String> {
@@ -408,6 +416,17 @@ mod tests {
         assert_eq!(super::worker_method("POST").unwrap(), reqwest::Method::POST);
         for method in ["DELETE", "CONNECT", "TRACE", "PATCH"] {
             assert!(super::worker_method(method).is_err());
+        }
+    }
+
+    #[test]
+    fn live_log_reads_timeout_without_shortening_other_worker_operations() {
+        for path in ["/container-logs", "/container-logs?runId=one", "/container-logs/abc?offset=0"] {
+            assert_eq!(super::worker_request_timeout(&reqwest::Method::GET, path).as_secs(), 10);
+            assert_eq!(super::worker_request_timeout(&reqwest::Method::POST, path).as_secs(), 300);
+        }
+        for path in ["/snapshot", "/container-logs-extra", "/datasets/import"] {
+            assert_eq!(super::worker_request_timeout(&reqwest::Method::GET, path).as_secs(), 300);
         }
     }
 

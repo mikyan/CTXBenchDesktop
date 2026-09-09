@@ -13,6 +13,7 @@ import { uxChinese } from "./i18n.ux";
 import { caseLibraryChinese } from './i18n.case-library';
 import { ciChinese } from './i18n.ci';
 import { imageWorkshopChinese } from './i18n.image-workshop';
+import { liveLogsChinese } from './i18n.live-logs';
 import { I18nContext, type I18nValue } from "./i18n.context";
 
 export type Locale = "en" | "zh-CN";
@@ -35,6 +36,7 @@ const zhCN: Record<string, string> = {
   ...caseLibraryChinese,
   ...ciChinese,
   ...imageWorkshopChinese,
+  ...liveLogsChinese,
   "Experiment plan created. Context preparation is queued.": "实验计划已创建，知识上下文准备任务已进入队列。",
   "Environment diagnostics completed.": "环境诊断已完成。",
   "Could not start CTXBench": "无法启动 CTXBench",

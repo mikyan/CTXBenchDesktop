@@ -1,5 +1,7 @@
 import { useEffect, useRef, useState } from "react";
 import { CIGradingResult } from './CIGradingResult';
+import { ContainerLogViewer } from './ContainerLogs';
+import { FailureDetails } from './FailureDetails';
 import type { BenchmarkKind, BenchmarkRun, DatasetRecord, FrozenModelConfig, RuntimeSettings, TaskSummary } from "../domain/types";
 import { useI18n } from "../i18n";
 import { saveText, workerRequest } from "../lib/desktop";
@@ -84,7 +86,7 @@ export function PreparationDialog({ kind, onClose, onComplete, initialSource = '
   </Modal>;
 }
 export function RunDialog({ run, onClose }: { run: BenchmarkRun; onClose: () => void }) {
-  const { t } = useI18n(); const [file, setFile] = useState("graded.patch"); const [content, setContent] = useState("");
+  const { t } = useI18n(); const [file, setFile] = useState(""); const [content, setContent] = useState("");
   const [next, setNext] = useState(0); const [more, setMore] = useState(false); const [error, setError] = useState("");
   const [record, setRecord] = useState<BenchmarkRun>();
   const [recordError, setRecordError] = useState("");
@@ -96,17 +98,18 @@ export function RunDialog({ run, onClose }: { run: BenchmarkRun; onClose: () => 
   }, [run.id, run.updatedAt]);
   const full = record?.id === run.id ? { ...record, ...run } : run;
   const read = async (offset = 0) => { const version = ++readVersion.current; try { setError(""); const result = await workerRequest<{ content: string; nextOffset: number; hasMore: boolean }>(`/run-output?runId=${encodeURIComponent(run.solverRunId ?? "")}&file=${encodeURIComponent(file)}&offset=${offset}`); if (version !== readVersion.current) return; setContent((old) => offset ? old + result.content : result.content); setNext(result.nextOffset); setMore(result.hasMore); } catch (error) { if (version === readVersion.current) setError(libraryError(error)); } };
-  useEffect(() => { setContent(""); setMore(false); if (run.solverRunId) void read(); return () => { readVersion.current++; }; }, [run.solverRunId, file]);
+  useEffect(() => { setContent(""); setMore(false); setError(''); if (run.solverRunId && file) void read(); return () => { readVersion.current++; }; }, [run.solverRunId, file]);
   return <Modal title={`${run.taskId} · ${run.arm}`} onClose={onClose}>
     {run.mock && <p className="form-error">{t("Mock provider — infrastructure verification only")}</p>}
     <dl className="review-grid"><div><dt>{t("Status")}</dt><dd>{t(titleCase(run.status))}</dd></div><div><dt>{t("Tests")}</dt><dd>{typeof run.testsPassed === "boolean" ? t(run.testsPassed ? "PASS" : "FAIL") : t("Not graded")}</dd></div><div><dt>{t("Arm")}</dt><dd>{t(titleCase(run.arm))} · {run.repeat}</dd></div><div><dt>{t("Constraint")}</dt><dd>{run.constraintVerdict ? t(titleCase(run.constraintVerdict)) : t("Not judged")}</dd></div></dl>
-    {full.failure && <FormError>{t(full.failure.replace(/^CIError: /, ''))}</FormError>}
+    {full.failure && <FailureDetails message={t(full.failure.replace(/^CIError: /, ''))} diagnostic={full.diagnostic} />}
     <CIGradingResult run={full} />
     <details><summary>{t("Frozen metadata and hashes")}</summary><pre>{JSON.stringify({ ...full, judgeRecords: undefined }, null, 2)}</pre></details>
     {recordError && <FormError>{recordError}</FormError>}
-    <label>{t("Evidence file")}<select value={file} onChange={(e) => setFile(e.target.value)}>{["graded.patch", "raw_agent.patch", "context_mutation.patch", "workflow.json", "setup.log", "trajectory.live.jsonl", "trajectory.jsonl", "result.json", "container.log", "grading/evaluator.log"].map((item) => <option key={item}>{item}</option>)}</select></label>
-    <button className="button secondary" onClick={() => void read()}>{t("Refresh")}</button>
-    {error && <FormError>{t(error)}</FormError>}<pre className="log-view">{content}</pre>{more && <button className="button secondary" onClick={() => void read(next)}>{t("Load more")}</button>}
+    <ContainerLogViewer scope={{ benchmarkRunId: run.id }} />
+    <label>{t("Evidence file")}<select value={file} onChange={(e) => setFile(e.target.value)}><option value="">{t('Select saved evidence (optional)')}</option>{["graded.patch", "raw_agent.patch", "context_mutation.patch", "workflow.json", "setup.log", "trajectory.live.jsonl", "trajectory.jsonl", "result.json", "container.log", "grading/evaluator.log"].map((item) => <option key={item}>{item}</option>)}</select></label>
+    {file && <button className="button secondary" disabled={!run.solverRunId} onClick={() => void read()}>{t("Refresh")}</button>}
+    {error && <FormError>{t(error)}</FormError>}{file && <pre className="log-view">{content}</pre>}{more && <button className="button secondary" onClick={() => void read(next)}>{t("Load more")}</button>}
     <details><summary>{t("Judge evidence")}</summary><pre>{recordError ? t("Evidence unavailable") : !record ? t("Loading…") : JSON.stringify(full.judgeRecords ?? [], null, 2)}</pre></details>
     <button className="button secondary" disabled={record?.id !== run.id || !!recordError} onClick={() => void saveText(`${run.solverRunId ?? "run"}.json`, JSON.stringify(full, null, 2)).catch((error) => setError(libraryError(error)))}>{t("Export run record")}</button>
   </Modal>;

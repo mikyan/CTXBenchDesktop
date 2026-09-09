@@ -1,6 +1,6 @@
 # CTXBench Desktop
 
-v0.1.8 fixes the startup “case definition must not exceed 10 MB” error with large official CTXBench cases and keeps independent case creation available when the library list fails. Update both the desktop and application images; keep your existing data directory. See the [release notes](docs/releases/v0.1.8.md).
+v0.1.9 adds live container output, pre-Agent failure diagnostics and paged reading of complete saved logs. Update both the desktop and application images; preserve your existing data directory. Missing old logs cannot be reconstructed. See the [release notes](docs/releases/v0.1.9.md).
 
 v0.1.7 introduced editable case libraries and dataset composition, immutable run snapshots, optional GitHub CI grading, custom coding commands without Pi, remote image downloads and guided image recipes. Missing custom Agent token usage never blocks functional testing. See the [v0.1.7 notes](docs/releases/v0.1.7.md) and [navigation guide](docs/workspace-navigation.md) for verified limits.
 
@@ -16,6 +16,7 @@ CTXBench Desktop is a local-first Windows desktop benchmark workbench for paired
 
 ## Implemented workbench
 
+- [Execution diagnostics and complete logs](docs/live-container-logs.md): pre-Agent failure steps and original exception chains, live stdout/stderr, full saved archives with paged reading, stage selection, pause/resume and credential redaction. Update the desktop and service/Pi images together; missing old logs cannot be reconstructed and nested official test output may remain evidence-file-only.
 - [Remote images, guided image recipes and custom coding commands](docs/image-workshop.md) (v0.1.7): pull company images, install dependencies/default configuration step by step, and run a case-specific Agent without Pi. Coding commands are separate from grading; arbitrary CLI token usage is unknown, not zero.
 - [Company Docker registries and partial image coverage](docs/company-image-registry.md): shared image-name mappings for installation/preparation/evaluation, metadata-only availability checks, explicit subset selection and immutable runtime images; no automatic Docker Hub fallback. Package-manager sources are separate.
 - [Intranet adaptation workbench](docs/intranet-workbench.md) (v0.1.4): frozen company profiles, Git mirror mapping, isolated image recipes, saved/editable dataset drafts, actual no-Agent baseline/reference self-tests, and verified portable **custom-dataset** resource ZIPs. Official SWE/CTX dynamic environment bundles are not yet supported. Update the Worker together with the desktop.

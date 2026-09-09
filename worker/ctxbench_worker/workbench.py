@@ -29,6 +29,8 @@ from .workflows import normalize_workflow, workflow_request
 from .agent_args import normalize_agent_args, verify_agent_args_receipt
 from .project_environment import ProjectEnvironments
 from .standard_images import project_image
+from .live_logs import scoped
+from .diagnostics import observed, step, phase, note, details
 
 GENERATION_PROMPT = "/skill:ctxbench-generate-context\n\nCapability: tree-only. Generate a frozen repository context artifact from this exact baseline checkout."
 
@@ -145,6 +147,7 @@ class Workbench:
                              updatedAt=utc_now(), controlRevision=operation.get("controlRevision", 0) + 1)
             if action in {"resume", "retry"}:
                 operation.pop("failure", None)
+                operation.pop("diagnostic", None)
             self.db.put_document("operations", operation_id, operation)
             active = self._active.get(operation_id)
             if action == "cancel" and active and hasattr(self.engine.runner, "cancel"):
@@ -271,7 +274,7 @@ class Workbench:
                 if action == "retry":
                     for run in self.db.list_runs(experiment_id):
                         if run["status"] in {"failed", "cancelled"}:
-                            self.db.update_run(run["id"], "queued", {"failure": None})
+                            self.db.update_run(run["id"], "queued", {"failure": None, "diagnostic": None})
                 self.db.set_experiment_status(experiment_id, "preparing")
                 operations = self.db.list_documents("operations")
                 existing = next((item for item in operations if item["kind"] == "experiment" and
@@ -319,6 +322,8 @@ class Workbench:
                 operation = next((item for item in operations if item["status"] == "queued"), None)
                 if operation:
                     operation.update(status="running", updatedAt=utc_now())
+                    operation.pop('failure', None)
+                    operation.pop('diagnostic', None)
                     self.db.put_document("operations", operation["id"], operation)
             if operation is None:
                 self._wake.wait(.5)
@@ -326,27 +331,12 @@ class Workbench:
                 continue
             self._scope.operation_id = operation["id"]
             try:
-                if operation["kind"] == "experiment":
-                    spec = self.db.get_spec(operation["payload"]["experimentId"])
-                    with self.runtime.using_environment(spec.company_environment):
-                        result = self.run_experiment(operation["payload"]["experimentId"], operation["payload"].get("start", False))
-                elif operation["kind"] in self.operation_handlers:
-                    result = self.operation_handlers[operation["kind"]](operation)
-                else:
-                    self._check(None)
-                    payload = operation["payload"]
-                    task = self.catalog.task(payload["dataset"], payload["taskId"])
-                    spec = self._preparation_spec(payload)
-                    with self.runtime.using_environment(spec.company_environment):
-                        image = self.runtime.resolve_image(spec.agent_image) if isinstance(self.engine.runner, DockerRunner) else spec.agent_image
-                        if operation['kind'] == 'context' and spec.project_environment and isinstance(self.engine.runner, DockerRunner):
-                            image = self.prepare_project_agent(task, spec, image)['imageId']
-                        result = self.generate(task, spec, image) if operation["kind"] == "context" else self.mine(task, spec, image)
+                result = self._execute_operation(operation)
                 operation.update(status="completed", result=result)
             except Interrupted as error:
-                operation.update(status=("failed" if operation["kind"].startswith("intranet:") and self._stop.is_set() else "queued" if self._stop.is_set() else "paused"), failure=str(error))
+                operation.update(status=("failed" if operation["kind"].startswith("intranet:") and self._stop.is_set() else "queued" if self._stop.is_set() else "paused"), failure=self.redact(str(error)), diagnostic=details(error))
             except Exception as error:
-                operation.update(status="queued" if self._stop.is_set() and not operation["kind"].startswith("intranet:") else "failed", failure=self.redact(f"{type(error).__name__}: {error}"))
+                operation.update(status="queued" if self._stop.is_set() and not operation["kind"].startswith("intranet:") else "failed", failure=self.redact(f"{type(error).__name__}: {error}"), diagnostic=details(error))
                 if operation["kind"] == "experiment":
                     experiment_id = operation["payload"]["experimentId"]
                     if not self._stop.is_set() and self.db.get_experiment(experiment_id)["status"] not in {"paused", "cancelled"}:
@@ -363,6 +353,26 @@ class Workbench:
                     operation["updatedAt"] = utc_now()
                     self.db.put_document("operations", operation["id"], operation)
 
+    @scoped('operationId', 'id')
+    @observed('Prepare queued operation')
+    def _execute_operation(self, operation):
+        if operation['kind'] == 'experiment':
+            spec = self.db.get_spec(operation['payload']['experimentId'])
+            with self.runtime.using_environment(spec.company_environment):
+                return self.run_experiment(operation['payload']['experimentId'], operation['payload'].get('start', False))
+        if operation['kind'] in self.operation_handlers:
+            return self.operation_handlers[operation['kind']](operation)
+        with phase('Validate preparation configuration'):
+            self._check(None)
+            payload = operation['payload']
+            task = self.catalog.task(payload['dataset'], payload['taskId'])
+            spec = self._preparation_spec(payload)
+        with self.runtime.using_environment(spec.company_environment):
+            image = self.runtime.resolve_image(spec.agent_image) if isinstance(self.engine.runner, DockerRunner) else spec.agent_image
+            if operation['kind'] == 'context' and spec.project_environment and isinstance(self.engine.runner, DockerRunner):
+                image = self.prepare_project_agent(task, spec, image)['imageId']
+            return self.generate(task, spec, image) if operation['kind'] == 'context' else self.mine(task, spec, image)
+
     @staticmethod
     def _preparation_spec(payload: dict) -> ExperimentSpec:
         from .models import ResourcePolicy
@@ -373,10 +383,12 @@ class Workbench:
             builder_workflow=normalize_workflow(payload.get('workflow')), agent_args=normalize_agent_args(payload.get('agentArgs')),
             project_environment=payload.get('projectEnvironment', False), company_environment=payload.get('environment', {}))
 
+    @step('Prepare project dependencies and Agent image')
     def prepare_project_agent(self, task, spec, agent_image, grader_image=None, experiment_id=None):
         """One preparation path for independent builders and paired experiments."""
         scope = experiment_id or getattr(self._scope, 'operation_id', None)
         def progress(message, status='preparing'):
+            note(message)
             record = {'message': self.redact(message), 'status': status, 'taskId': task.id, 'updatedAt': utc_now()}
             if scope:
                 self.db.put_document('environmentProgress', scope, record)
@@ -420,6 +432,7 @@ class Workbench:
                 text = text.replace(value, "[REDACTED]")
         return text
 
+    @step('Prepare and execute Agent stage')
     def _agent(self, key: str, mode: str, workspace_factory, prompt: str, model: ModelConfig,
                spec: ExperimentSpec, image: str, *, context_paths=(), experiment_id=None, command_agent=None, command_adapter_hash=None) -> dict:
         workflow = normalize_workflow(spec.builder_workflow if mode == 'generate-context' else spec.solver_workflow if mode == 'solve' else {})
@@ -433,12 +446,14 @@ class Workbench:
                 self.engine.runner.cancel(stage["runId"])
         except KeyError:
             pass
-        self._check(experiment_id)
-        if workflow and isinstance(self.engine.runner, DockerRunner) and not command_agent:
-            self.engine.runner.validate_workflow_image(image)
-        self.validate_agent_args(spec.agent_args, image)
+        with phase('Validate Agent configuration and image protocol'):
+            self._check(experiment_id)
+            if workflow and isinstance(self.engine.runner, DockerRunner) and not command_agent:
+                self.engine.runner.validate_workflow_image(image)
+            self.validate_agent_args(spec.agent_args, image)
         run_id = f"{mode[:8]}-{uuid.uuid4().hex[:20]}"
-        workspace = workspace_factory()
+        with phase('Prepare baseline workspace and passive context'):
+            workspace = workspace_factory()
         expected_document = None
         if mode == "mine-constraints":
             expected_document = json.loads(safe_file(workspace, "review-archive.json").read_text(encoding="utf-8"))
@@ -467,6 +482,9 @@ class Workbench:
                 model, spec.resources, spec.env_names, tuple(context_paths),
                 str(self.engine.context_skill_path) if mode == "generate-context" and self.engine.context_skill_path else None,
                 {"capability": "tree-only"} if mode == "generate-context" else {'commandAgent': command_agent, 'commandAdapterHash': command_adapter_hash} if command_agent else {}, workflow=normalize_workflow(workflow), agent_args=spec.agent_args))
+            # Do not replace a Docker create/start error with a missing result.json error.
+            if result.status != 'completed' and not (output / 'result.json').is_file():
+                raise RuntimeError(result.failure or 'Agent container failed before producing a result. Inspect the execution log.')
             metadata_path = safe_file(output, "result.json")
             metadata = json.loads(metadata_path.read_text(encoding="utf-8")) if metadata_path.exists() else {}
             if isinstance(self.engine.runner, DockerRunner) and (metadata.get("schemaVersion") != 1 or metadata.get("runId") != run_id):
@@ -654,10 +672,13 @@ class Workbench:
         self.db.put_document("constraintPackages", key, package)
         return package
 
+    @scoped('experimentId')
+    @observed('Prepare and run experiment')
     def run_experiment(self, experiment_id: str, start: bool = False) -> dict:
-        self._check(experiment_id)
-        spec = self.db.get_spec(experiment_id)
-        selected_tasks = self.validate_inputs(spec)
+        with phase('Validate dataset, credentials and resources'):
+            self._check(experiment_id)
+            spec = self.db.get_spec(experiment_id)
+            selected_tasks = self.validate_inputs(spec)
         try:
             prepared = self.db.get_document("prepared", experiment_id)
         except KeyError:
@@ -773,13 +794,15 @@ class Workbench:
                 raise
             except Exception as error:
                 self._check(experiment_id)
-                self.db.update_run(run["id"], "failed", {"failure": self.redact(f"{type(error).__name__}: {error}")})
+                self.db.update_run(run["id"], "failed", {"failure": self.redact(f"{type(error).__name__}: {error}"), 'diagnostic': details(error)})
         self._check(experiment_id)
         runs = self.db.list_runs(experiment_id)
         status = "failed" if any(run["status"] == "failed" for run in runs) else "completed"
         self.db.set_experiment_status(experiment_id, status)
         return {"status": status, "runs": len(runs)}
 
+    @scoped('benchmarkRunId', 'id')
+    @observed('Prepare and execute evaluation case')
     def _run(self, run: dict, spec: ExperimentSpec, prepared: dict):
         task = self.catalog.task(spec.dataset, run["taskId"])
         agent_image = prepared.get('agentImages', {}).get(task.id, prepared['image'])
@@ -917,6 +940,15 @@ class Workbench:
         # Model requests, dataset gold patches and credentials are never part of a dashboard snapshot.
         experiments = self.db.list_experiments()
         for experiment in experiments:
+            attempts = sorted((op for op in operations if op['kind'] == 'experiment' and op['payload'].get('experimentId') == experiment['id']), key=lambda op: op['updatedAt'], reverse=True)
+            if experiment['status'] in {'failed', 'paused'} and attempts and attempts[0].get('failure'):
+                experiment['failure'] = attempts[0]['failure']
+                experiment['diagnostic'] = attempts[0].get('diagnostic')
+            elif experiment['status'] == 'failed':
+                failed_run = next((run for run in runs if run['experimentId'] == experiment['id'] and run['status'] == 'failed' and run.get('failure')), None)
+                if failed_run:
+                    experiment['failure'] = failed_run['failure']
+                    experiment['diagnostic'] = failed_run.get('diagnostic')
             try:
                 experiment['environmentPreparation'] = self.db.get_document('environmentProgress', experiment['id'])
             except KeyError:
@@ -924,7 +956,7 @@ class Workbench:
         return {"experiments": experiments, "runs": runs, "artifacts": artifacts,
             "tokenBudgets": [self.budgets.snapshot(item['id']) for item in self.db.list_documents('tokenBudgets')],
             "constraints": constraints, "datasets": self.catalog.list(), "operations": [
-                {**{key: item[key] for key in ("id", "kind", "status", "createdAt", "updatedAt", "failure", "progress") if key in item},
+                {**{key: item[key] for key in ("id", "kind", "status", "createdAt", "updatedAt", "failure", "progress", "diagnostic") if key in item},
                  "taskId": item["payload"].get("taskId"), "dataset": item["payload"].get("dataset"),
                  "datasetSnapshot": item['payload'].get('datasetSnapshot'),
                  "resultId": item.get("result", {}).get("id")} for item in operations],

@@ -109,6 +109,8 @@ class IntranetWorkbench:
         return self.wb.enqueue("intranet:" + kind, payload)
 
     def progress(self, operation, message, percent=None):
+        from .diagnostics import note
+        note(message)
         key = operation["id"]
         try:
             current = self.db.get_document("intranetProgress", key)
@@ -123,7 +125,7 @@ class IntranetWorkbench:
         operation = self.db.get_document("operations", key)
         if not operation["kind"].startswith("intranet:"):
             raise ValueError("Not an intranet operation.")
-        result = {k: operation[k] for k in ("id", "kind", "status", "createdAt", "updatedAt", "failure", "result") if k in operation}
+        result = {k: operation[k] for k in ("id", "kind", "status", "createdAt", "updatedAt", "failure", "result", "diagnostic") if k in operation}
         result['datasetSnapshot'] = operation['payload'].get('datasetSnapshot')
         result['definitionSnapshot'] = operation['payload'].get('definitionSnapshot')
         try:

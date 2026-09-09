@@ -61,12 +61,12 @@ class ImageSourceTests(unittest.TestCase):
             runtime = Runtime(Path(directory), Mock())
             client = Mock()
             image = SimpleNamespace(id=IMAGE, tag=Mock())
-            client.images.get.side_effect = docker.errors.ImageNotFound('missing')
-            client.images.pull.return_value = image
+            client.images.get.side_effect = [docker.errors.ImageNotFound('missing'), image]
+            client.api.pull.return_value = iter([{'status': 'Pull complete'}])
             with patch('docker.from_env', return_value=client), runtime.using_environment({'imageMappings': [RULE]}):
                 self.assertEqual(runtime.resolve_image(ORIGINAL), IMAGE)
-            client.images.get.assert_called_once_with(TARGET)
-            client.images.pull.assert_called_once_with(TARGET)
+            self.assertEqual([call.args for call in client.images.get.call_args_list], [(TARGET,), (TARGET,)])
+            client.api.pull.assert_called_once_with(TARGET, stream=True, decode=True)
 
     def test_missing_unmapped_and_frozen_images_never_pull_or_fallback(self):
         with tempfile.TemporaryDirectory() as directory:

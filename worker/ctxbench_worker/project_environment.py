@@ -19,6 +19,7 @@ from collections import deque
 from pathlib import Path, PurePosixPath
 
 from .environments import public_image_config
+from .diagnostics import step, docker_event
 
 VERSION = 1
 IMPLEMENTATION = hashlib.sha256((Path(__file__).read_text(encoding='utf-8') + '\n' + Path(__file__).with_name('project_entrypoint.mjs').read_text(encoding='utf-8')).encode()).hexdigest()
@@ -184,6 +185,7 @@ class ProjectEnvironments:
         finally:
             client.close()
 
+    @step('Build isolated project Agent image')
     def prepare(self, task, source_image, agent_image, *, check=lambda: None, progress=lambda message: None):
         import docker
         client = docker.from_env(timeout=3600)
@@ -267,6 +269,7 @@ class ProjectEnvironments:
                 recent = deque(maxlen=15)
                 for event in client.api.build(path=str(folder), tag=tag, rm=True, forcerm=True, pull=False,
                                                network_mode='none', decode=True, timeout=3600):
+                    docker_event(event)
                     check()
                     if event.get('error'):
                         raise RuntimeError('Project Agent environment build failed: ' + self.redact(event['error'])[-1000:] + '\n' + '\n'.join(recent)[-3000:])

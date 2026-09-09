@@ -19,11 +19,21 @@ from .models import ResourcePolicy
 from .artifacts import safe_relative_path
 from .safe_files import safe_file
 from .image_sources import ImageSources
+from .diagnostics import step, phase, note, log, docker_event, docker_build
 
 
 def git(workspace: Path, *arguments: str, data: bytes | None = None) -> bytes:
-    result = subprocess.run(["git", "-c", "core.hooksPath=/dev/null", "-C", str(workspace), *arguments],
-                            input=data, stdout=subprocess.PIPE, stderr=subprocess.PIPE, timeout=300)
+    note('Git command: ' + ' '.join(arguments) + ' | cwd=' + str(workspace))
+    try:
+        result = subprocess.run(["git", "-c", "core.hooksPath=/dev/null", "-C", str(workspace), *arguments],
+                                input=data, stdout=subprocess.PIPE, stderr=subprocess.PIPE, timeout=300)
+    except subprocess.TimeoutExpired as error:
+        if error.stderr:
+            log(error.stderr.decode(errors='replace'))
+        raise
+    # stdout may be an archive, source code or hidden patch. It is not a log.
+    if result.stderr:
+        log(result.stderr.decode(errors='replace'))
     if result.returncode:
         raise RuntimeError(result.stderr.decode(errors="replace")[-3000:])
     return result.stdout
@@ -125,6 +135,9 @@ class Runtime:
         if socket:
             volumes["/var/run/docker.sock"] = {"bind": "/var/run/docker.sock", "mode": "rw"}
         container = None
+        from .live_logs import ContainerLogs, runtime_secrets
+        live_log = None
+        log_exit_code = None
         scope = hashlib.sha256(str(output).encode()).hexdigest()[:20]
         self.cancel_grade(output)
         try:
@@ -134,8 +147,13 @@ class Runtime:
                              "CTXBENCH_LOCAL_IMAGES_ONLY": "1" if ImageSources(self.environment).restricted else "0"},
                 network=network, nano_cpus=int(resources.cpus * 1e9), mem_limit=f"{resources.memory_gb}g",
                 pids_limit=1024, labels={"io.ctxbench.evaluator": "true", "io.ctxbench.grade-scope": scope},
+                **({'log_config': docker.types.LogConfig(type='json-file')} if record_logs else {}),
                 **({} if socket else {"cap_drop": ["ALL"], "security_opt": ["no-new-privileges:true"]}))
+            if record_logs:
+                live_log = ContainerLogs(self.root).capture(container, 'evaluator' if socket else 'test',
+                    runtime_secrets(getattr(self.runner, 'env_allowlist', ())))
             status = container.wait(timeout=resources.timeout_minutes * 60 + 60)["StatusCode"]
+            log_exit_code = status
             log = container.logs()
             if record_logs:
                 (output / "evaluator.log").write_bytes(log)
@@ -143,6 +161,8 @@ class Runtime:
                 raise RuntimeError(f"Evaluator exited {status}: {log.decode(errors='replace')[-2500:]}")
             return log
         finally:
+            if live_log:
+                live_log.finish(log_exit_code)
             if container is not None:
                 try:
                     container.remove(force=True)
@@ -153,7 +173,9 @@ class Runtime:
                     child.remove(force=True)
             client.close()
 
+    @step('Resolve or download Docker image')
     def resolve_image(self, name: str) -> str:
+        note('Requested image: ' + name)
         import docker
         sources = ImageSources(self.environment)
         original = name
@@ -179,7 +201,12 @@ class Runtime:
                 if name.startswith('sha256:'):
                     raise ValueError('A frozen local image is missing. Restore that exact image; mutable tags will not be downloaded as replacements.')
                 sources.require_pull(original)
-                image = client.images.pull(name)
+                with phase('Download Docker image'):
+                    for event in client.api.pull(name, stream=True, decode=True):
+                        docker_event(event)
+                        if event.get('error'):
+                            raise RuntimeError(event['error'])
+                    image = client.images.get(name)
             # Containerd-backed Docker can discard the last reference when a mutable tag
             # is rebuilt. Keep an explicit immutable tag for every experiment image.
             image.tag("ctxbench/frozen", image.id.replace(":", "-"))
@@ -187,6 +214,7 @@ class Runtime:
         finally:
             client.close()
 
+    @step('Prepare test image')
     def prepare_test_image(self, task: TaskRecord) -> str:
         """Build once from untouched baseline, never from an agent's candidate patch."""
         if task.image:
@@ -207,7 +235,7 @@ class Runtime:
         import docker
         client = docker.from_env()
         try:
-            built, _ = client.images.build(path=str(context), dockerfile=dockerfile.as_posix(), buildargs=dict(task.build.get("args", {})), rm=True, timeout=3600)
+            built = docker_build(client, path=str(context), dockerfile=dockerfile.as_posix(), buildargs=dict(task.build.get("args", {})), rm=True, timeout=3600)
             built.tag("ctxbench/frozen", built.id.replace(":", "-"))
             return built.id
         finally:
@@ -233,7 +261,9 @@ class Runtime:
             raise ValueError('Prepared environment does not match the requested baseline.')
         return manifest['imageId']
 
+    @step('Fetch frozen Git baseline')
     def baseline(self, task: TaskRecord) -> tuple[Path, str]:
+        note('Repository: ' + task.repository + ' | baseline=' + task.base_commit)
         key = hashlib.sha256(f"{task.repository}@{task.base_commit}".encode()).hexdigest()
         source = self.root / "sources" / key
         source.mkdir(parents=True, exist_ok=True)
@@ -260,6 +290,7 @@ class Runtime:
         cutoff = datetime.fromtimestamp(int(timestamp), timezone(timedelta(minutes=minutes))).isoformat()
         return source, cutoff
 
+    @step('Create clean baseline checkout')
     def checkout(self, task: TaskRecord, label: str) -> Path:
         source, _ = self.baseline(task)
         workspace = self.root / "repositories" / f"{label}-{uuid.uuid4().hex[:8]}"
@@ -324,6 +355,9 @@ class Runtime:
             client = docker.from_env()
             container = None
             workspace_owner = None
+            from .live_logs import ContainerLogs, runtime_secrets
+            live_log = None
+            log_exit_code = None
             try:
                 image = task.image
                 if not image:
@@ -341,12 +375,18 @@ class Runtime:
                     detach=True, volumes={self.host_path(workspace): {"bind": "/workspace", "mode": "rw"}},
                     network="none", nano_cpus=int(resources.cpus * 1e9), mem_limit=f"{resources.memory_gb}g",
                     pids_limit=1024, cap_drop=["ALL"], security_opt=["no-new-privileges:true"],
+            log_config=docker.types.LogConfig(type='json-file'),
                     labels={"io.ctxbench.evaluator": "true", "io.ctxbench.grade-scope": hashlib.sha256(str(output).encode()).hexdigest()[:20]})
+                live_log = ContainerLogs(self.root).capture(container, 'test',
+                    runtime_secrets(getattr(self.runner, 'env_allowlist', ())))
                 exit_code = container.wait(timeout=resources.timeout_minutes * 60)["StatusCode"]
+                log_exit_code = exit_code
                 output.mkdir(parents=True, exist_ok=True)
                 (output / "evaluator.log").write_bytes(container.logs())
                 summary = {"resolved": exit_code == 0, "exitCode": exit_code, "benchmark": "custom", "instanceId": task.id, "graderImageDigests": [image]}
             finally:
+                if live_log:
+                    live_log.finish(log_exit_code)
                 if container is not None:
                     try:
                         container.remove(force=True)

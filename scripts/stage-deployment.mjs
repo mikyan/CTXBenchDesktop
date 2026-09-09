@@ -19,6 +19,8 @@ files.push('docs/company-image-registry.md', 'docs/project-environments.md', 'do
 files.push('docs/case-library.md', 'docs/ci-grading.md', 'docs/ci-platform-adapter.md', 'docs/image-workshop.md');
 files.push('docs/ci-live-acceptance.md', 'docs/ci-agent-live-acceptance.md', 'docs/releases/v0.1.7.md');
 files.push('docs/releases/v0.1.8.md');
+files.push('docs/releases/v0.1.9.md');
+files.push('docs/live-container-logs.md', 'scripts/live-logs-container-smoke.py');
 files.push('examples/ci/github-maven.yml', 'examples/ci/github-python-acceptance.yml');
 for (const folder of ["docker/agent-pi", "docker/official-harness", "docker/worker", "docker/egress-proxy", "worker/ctxbench_worker", "skills/ctxbench-generate-context", "schemas"]) {
   for (const entry of readdirSync(path.join(root, folder), { withFileTypes: true })) {

@@ -26,9 +26,9 @@ export async function loadSnapshot(): Promise<DashboardSnapshot> {
   return { ...snapshot, metrics: aggregateDashboard(realRuns), armMetrics: aggregateArms(realRuns) };
 }
 
-export async function workerRequest<T>(path: string, method: "GET" | "POST" | "PUT" = "GET", body?: unknown): Promise<T> {
+export async function workerRequest<T>(path: string, method: "GET" | "POST" | "PUT" = "GET", body?: unknown, signal?: AbortSignal): Promise<T> {
   if (isTauri()) return invoke<T>("worker_request", { method, path, body: body ?? null });
-  const response = await fetch(`/worker${path}`, { method, headers: body ? { "Content-Type": "application/json" } : {}, body: body ? JSON.stringify(body) : undefined });
+  const response = await fetch(`/worker${path}`, { method, headers: body ? { "Content-Type": "application/json" } : {}, body: body ? JSON.stringify(body) : undefined, ...(signal ? { signal } : {}) });
   let payload;
   try { payload = await response.json(); } catch { throw new Error("The WSL worker is unavailable. Start it from Infrastructure and retry."); }
   if (!response.ok) throw new Error(typeof payload.detail === "string" ? payload.detail : JSON.stringify(payload.detail ?? payload));

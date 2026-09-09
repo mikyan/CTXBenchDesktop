@@ -13,6 +13,8 @@ from .models import RunResult, RunSpec
 from .safe_files import safe_file
 from .workflows import workflow_request
 from .agent_args import normalize_agent_args, validate_pi_args, verify_agent_args_receipt
+from .diagnostics import observed, call, note, agent_started, failure
+from .live_logs import scoped
 
 ENV_NAME = re.compile(r"^[A-Z][A-Z0-9_]{1,127}$")
 DEFAULT_SECRET_ALLOWLIST = frozenset(
@@ -185,6 +187,8 @@ class DockerRunner:
         finally:
             client.close()
 
+    @scoped('runId', 'run_id')
+    @observed('Validate and start Agent container')
     def run(self, spec: RunSpec) -> RunResult:
         try:
             import docker
@@ -287,14 +291,18 @@ class DockerRunner:
         repositories_owner = self.repositories_root.stat()
         artifacts_owner = self.artifacts_root.stat()
         container = None
+        from .live_logs import ContainerLogs, runtime_secrets
+        live_log = None
+        log_exit_code = None
         workspace_assigned = False
         output_assigned = False
         try:
-            _chown_tree(workspace, 10001, 10001)
+            call('Set workspace permissions', _chown_tree, workspace, 10001, 10001)
             workspace_assigned = True
-            _chown_tree(output, 10001, 10001)
+            call('Set output directory permissions', _chown_tree, output, 10001, 10001)
             output_assigned = True
-            container = client.containers.run(
+            note('Agent image: ' + spec.image + ' | workspace=' + str(workspace) + ' | output=' + str(output))
+            container = call('Create and start Agent container', client.containers.run,
                 spec.image,
                 detach=True,
                 name=f"ctxbench-{spec.run_id[:40]}",
@@ -309,10 +317,15 @@ class DockerRunner:
                 security_opt=["no-new-privileges:true"],
                 cap_drop=["ALL"],
                 labels={"io.ctxbench.run": spec.run_id, "io.ctxbench.mode": spec.mode},
+                log_config=docker.types.LogConfig(type='json-file'),
                 **({'entrypoint': ['python3'], 'command': ['/ctxbench/command_adapter.py']} if custom else {}),
             )
+            agent_started()
+            live_log = ContainerLogs(self.artifacts_root.parent).capture(container, spec.mode,
+                runtime_secrets(self.env_allowlist), runId=spec.run_id)
             wait = container.wait(timeout=spec.resources.timeout_minutes * 60 + 30)
             exit_code = int(wait.get("StatusCode", 1))
+            log_exit_code = exit_code
             logs = redact(container.logs(stdout=True, stderr=True, tail=4000).decode(errors="replace"))
             safe_file(output, "container.log").write_text(logs, encoding="utf-8")
             for artifact in output.rglob("*"):
@@ -333,6 +346,7 @@ class DockerRunner:
                 failure=None if exit_code == 0 else "Agent container exited unsuccessfully; see container.log.",
             )
         except Exception as error:
+            failure(error)
             if container is not None:
                 try:
                     container.kill()
@@ -347,6 +361,8 @@ class DockerRunner:
                 failure=redact(f"{type(error).__name__}: {error}"),
             )
         finally:
+            if live_log:
+                live_log.finish(log_exit_code)
             request_path.unlink(missing_ok=True)
             if adapter_path:
                 adapter_path.unlink(missing_ok=True)

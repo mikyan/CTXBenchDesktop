@@ -2,7 +2,9 @@ import { useEffect, useRef, useState } from "react";
 import { useI18n } from "../i18n";
 import { workerRequest } from "../lib/desktop";
 import { terminalOperatorJob, operatorKindLabel, type OperatorJob } from "../lib/intranet";
-import { ConfirmDialog, FormError } from "./Dialogs";
+import { ConfirmDialog } from "./Dialogs";
+import { ContainerLogDialog } from './ContainerLogs';
+import { FailureDetails } from './FailureDetails';
 
 export function OperatorJobPanel({ initial, onCompleted, onStatusChange, controls = false }: { initial: OperatorJob; onCompleted?: (job: OperatorJob) => void; onStatusChange?: (job: OperatorJob) => void; controls?: boolean }) {
   const { t } = useI18n();
@@ -10,6 +12,7 @@ export function OperatorJobPanel({ initial, onCompleted, onStatusChange, control
   useEffect(() => { if (controls) ref.current?.scrollIntoView({ block: "nearest" }); }, [initial.id, controls]);
   const [job, setJob] = useState(initial);
   const [error, setError] = useState("");
+  const [logs, setLogs] = useState(false);
   const [revision, refresh] = useState(0); const [cancel, setCancel] = useState(false); const [busy, setBusy] = useState(false);
   const checkingImages = job.kind === 'intranet:image-check';
   const complete = useRef(onCompleted); complete.current = onCompleted;
@@ -39,13 +42,15 @@ export function OperatorJobPanel({ initial, onCompleted, onStatusChange, control
     catch (cause) { setError(String(cause)); } finally { setBusy(false); }
   };
   return <section ref={ref} className="operator-job" aria-label={t("Operation progress")}>
+    {logs && <ContainerLogDialog scope={{ operationId: job.id }} onClose={() => setLogs(false)} />}
+    <button type="button" className="button secondary" onClick={() => setLogs(true)}>{t('Live container logs')}</button>
     <strong>{t(operatorKindLabel(job.kind))} · {t(job.status)}</strong>
     <p><code>{job.id}</code> · {t("Runs in the persistent local evaluation queue. Leaving this page does not stop it.")}</p>
     {controls && <div className="form-actions">{["queued", "running", "paused"].includes(job.status) && <button type="button" className="button secondary" disabled={busy} onClick={() => setCancel(true)}>{t(checkingImages ? "Cancel image check" : "Cancel installation")}</button>}{["failed", "cancelled", "paused"].includes(job.status) && <button type="button" className="button secondary" disabled={busy} onClick={() => void control(job.status === "paused" ? "resume" : "retry")}>{t(checkingImages ? "Retry image check" : "Retry / continue installation")}</button>}</div>}
     {job.kind === "intranet:standard-images" && <p>{t("Progress counts completed images, not downloaded bytes. Layer download and extraction details appear below; installed images have not yet passed project tests.")}</p>}
     {!terminalOperatorJob(job.status) && <progress aria-label={t("Operation progress")} max={100} value={job.kind === 'intranet:image-pull' ? undefined : job.progress?.percent ?? 0} />}
     {error && <p role="alert">{t("Progress connection lost; reconnecting. The operation may still be running.")} {error}</p>}
-    {job.failure && (controls ? <FormError>{job.failure}</FormError> : <p className="form-error" role="alert">{job.failure}</p>)}
+    <FailureDetails message={job.failure} diagnostic={job.diagnostic} onLogs={() => setLogs(true)} />
     {job.progress?.log && <details open={!terminalOperatorJob(job.status)}><summary>{t("Operation log")}</summary><pre>{job.progress.log}</pre></details>}
     {job.result?.imageId && <p>{t("New image (existing images unchanged)")}: <code>{job.result.tag}</code><br /><code>{job.result.imageId}</code></p>}
     {job.result?.path && <p>{t("Resource ZIP in Worker directory")}: <code>{job.result.path}</code><br />SHA-256: <code>{job.result.sha256}</code></p>}

@@ -544,6 +544,22 @@ def create_app(
         configured = [{"name": name, "configured": bool(secret)} for name, secret in updates]
         return {"credentials": configured} if "variables" in value else configured[0]
 
+    @app.get('/v1/container-logs')
+    def container_logs(experimentId: str | None = None, operationId: str | None = None,
+                       benchmarkRunId: str | None = None, runId: str | None = None, before: int | None = None):
+        from .live_logs import ContainerLogs
+        scope = {key: value for key, value in {'experimentId': experimentId, 'operationId': operationId,
+                 'benchmarkRunId': benchmarkRunId, 'runId': runId}.items() if value is not None}
+        sessions = ContainerLogs(data_root).list(before=before, **scope)
+        return {'sessions': sessions, 'nextBefore': sessions[-1]['sequence'] if len(sessions) == 200 else None}
+
+    @app.get('/v1/container-logs/{session_id}')
+    def container_log_output(session_id: str, offset: int | None = None):
+        from .live_logs import ContainerLogs
+        result = ContainerLogs(data_root).read(session_id, offset)
+        result['content'] = workbench.redact(result['content'])
+        return result
+
     @app.get("/v1/run-output")
     def run_output(runId: str, file: str = "trajectory.jsonl", offset: int = 0):
         allowed = {"trajectory.jsonl", "trajectory.live.jsonl", "raw_agent.patch", "graded.patch", "context_mutation.patch", "result.json", "container.log", "agent.stderr.log", "setup.log", "workflow.json", "grading/evaluator.log", "grading/summary.json"}

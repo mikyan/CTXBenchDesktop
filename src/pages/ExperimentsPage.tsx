@@ -14,11 +14,14 @@ import { DatasetSnapshotBadge } from '../components/DatasetSnapshotView';
 import { SectionNav } from "../components/SectionNav";
 import { experimentViews } from "../lib/navigation";
 import { ConfirmDialog } from "../components/Dialogs";
+import { ContainerLogDialog } from '../components/ContainerLogs';
+import { FailureDetails } from '../components/FailureDetails';
 
 export function ExperimentsPage({ snapshot, onNewExperiment, onExport, onDatasets, onAction, onRun, initialBenchmark = "" }: { snapshot: DashboardSnapshot; onNewExperiment: () => void; onExport: (format: "json" | "csv" | "html") => void; onDatasets: () => void; initialBenchmark?: BenchmarkKind | ""; onAction: (id: string, action: string) => void; onRun: (run: BenchmarkRun) => void }) {
   const { locale, t } = useI18n();
   const [query, setQuery] = useState("");
   const [cancelling, setCancelling] = useState<string>();
+  const [logs, setLogs] = useState<string>();
   const cancelTarget = snapshot.experiments.find((item) => item.id === cancelling);
   const [view, setView] = useState<typeof experimentViews[number]["id"]>(initialBenchmark ? "results" : "plans");
   const [benchmark, setBenchmark] = useState<BenchmarkKind | "">(initialBenchmark);
@@ -38,6 +41,7 @@ export function ExperimentsPage({ snapshot, onNewExperiment, onExport, onDataset
 
   return (
     <div className="page">
+      {logs && <ContainerLogDialog scope={{ experimentId: logs }} onClose={() => setLogs(undefined)} />}
       {cancelTarget && <ConfirmDialog title={t("Cancel experiment?")} description={`${cancelTarget.name} — ${t("Cancellation interrupts active work and stops pending runs. Completed results and frozen packages are kept. To wait until the current stage finishes, use Pause instead.")}`} confirmLabel={t("Confirm cancellation")} cancelLabel={t("Keep running")} disabled={!["running", "preparing", "paused", "ready"].includes(cancelTarget.status)} onCancel={() => setCancelling(undefined)} onConfirm={() => { setCancelling(undefined); onAction(cancelTarget.id, "cancel"); }} />}
       <PageTitle
         eyebrow={t("EXPERIMENTS")}
@@ -85,12 +89,14 @@ export function ExperimentsPage({ snapshot, onNewExperiment, onExport, onDataset
                   {experiment.arms.map((arm) => <span key={arm} className={arm === "none" ? "arm-tag none" : "arm-tag context"}>{t(titleCase(arm))}</span>)}
                 </div>
               </div>
+              {(experiment.failure || experiment.diagnostic) && <FailureDetails message={experiment.failure} diagnostic={experiment.diagnostic} onLogs={() => setLogs(experiment.id)} />}
               <div className="experiment-progress-cell">
                 <div><span>{t("{completed} / {total} runs", { completed: experiment.completedRuns, total: experiment.totalRuns })}</span><strong>{Math.round(progress * 100)}%</strong></div>
                 <ProgressBar value={progress} tone={experiment.status === "paused" ? "violet" : "cyan"} />
                 <small>{t("Updated {time}", { time: relativeTime(experiment.updatedAt, locale) })}</small>
               </div>
               <div className="experiment-actions">
+                <button className="button tertiary" onClick={() => setLogs(experiment.id)}>{t('Live container logs')}</button>
                 {["running", "preparing"].includes(experiment.status) ? <button className="icon-button" title={t("Pause after current stage")} onClick={() => onAction(experiment.id, "pause")}><Pause size={16} /></button> : ["ready", "paused"].includes(experiment.status) ? <button className="icon-button" title={t("Resume")} onClick={() => onAction(experiment.id, "resume")}><Play size={16} /></button> : ["failed", "cancelled"].includes(experiment.status) ? <button className="button tertiary" onClick={() => onAction(experiment.id, "retry")}>{t("Retry failed runs")}</button> : null}
                 {["running", "preparing", "paused", "ready"].includes(experiment.status) && <button className="button tertiary" onClick={() => setCancelling(experiment.id)}>{t("Cancel")}</button>}
                 <button className="button tertiary" onClick={() => { setSelected(experiment.id); setResultPage(0); setView("results"); }}>{t("Results")}</button>
