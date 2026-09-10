@@ -1,0 +1,18 @@
+candidate.patch
+  h_b8f1a5b2668ac3 1
+constraints.json
+  h_b8f1a5b2668ac3 1
+task.json
+  h_b8f1a5b2668ac3 1
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "development:1.7.3",
+  "base_commit_sha": "79854a0e96f247f3046dea732e282716f0dc7737",
+  "prompts": {},
+  "humans": {
+    "h_b8f1a5b2668ac3": {
+      "author": "CTXBench <local@ctxbench.invalid>"
+    }
+  }
+}
