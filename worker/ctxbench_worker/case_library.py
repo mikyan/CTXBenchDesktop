@@ -198,6 +198,12 @@ class CaseLibrary:
     def adopt(self, dataset):
         key = 'set-' + dataset
         try:
+            self.db.get_document('deletedLibrarySources', key)
+        except KeyError:
+            pass
+        else:
+            raise LibraryConflict('This imported collection was deleted. Explicitly import it again to recreate it; historical snapshots remain available.')
+        try:
             return self.db.get_document('librarySets', key)
         except KeyError:
             pass
@@ -205,6 +211,8 @@ class CaseLibrary:
         rows = json.loads(Path(source['path']).read_text(encoding='utf-8'))
         with self.db.connect() as connection:
             connection.execute('BEGIN IMMEDIATE')
+            if connection.execute("SELECT 1 FROM documents WHERE kind='deletedLibrarySources' AND id=?", (key,)).fetchone():
+                raise LibraryConflict('This imported collection was deleted. Explicitly import it again to recreate it; historical snapshots remain available.')
             try:
                 return self._get(connection, 'librarySets', key)
             except KeyError:
@@ -213,6 +221,16 @@ class CaseLibrary:
             for index, row in enumerate(rows):
                 case_id = 'case-' + fingerprint({'dataset': dataset, 'index': index})
                 task = source['tasks'][index]
+                try:
+                    retained = self._get(connection, 'libraryCases', case_id)
+                except KeyError:
+                    retained = None
+                if retained and fingerprint(retained['row']) == fingerprint(row):
+                    ids.append(case_id)
+                    continue
+                if retained:
+                    # Reimporting must not overwrite edits or other datasets' shared cases.
+                    case_id = 'case-' + uuid.uuid4().hex
                 record = self._case(case_id, task['id'], source['benchmark'], row, imported=True)
                 record['originDataset'] = dataset
                 self._put(connection, 'libraryCases', record)

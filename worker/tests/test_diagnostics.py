@@ -7,7 +7,7 @@ import time
 import unittest
 from unittest.mock import MagicMock, patch
 
-from worker.ctxbench_worker.diagnostics import observed, phase, note, details, docker_event, docker_build
+from worker.ctxbench_worker.diagnostics import observed, phase, note, details, docker_event, docker_build, advice
 from worker.ctxbench_worker.live_logs import ContainerLogs, log_scope
 from worker.ctxbench_worker.runner import DockerRunner
 from worker.ctxbench_worker.models import RunSpec, RunResult, ModelConfig, ResourcePolicy, ExperimentSpec
@@ -17,6 +17,14 @@ from worker.ctxbench_worker.workbench import Workbench
 
 
 class DiagnosticsTests(unittest.TestCase):
+    def test_git_ownership_is_not_reported_as_a_write_permission_problem(self):
+        category, hint = advice('Fetch frozen Git baseline', 'fatal: detected dubious ownership in repository')
+        self.assertEqual(category, 'repository')
+        self.assertIn('not a write-permission error', hint)
+        self.assertIn('command-scoped trust', hint)
+        self.assertNotIn('UID 10001', hint)
+        self.assertEqual(advice('Create clean baseline checkout', 'Permission denied')[0], 'permission')
+
     def setUp(self):
         directory = tempfile.TemporaryDirectory()
         self.addCleanup(directory.cleanup)

@@ -36,7 +36,7 @@ pub async fn preview_dataset_file(
         .map_err(|_| "Could not connect to the local evaluation service.".to_string())?;
     let mut url = reqwest::Url::parse(&format!(
         "{}/datasets/files/preview",
-        crate::WORKER_BASE_URL
+        crate::worker_connection::current()?.base_url
     ))
     .unwrap();
     url.query_pairs_mut().extend_pairs([

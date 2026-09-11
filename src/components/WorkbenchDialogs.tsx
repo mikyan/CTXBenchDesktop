@@ -2,6 +2,7 @@ import { useEffect, useRef, useState } from "react";
 import { CIGradingResult } from './CIGradingResult';
 import { ContainerLogViewer } from './ContainerLogs';
 import { FailureDetails } from './FailureDetails';
+import { DataDeleteDialog } from './DataDeleteDialog';
 import type { BenchmarkKind, BenchmarkRun, DatasetRecord, FrozenModelConfig, RuntimeSettings, TaskSummary } from "../domain/types";
 import { useI18n } from "../i18n";
 import { saveText, workerRequest } from "../lib/desktop";
@@ -85,7 +86,8 @@ export function PreparationDialog({ kind, onClose, onComplete, initialSource = '
     {error && <FormError>{t(error)}</FormError>}<button className="button primary" disabled={busy || !taskId} onClick={() => void submit()}>{busy ? t("Working…") : t("Submit")}</button>
   </Modal>;
 }
-export function RunDialog({ run, onClose }: { run: BenchmarkRun; onClose: () => void }) {
+export function RunDialog({ run, onClose, onDeleted }: { run: BenchmarkRun; onClose: () => void; onDeleted?: () => void }) {
+  const [deleting, setDeleting] = useState(false);
   const { t } = useI18n(); const [file, setFile] = useState(""); const [content, setContent] = useState("");
   const [next, setNext] = useState(0); const [more, setMore] = useState(false); const [error, setError] = useState("");
   const [record, setRecord] = useState<BenchmarkRun>();
@@ -109,9 +111,11 @@ export function RunDialog({ run, onClose }: { run: BenchmarkRun; onClose: () => 
     <ContainerLogViewer scope={{ benchmarkRunId: run.id }} />
     <label>{t("Evidence file")}<select value={file} onChange={(e) => setFile(e.target.value)}><option value="">{t('Select saved evidence (optional)')}</option>{["graded.patch", "raw_agent.patch", "context_mutation.patch", "workflow.json", "setup.log", "trajectory.live.jsonl", "trajectory.jsonl", "result.json", "container.log", "grading/evaluator.log"].map((item) => <option key={item}>{item}</option>)}</select></label>
     {file && <button className="button secondary" disabled={!run.solverRunId} onClick={() => void read()}>{t("Refresh")}</button>}
-    {error && <FormError>{t(error)}</FormError>}{file && <pre className="log-view">{content}</pre>}{more && <button className="button secondary" onClick={() => void read(next)}>{t("Load more")}</button>}
+    {error && <FormError>{t(error)}</FormError>}{file && <pre className="log-view run-evidence-output" role="region" aria-label={t('Saved evidence contents')} tabIndex={0}>{content}</pre>}{more && <button className="button secondary" onClick={() => void read(next)}>{t("Load more")}</button>}
     <details><summary>{t("Judge evidence")}</summary><pre>{recordError ? t("Evidence unavailable") : !record ? t("Loading…") : JSON.stringify(full.judgeRecords ?? [], null, 2)}</pre></details>
     <button className="button secondary" disabled={record?.id !== run.id || !!recordError} onClick={() => void saveText(`${run.solverRunId ?? "run"}.json`, JSON.stringify(full, null, 2)).catch((error) => setError(libraryError(error)))}>{t("Export run record")}</button>
+    <button type="button" className="button tertiary danger-text" onClick={() => setDeleting(true)}>{t('Delete comparison group')}</button>
+    {deleting && <DataDeleteDialog target={{ kind: 'result', id: run.id }} onClose={() => setDeleting(false)} onDeleted={() => { onDeleted?.(); onClose(); }} />}
   </Modal>;
 }
 

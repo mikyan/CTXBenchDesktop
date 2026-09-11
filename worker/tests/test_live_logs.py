@@ -14,7 +14,8 @@ from worker.ctxbench_worker.live_logs import ContainerLogs, log_scope, scoped, r
 from worker.ctxbench_worker.command_adapter import RedactedStream
 from worker.ctxbench_worker.runner import DockerRunner
 from worker.ctxbench_worker.runtime import Runtime
-from worker.ctxbench_worker.models import ModelConfig, ResourcePolicy, RunSpec
+from worker.ctxbench_worker.models import ModelConfig, ResourcePolicy, RunSpec, ExperimentSpec
+from worker.ctxbench_worker.planner import plan_runs
 
 
 class RedactionTests(unittest.TestCase):
@@ -52,6 +53,40 @@ class LiveLogTests(unittest.TestCase):
         self.addCleanup(temporary.cleanup)
         self.root = Path(temporary.name)
         self.store = ContainerLogs(self.root)
+
+    def test_api_accepts_real_planner_run_ids_and_keeps_each_arm_and_task_isolated(self):
+        spec = ExperimentSpec(name='fixture', benchmark='custom', dataset='fixture', arms=('none', 'manual'),
+            repeats=1, task_ids=('backend.v2', '中文/worker:backend', 'long-' + 'a' * 180),
+            model=ModelConfig('mock', 'deterministic', 'off', 1), agent_image='fixture:v1', resources=ResourcePolicy(), seed=42)
+        runs = plan_runs('exp-fixture', spec)
+        sessions = {}
+        for index, run in enumerate(runs):
+            key = self.store.create('solve', experimentId='exp-fixture', benchmarkRunId=run.id, runId=f'solve-{index}')
+            self.store.append(key, f'fixture log {index}')
+            self.store.finish(key, 0)
+            sessions[run.id] = key
+        with TestClient(create_app(create_mock_engine(self.root), GitHubClient(None))) as client:
+            for run in runs:
+                result = client.get('/v1/container-logs', params={'benchmarkRunId': run.id})
+                self.assertEqual(result.status_code, 200, result.text)
+                self.assertEqual([item['id'] for item in result.json()['sessions']], [sessions[run.id]])
+                self.assertEqual(result.json()['sessions'][0]['state'], 'ended')
+                self.assertNotIn('content', result.json()['sessions'][0])
+                self.assertEqual(client.get('/v1/container-logs/' + sessions[run.id]).status_code, 200)
+            result = client.get('/v1/container-logs', params={'benchmarkRunId': runs[0].id, 'experimentId': 'other'})
+            self.assertEqual(result.json()['sessions'], [])
+            # Quotes remain literal bound data, never SQL or filesystem access.
+            result = client.get('/v1/container-logs', params={'benchmarkRunId': "exp-fixture:task' OR 1=1 --:1:none"})
+            self.assertEqual(result.json()['sessions'], [])
+
+    def test_compound_scope_validation_does_not_relax_archive_paths_or_other_ids(self):
+        with TestClient(create_app(create_mock_engine(self.root), GitHubClient(None))) as client:
+            for value in ('../outside', '', 'exp:task:0:none', 'exp:task:51:none', 'exp:task:1:unknown',
+                          'exp:task\n:1:none', 'exp:task\0:1:none', 'exp:' + 'a' * 4096 + ':1:none'):
+                self.assertEqual(client.get('/v1/container-logs', params={'benchmarkRunId': value}).status_code, 422, repr(value))
+            for scope in ('runId', 'experimentId', 'operationId'):
+                self.assertEqual(client.get('/v1/container-logs', params={scope: 'exp:task:1:none'}).status_code, 422)
+            self.assertEqual(client.get('/v1/container-logs/exp:task:1:none').status_code, 422)
 
     def test_cursor_is_unicode_based_and_snapshot_has_no_body(self):
         with log_scope(experimentId='experiment-one', operationId='op-one'):

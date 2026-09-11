@@ -1,12 +1,22 @@
 import { describe, expect, it } from 'vitest';
 import { renderToStaticMarkup } from 'react-dom/server';
-import { ContainerLogViewer, logTail } from '../components/ContainerLogs';
+import { ContainerLogViewer, logTail, logRequestFailure } from '../components/ContainerLogs';
 import { FailureDetails } from '../components/FailureDetails';
 import { liveLogsChinese } from '../i18n.live-logs';
 import { translate } from '../i18n';
 import { I18nContext } from '../i18n.context';
 
 describe('live operator console', () => {
+  it('stops retrying a rejected scope without hiding it as a network disconnect', () => {
+    for (const cause of [Error('Select a valid experiment, preparation or run to view container logs.'), 'Error: Select a valid experiment, preparation or run to view container logs.']) {
+      const result = logRequestFailure(cause);
+      expect(result.retry).toBe(false);
+      expect(result.message).toContain('rejected this log request');
+      expect(result.message).not.toContain('reconnecting');
+    }
+    expect(logRequestFailure(Error('Not Found')).retry).toBe(false);
+    expect(logRequestFailure(Error('Connection refused')).retry).toBe(true);
+  });
   it('shows a specific pre-Agent failure without claiming model usage and escapes raw output', () => {
     const html = renderToStaticMarkup(<I18nContext.Provider value={{ locale: 'zh-CN', setLocale: () => {}, t: (key) => translate('zh-CN', key) }}><FailureDetails diagnostic={{ logSessionId: 'fixture', stage: 'Fetch frozen Git baseline', category: 'repository', agentStarted: false, summary: '<script>bad()</script>', hint: 'Check repository access, the frozen baseline commit and the working directory permissions.' }} onLogs={() => {}} /></I18nContext.Provider>);
     expect(html).toContain('&lt;script&gt;');

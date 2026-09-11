@@ -1,10 +1,12 @@
 # CTXBench Desktop
 
-v0.1.9 adds live container output, pre-Agent failure diagnostics and paged reading of complete saved logs. Update both the desktop and application images; preserve your existing data directory. Missing old logs cannot be reconstructed. See the [release notes](docs/releases/v0.1.9.md).
+v0.1.10 adds confirmed deletion of cases, sets and results, clearer image/experiment guidance, non-root image permissions and working completed-run logs. A real OpenCode + MiMo custom-case pair passed independent grading. Update both the desktop and application images, preserving your data directory. See the [release notes](docs/releases/v0.1.10.md).
 
 v0.1.7 introduced editable case libraries and dataset composition, immutable run snapshots, optional GitHub CI grading, custom coding commands without Pi, remote image downloads and guided image recipes. Missing custom Agent token usage never blocks functional testing. See the [v0.1.7 notes](docs/releases/v0.1.7.md) and [navigation guide](docs/workspace-navigation.md) for verified limits.
 
 v0.1.7: independent editable **Evaluation cases**, **Datasets** composed from existing cases, and automatic immutable run snapshots. Editing the library affects future runs only; queued work and retries keep their original definitions. See the [case-library guide](docs/case-library.md). Update the desktop and evaluation service images together.
+
+The current source also supports deleting cases, dataset compositions, completed/stopped experiments and complete result comparison groups, with impact previews and confirmation. Historical snapshots and shared files remain; this is record deletion, not disk cleanup. See the [deletion guide](docs/data-deletion.md). Requires matching desktop and evaluation service builds.
 
 The official project-image installer also accepts a full internal image address or a literal `docker pull …` per required image. Saved addresses are reused by future preparation and evaluation jobs without changing official dataset rows. See [company image sources](docs/company-image-registry.md).
 

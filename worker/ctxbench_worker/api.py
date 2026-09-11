@@ -378,6 +378,16 @@ def create_app(
     def case_library():
         return workbench.library.inventory()
 
+    @app.post('/v1/data-deletions/preview')
+    def deletion_preview(value: dict):
+        from .deletions import DataDeletions
+        return DataDeletions(workbench).preview(value)
+
+    @app.post('/v1/data-deletions')
+    def delete_data(value: dict):
+        from .deletions import DataDeletions
+        return DataDeletions(workbench).delete(value)
+
     @app.get('/v1/library/selections/{key}')
     def library_selection(key: str):
         return workbench.library.selection(key)

@@ -31,7 +31,7 @@ Agent 镜像与测试镜像可以使用同一标签，前提是它同时具备�
 
 打开 **设置 → 镜像适配 → 一步步制作自己的镜像**：
 
-1. **选择基础镜像**：填写方案名称和已经下载的本地基础镜像。优先使用公司已有的语言运行环境。
+1. **选择基础镜像**：填写方案名称和已经下载的本地基础镜像。优先使用公司已有的语言运行环境。工具已安装时可直接选这个镜像，安装命令留空，只做默认 HOME 的权限适配，无需再次下载软件。
 2. **安装依赖**：填写 Shell 命令，可追加 Python、Node.js、Java／Maven、自定义 Agent 必备工具模板。模板不会知道公司实际包名和网址，必须修改占位内容。这里只填命令，不写 `FROM` 或 `RUN`。
 3. **添加默认配置**：上传不含凭据的配置文件，填写每行一个 `NAME=value` 默认环境变量。文件会先复制到 `/opt/company/文件名`，再执行上一步命令，因此可用 `cp`、`sed` 调整 `/etc` 等位置的默认配置。
 4. **检查构建方案**：检查 Dockerfile 和构建网络，点“将方案填入构建表单”，然后在下方表单明确确认并构建。安装包需要联网时选择允许联网，并使用公司的源地址；离线模式要求基础镜像或上传材料已经备齐。
@@ -82,7 +82,9 @@ Maven 可同样上传无凭据的 `settings.xml`，测试命令指定 `mvn -s /o
 ### 目录、用户和密钥
 
 - `/workspace` 会被本次基线代码覆盖，不能把唯一的一份依赖、默认配置或 Agent 程序只放在那里；使用 `/opt`、系统路径或可用的 HOME。
-- 容器以 `10001:10001` 运行，即使镜像默认用户为 root。向导默认创建可写的 `/home/ctxbench`；安装后的程序、配置和缓存也要允许该用户读取／执行。若镜像 HOME 不可写，自定义命令适配器会改用临时 HOME。
+- 容器以 `10001:10001` 运行，即使镜像默认用户为 root。向导在**所有安装与配置完成后**将默认 `/home/ctxbench` 目录树交给该用户，并用 UID 10001 检查顶层访问；因此 root 安装／版本检查新建的默认 HOME 子目录也被包含。不会递归跟随符号链接，HOME 根或 `/home` 为符号链接时拒绝构建。这个探针不代表所有 Agent 功能已通过测试。
+- 其他 HOME、外部缓存或配置路径不会被自动递归修改，需要在自己的方案中保证 UID 10001 所需的读取、执行、写入权限。适配器仅在 HOME 顶层不可写时使用临时 HOME；顶层可写但深层目录不可写不会触发此回退。不要通过 root 运行或全局放宽权限绕过。
+- 权限适配也会生成新镜像标签，原镜像和历史实验不变。将新标签选入用例后新建实验；重试旧快照不会自动换成新镜像。
 - 镜像不要包含参考答案、隐藏测试、历史会话、登录状态和 API Key。不要把完整任务代码仓打进通用 Agent 镜像，避免基线和评测材料泄漏。
 - API Key 在软件的“运行时环境变量”中配置，再在实验中选择允许传入的变量名；不要写到构建命令、ENV、配置文件或用例命令中。需要构建期私有包认证的情况，当前向导没有 BuildKit secret 入口，请使用公司安全构建流程产出的基础镜像。
 
@@ -131,5 +133,7 @@ Shell 模式使用 `/bin/sh -eu -c`。也支持 JSON 参数数组；数组按字
 v0.1.7: use **Settings → Image adaptation** to pull a complete Linux amd64 image reference or follow the four-step dependency/configuration recipe guide. Existing tags and base images are not overwritten. Registry authentication currently requires login/pull in the selected WSL distribution.
 
 In **Evaluation cases → Task and tests → Coding Agent**, select a custom image and command independently of the grading image/command or CI gates. The image needs Python 3, Git, `/bin/sh`, and your non-interactive Agent, not Pi. The read-only service adapter replaces ENTRYPOINT/CMD, runs as UID 10001 in `/workspace`, exposes the prompt file and model settings via `CTXBENCH_*`, extracts candidate patches and delegates grading. Dependencies and defaults belong under `/opt`, `/etc` or a writable HOME; credentials are runtime-only.
+
+The guide finalizes ownership of the fixed `/home/ctxbench` tree **after** all root installation/version checks, then probes top-level access as UID 10001. It rejects a symlink HOME or `/home` parent and does not follow child symlinks. Arbitrary HOME or external cache/configuration paths are never recursively changed: manage their permissions explicitly. A HOME probe is not a full Agent compatibility test. To adapt permissions on tools already installed, select that local image and leave dependency commands empty; no reinstall is needed. Select the newly built tag in the case and create a new experiment. Existing images, queued runs and historical snapshots do not change, and Agents never run as root.
 
 This override applies to coding only. Each workflow step launches a new command; setup must not change baseline/context. Arbitrary CLI usage is unknown, not zero, and never gates execution or functional grading. Shared budgets may remain attached, but custom command stages bypass reservations/charges and exhaustion checks; metered roles retain their existing protection. Displayed token totals/allowances exclude custom commands, so use provider-side spending limits. Global Pi arguments remain unsupported for these commands. Cases, actual images and adapter code are frozen for reproducibility. The Docker acceptance uses a deterministic non-Pi fixture, not paid inference or an actual company Agent. See [adapter contracts](agent-adapters.md) for integrating additional roles or trustworthy usage reporting.

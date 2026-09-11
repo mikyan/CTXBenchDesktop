@@ -7,10 +7,14 @@ mod deployment;
 mod dataset_upload;
 mod process_stream;
 mod image_export;
+mod worker_connection;
 #[cfg(test)]
 use wsl::decode_output as decode_command_output;
 
-const WORKER_BASE_URL: &str = "http://127.0.0.1:48173/v1";
+#[tauri::command]
+fn desktop_connection() -> Result<worker_connection::Connection, String> {
+    worker_connection::current().cloned()
+}
 
 #[derive(Debug, Clone, Serialize)]
 #[serde(rename_all = "camelCase")]
@@ -47,19 +51,21 @@ async fn list_wsl_distributions() -> Result<wsl::Inventory, String> {
 }
 
 async fn worker_healthy() -> Result<String, String> {
+    let base_url = &worker_connection::current()?.base_url;
     let client = reqwest::Client::builder()
         .no_proxy()
+        .redirect(reqwest::redirect::Policy::none())
         .timeout(Duration::from_secs(5))
         .build()
         .map_err(|error| error.to_string())?;
     let response = client
-        .get(format!("{WORKER_BASE_URL}/health"))
+        .get(format!("{base_url}/health"))
         .send()
         .await
         .map_err(|error| error.to_string())?;
     let payload: Value = response.error_for_status().map_err(|error| error.to_string())?.json().await.map_err(|error| error.to_string())?;
     if payload.get("status").and_then(Value::as_str) != Some("healthy") || payload.get("runner").and_then(Value::as_str).is_none() {
-        return Err("Port 48173 did not return a CTXBench health response.".into());
+        return Err("The local service did not return a CTXBench health response.".into());
     }
     payload.get("version").and_then(Value::as_str).map(str::to_owned)
         .ok_or_else(|| "The worker health response has no version.".into())
@@ -202,8 +208,8 @@ async fn diagnose_environment(_app: tauri::AppHandle, distribution: Option<Strin
             id: "worker",
             label: "CTXBench worker",
             status: if worker_ok { "healthy" } else { "missing" },
-            detail: if worker_ok { "Worker {result} · 127.0.0.1:48173" } else { "Worker health check failed: {result}" }.into(),
-            detail_values: Some(serde_json::json!({"result": worker.unwrap_or_else(|error| deployment::redact(&error, &[]))})),
+            detail: if worker_ok { "Worker {result} · {address}" } else { "Worker health check failed: {result}" }.into(),
+            detail_values: Some(serde_json::json!({"result": worker.unwrap_or_else(|error| deployment::redact(&error, &[])), "address": worker_connection::current().map(|value| value.base_url.clone()).unwrap_or_default()})),
             fix: if worker_ok {
                 None
             } else {
@@ -234,12 +240,13 @@ async fn bootstrap(app: tauri::AppHandle) -> Result<Value, String> {
 
 #[tauri::command]
 async fn worker_request(method: String, path: String, body: Option<Value>) -> Result<Value, String> {
+    let base_url = &worker_connection::current()?.base_url;
     if !path.starts_with('/') || path.contains("..") || path.contains('\\') || path.starts_with("//") {
         return Err("Invalid worker route.".into());
     }
     let method = worker_method(&method)?;
-    let client = reqwest::Client::builder().no_proxy().timeout(worker_request_timeout(&method, &path)).build().map_err(|error| error.to_string())?;
-    let mut request = client.request(method, format!("{WORKER_BASE_URL}{path}"));
+    let client = reqwest::Client::builder().no_proxy().redirect(reqwest::redirect::Policy::none()).timeout(worker_request_timeout(&method, &path)).build().map_err(|error| error.to_string())?;
+    let mut request = client.request(method, format!("{base_url}{path}"));
     if let Some(body) = body { request = request.json(&body); }
     let response = request.send().await.map_err(|_| "The WSL worker is unavailable. Start it from Infrastructure and retry.".to_string())?;
     let status = response.status();
@@ -282,6 +289,7 @@ fn deployment_root(app: &tauri::AppHandle) -> Result<std::path::PathBuf, String>
 
 #[tauri::command]
 async fn get_deployment_info(app: tauri::AppHandle, distribution: String) -> Result<deployment::DeploymentInfo, String> {
+    worker_connection::require_production_controls()?;
     let root = deployment_root(&app)?;
     let distribution = distribution.trim().to_string();
     if distribution.is_empty() { return Err("Select an installed WSL distribution first.".into()); }
@@ -298,6 +306,7 @@ async fn select_offline_bundle() -> Result<Option<String>, String> {
 
 #[tauri::command]
 async fn import_offline_images(app: tauri::AppHandle, distribution: String, package_path: String, on_progress: tauri::ipc::Channel<process_stream::BuildProgress>) -> Result<deployment::ActionResult, String> {
+    worker_connection::require_production_controls()?;
     let root = deployment_root(&app)?;
     let distribution = distribution.trim().to_string();
     if distribution.is_empty() { return Err("Select an installed WSL distribution first.".into()); }
@@ -334,6 +343,7 @@ async fn export_offline_images(app: tauri::AppHandle, distribution: String, pack
 
 #[tauri::command]
 async fn worker_control(app: tauri::AppHandle, webview: tauri::Webview, action: String, distribution: String, on_progress: Option<tauri::ipc::JavaScriptChannelId>) -> Result<deployment::ActionResult, String> {
+    worker_connection::require_production_controls()?;
     let root = deployment_root(&app)?;
     let distribution = distribution.trim().to_string();
     if distribution.is_empty() { return Err("Select an installed WSL distribution first.".into()); }
@@ -361,13 +371,15 @@ async fn worker_control(app: tauri::AppHandle, webview: tauri::Webview, action: 
 
 #[tauri::command]
 async fn create_experiment(request: CreateExperimentRequest) -> Result<Value, String> {
+    let base_url = &worker_connection::current()?.base_url;
     let client = reqwest::Client::builder()
         .no_proxy()
+        .redirect(reqwest::redirect::Policy::none())
         .timeout(Duration::from_secs(10))
         .build()
         .map_err(|error| error.to_string())?;
     let response = client
-        .post(format!("{WORKER_BASE_URL}/experiments"))
+        .post(format!("{base_url}/experiments"))
         .json(&request)
         .send()
         .await
@@ -394,6 +406,7 @@ pub fn run() {
         .plugin(tauri_plugin_opener::Builder::new().open_js_links_on_click(false).build())
         .invoke_handler(tauri::generate_handler![
             bootstrap,
+            desktop_connection,
             diagnose_environment,
             list_wsl_distributions,
             get_deployment_info,

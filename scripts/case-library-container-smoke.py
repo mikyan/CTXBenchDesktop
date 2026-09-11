@@ -17,6 +17,7 @@ from ctxbench_worker.engine import create_engine_from_environment
 from ctxbench_worker.models import ExperimentSpec, ModelConfig, ResourcePolicy
 from ctxbench_worker.runtime import seal
 from ctxbench_worker.workbench import Workbench
+from ctxbench_worker.deletions import DataDeletions
 
 root = Path(sys.argv[1]).resolve()
 assert root.parent == Path('/tmp') and root.name.startswith('ctxbench-case-library-')
@@ -95,9 +96,37 @@ assert new_hash != frozen.dataset and new_receipt['members'][0]['revision'] == 2
 assert restored.catalog.task(new_hash, row['id']).base_commit == future_commit
 assert restored.library.selection(collection['id'])['tasks'][0]['id'] == 'other-task'
 
+# Delete records only in this fresh fixture workspace, after real Docker has exited.
+deletions = DataDeletions(restored)
+snapshots_before = restored.library.snapshots()
+logs_before = sorted(path.relative_to(root).as_posix() for path in (root / 'runs').rglob('*') if path.is_file())
+assert logs_before, 'Real Docker should have produced evidence files'
+def remove(kind, key):
+    plan = deletions.preview({'kind': kind, 'id': key})
+    assert not plan['blockers'], plan
+    return deletions.delete({field: plan[field] for field in ('kind', 'id', 'token')})
+
+assert remove('result', runs[0]['id'])['runCount'] == 2
+remaining = engine.database.list_runs(experiment['id'])
+assert len(remaining) == 2 and all(run['pairId'] != runs[0]['pairId'] for run in remaining)
+assert restored.snapshot()['experiments'][0]['deletedResultGroups'] == 1
+remove('case', case['id'])
+remove('case', other['id'])
+assert restored.library.sets()[0]['count'] == 0
+remove('set', collection['id'])
+assert remove('experiment', experiment['id'])['runCount'] == 2
+assert not engine.database.list_experiments() and not engine.database.list_runs()
+assert restored.library.snapshots() == snapshots_before
+assert restored.engine.artifacts.verify(context_id)['identity']['commit'] == commit
+assert restored.catalog.task(frozen.dataset, row['id']).base_commit == commit
+assert sorted(path.relative_to(root).as_posix() for path in (root / 'runs').rglob('*') if path.is_file()) == logs_before
+reopened = Workbench(engine, None)
+assert reopened.library.inventory()['cases'] == [] and reopened.library.sets() == []
+
 summary = {'status': 'passed', 'root': str(root), 'experimentId': experiment['id'],
     'pairedRuns': 4, 'realDocker': True, 'provider': 'mock', 'independentContextGeneration': True,
     'editedBeforeQueueExecution': True, 'restartCancelRetryKeepsSnapshot': True,
-    'generationStages': before, 'contextReused': True, 'futureSnapshotUsesEdits': True}
+    'generationStages': before, 'contextReused': True, 'futureSnapshotUsesEdits': True,
+    'recordDeletionAfterDockerRuns': True, 'snapshotsContextAndEvidenceRetained': True}
 (root / 'summary.json').write_text(json.dumps(summary, indent=2))
 print(json.dumps(summary, indent=2), flush=True)

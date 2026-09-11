@@ -3,6 +3,7 @@ import { testTemplates, type EnvironmentDraft, type TaskDraft } from "../lib/dat
 import { TestImagePicker } from "./TestImagePicker";
 import { CIGradingFields, defaultCITest } from './CIGradingFields';
 import { CustomAgentFields } from './CustomAgentFields';
+import { PatchFileImport } from './PatchFileImport';
 
 export function TaskFields({ task, defaults, onChange, onUpload, standalone = false }: {
   task: TaskDraft; defaults: EnvironmentDraft; onChange: (changes: Partial<TaskDraft>) => void;
@@ -47,9 +48,9 @@ export function TaskFields({ task, defaults, onChange, onUpload, standalone = fa
       <details><summary>{t("Hidden tests and reference fix (optional)")}</summary>
         <p className="wizard-notice">{t("These patches are evaluator-only, not context files. Keep them out of AGENTS.md, the repository baseline and agent prompts. Upload git diff text, not a list of test names.")}</p>
         <label>{t("Hidden test patch")}<textarea rows={5} spellCheck={false} value={task.hiddenPatch} onChange={(e) => onChange({ hiddenPatch: e.target.value })} /></label>
-        <label>{t("Upload hidden test patch")}<input type="file" accept=".patch,.diff,.txt" onChange={(e) => { onUpload(e.target.files?.[0], "hiddenPatch"); e.target.value = ""; }} /></label>
+        <PatchFileImport label="Upload hidden test patch" content={task.hiddenPatch} onFile={(file) => onUpload(file, 'hiddenPatch')} />
         <label>{t("Reference fix patch")}<textarea rows={5} spellCheck={false} value={task.goldPatch} onChange={(e) => onChange({ goldPatch: e.target.value })} /></label>
-        <label>{t("Upload reference fix patch")}<input type="file" accept=".patch,.diff,.txt" onChange={(e) => { onUpload(e.target.files?.[0], "goldPatch"); e.target.value = ""; }} /></label>
+        <PatchFileImport label="Upload reference fix patch" content={task.goldPatch} onFile={(file) => onUpload(file, 'goldPatch')} />
         <p>{t("The reference fix is stored as evaluator material. This wizard does not execute or verify it.")}</p>
       </details>
       </>}

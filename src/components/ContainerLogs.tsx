@@ -18,6 +18,17 @@ export function logTail(text: string) {
   return /^[\uDC00-\uDFFF]/.test(tail) ? tail.slice(1) : tail;
 }
 
+export function logRequestFailure(cause: unknown) {
+  const message = cause instanceof Error ? cause.message : String(cause);
+  if (/^(?:Error: )?Select a valid experiment, preparation or run to view container logs\.$/.test(message)) {
+    return { message: 'The evaluation service rejected this log request. Update matching service images, then refresh these logs. Saved evidence remains available; task execution is unchanged.', retry: false };
+  }
+  if (/^(?:Error: )?Not Found$/i.test(message)) {
+    return { message: 'Live container logs require updated evaluation service images. Existing evidence files remain available.', retry: false };
+  }
+  return { message: 'Log connection lost; reconnecting. The task is not paused.', retry: true };
+}
+
 export function ContainerLogDialog({ scope, onClose }: { scope: LogScope; onClose: () => void }) {
   const { t } = useI18n();
   return <Modal title={t('Live container logs')} onClose={onClose}><ContainerLogViewer scope={scope} /></Modal>;
@@ -80,10 +91,9 @@ export function ContainerLogViewer({ scope }: { scope: LogScope }) {
         setError(''); setConnected(true);
       } catch (cause) {
         if (!alive) return;
-        const message = cause instanceof Error ? cause.message : String(cause);
-        const oldService = /^(?:Error: )?Not Found$/i.test(message);
-        setError(oldService ? 'Live container logs require updated evaluation service images. Existing evidence files remain available.' : 'Log connection lost; reconnecting. The task is not paused.');
-        retry = !oldService; setConnected(false);
+        const failure = logRequestFailure(cause);
+        setError(failure.message);
+        retry = failure.retry; setConnected(false);
       } finally { clearTimeout(timeout); if (alive) setLoadingPage(false); }
       if (alive && !paused && !history && retry) timer = setTimeout(() => void poll(), 1000);
     };

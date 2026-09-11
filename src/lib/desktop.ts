@@ -16,6 +16,12 @@ function isTauri(): boolean {
   return typeof window !== "undefined" && "__TAURI_INTERNALS__" in window;
 }
 
+export interface DesktopConnection { baseUrl: string; isolated: boolean; error?: string }
+export async function getDesktopConnection(): Promise<DesktopConnection> {
+  if (!isTauri()) return { baseUrl: '', isolated: false };
+  return invoke<DesktopConnection>('desktop_connection');
+}
+
 const pause = (milliseconds: number): Promise<void> =>
   new Promise((resolve) => window.setTimeout(resolve, milliseconds));
 
@@ -110,14 +116,19 @@ export async function createExperiment(request: CreateExperimentRequest): Promis
 }
 
 export async function exportSnapshot(snapshot: DashboardSnapshot, format: "json" | "csv" | "html"): Promise<void> {
+  // Reload every export format so a recently deleted record cannot leak from an old UI snapshot.
+  if (snapshot.runtime !== 'mock') {
+    snapshot = { ...snapshot, ...await workerRequest<DashboardSnapshot>(format === 'json' ? '/snapshot' : '/snapshot?compact=true') };
+    const realRuns = snapshot.runs.filter((run) => !run.mock);
+    snapshot = { ...snapshot, metrics: aggregateDashboard(realRuns), armMetrics: aggregateArms(realRuns) };
+  }
   let body: string;
   let mediaType: string;
   if (format === "json") {
-    const full = snapshot.runtime === "mock" ? snapshot : { ...snapshot, ...await workerRequest<DashboardSnapshot>("/snapshot") };
-    body = JSON.stringify(full, null, 2);
+    body = JSON.stringify(snapshot, null, 2);
     mediaType = "application/json";
   } else if (format === "csv") {
-    const header = "run_id,experiment_id,task_id,repeat,pair_id,arm,status,mock,tests_passed,constraint_verdict,cost_usd,pairing_hash,context_artifact_id,failure";
+    const header = "run_id,experiment_id,task_id,repeat,pair_id,arm,status,mock,tests_passed,constraint_verdict,cost_usd,pairing_hash,context_artifact_id,failure,deleted_comparison_groups,deleted_result_records";
     const rows = snapshot.runs.map((run) =>
       [
         run.id,
@@ -134,6 +145,8 @@ export async function exportSnapshot(snapshot: DashboardSnapshot, format: "json"
         run.pairingHash ?? "",
         run.contextArtifactId ?? "",
         run.failure ?? "",
+        snapshot.experiments.find((item) => item.id === run.experimentId)?.deletedResultGroups ?? 0,
+        snapshot.experiments.find((item) => item.id === run.experimentId)?.deletedResultRuns ?? 0,
       ]
         .map((value) => `"${String(value).replace(/^[=+@\-\t\r]/, "'$&").replaceAll('"', '""')}"`)
         .join(","),

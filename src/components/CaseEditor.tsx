@@ -1,4 +1,4 @@
-import { useEffect, useState } from 'react';
+import { useEffect, useRef, useState } from 'react';
 import { useI18n } from '../i18n';
 import { workerRequest } from '../lib/desktop';
 import { datasetRows, draftFromManifest, draftIssues, newDatasetDraft, type CustomTaskManifest, type TaskDraft } from '../lib/dataset-authoring';
@@ -8,6 +8,8 @@ import { Modal, FormError } from './Dialogs';
 import { EnvironmentFields, TaskFields } from './DatasetWizardFields';
 import { DatasetSelfTest } from './DatasetSelfTest';
 
+const editingSteps = ['Repository and environment', 'Task and tests', 'Review and save'] as const;
+
 export function CaseEditor({ caseId, onClose, onSaved }: { caseId?: string; onClose: () => void; onSaved: () => void }) {
   const { t } = useI18n();
   const [draft, setDraft] = useState(newDatasetDraft);
@@ -15,6 +17,15 @@ export function CaseEditor({ caseId, onClose, onSaved }: { caseId?: string; onCl
   const [official, setOfficial] = useState('');
   const [rawMode, setRawMode] = useState(false);
   const [step, setStep] = useState(0);
+  const previousStep = useRef(step);
+  const stepTitle = useRef<HTMLHeadingElement>(null);
+  useEffect(() => {
+    if (previousStep.current === step) return;
+    previousStep.current = step;
+    // Only navigation changes focus/scroll. Typing, imports and validation do not.
+    stepTitle.current?.focus({ preventScroll: true });
+    stepTitle.current?.scrollIntoView({ block: 'start', behavior: 'instant' });
+  }, [step]);
   const [busy, setBusy] = useState(false);
   const [loading, setLoading] = useState(Boolean(caseId));
   const [error, setError] = useState('');
@@ -63,7 +74,8 @@ export function CaseEditor({ caseId, onClose, onSaved }: { caseId?: string; onCl
       <fieldset disabled={busy || Boolean(caseId && !record)}>
         <label>{t('Case name')}<input autoFocus value={draft.name} onChange={(e) => setDraft({ ...draft, name: e.target.value })} /></label>
         {custom ? <>
-          <div className="section-tabs" role="group" aria-label={t('Case editing steps')}>{['Repository and environment', 'Task and tests', 'Review and save'].map((label, index) => <button type="button" className={step === index ? 'selected' : ''} aria-pressed={step === index} key={label} onClick={() => setStep(index)}>{index + 1}. {t(label)}</button>)}</div>
+          <div className="section-tabs" role="group" aria-label={t('Case editing steps')}>{editingSteps.map((label, index) => <button type="button" className={step === index ? 'selected' : ''} aria-pressed={step === index} key={label} onClick={() => setStep(index)}>{index + 1}. {t(label)}</button>)}</div>
+          <h3 ref={stepTitle} tabIndex={-1}>{t(editingSteps[step])}</h3>
           {step === 0 && <EnvironmentFields value={draft.defaults} onChange={(defaults) => setDraft({ ...draft, defaults })} />}
           {step === 1 && <TaskFields standalone task={draft.tasks[0]} defaults={draft.defaults} onChange={change} onUpload={(file, field) => void upload(file, field)} />}
           {step === 2 && <>

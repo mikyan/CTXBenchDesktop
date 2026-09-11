@@ -1,4 +1,7 @@
 export const liveLogsChinese: Record<string, string> = {
+  'The evaluation service rejected this log request. Update matching service images, then refresh these logs. Saved evidence remains available; task execution is unchanged.': '评测服务拒绝了此日志请求，这不是网络断线。请更新配套的评测服务镜像后刷新日志。已保存的证据文件仍可读取，任务执行不受影响。',
+  'Saved evidence contents': '已保存的证据内容',
+  'Git rejected a local repository owned by another user. This is not a write-permission error. Update the evaluation service for command-scoped trust of the selected local repository; do not change its ownership or globally trust every repository.': 'Git 因本地仓库属于其他用户而拒绝读取，这不是写入权限不足。请更新评测服务，以便仅在单次命令中信任明确选中的本地仓库；不要修改仓库所有者，也不要在全局设为信任所有仓库。',
   'Browsing saved log pages; task execution continues independently.': '正在分页查看已保存日志；不会影响任务继续执行。',
   'Preparation steps, original errors and container output. Viewing logs never changes task execution.': '这里包括 Agent 启动前的准备过程、原始错误和容器输出。查看日志不会改变任务执行。',
   'Preparation and service diagnostics': '准备阶段与服务诊断',

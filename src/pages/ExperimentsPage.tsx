@@ -16,12 +16,15 @@ import { experimentViews } from "../lib/navigation";
 import { ConfirmDialog } from "../components/Dialogs";
 import { ContainerLogDialog } from '../components/ContainerLogs';
 import { FailureDetails } from '../components/FailureDetails';
+import { DataDeleteDialog, type DeletionTarget } from '../components/DataDeleteDialog';
 
-export function ExperimentsPage({ snapshot, onNewExperiment, onExport, onDatasets, onAction, onRun, initialBenchmark = "" }: { snapshot: DashboardSnapshot; onNewExperiment: () => void; onExport: (format: "json" | "csv" | "html") => void; onDatasets: () => void; initialBenchmark?: BenchmarkKind | ""; onAction: (id: string, action: string) => void; onRun: (run: BenchmarkRun) => void }) {
+export function ExperimentsPage({ snapshot, onNewExperiment, onExport, onDatasets, onAction, onRun, onDeleted, initialBenchmark = "" }: { snapshot: DashboardSnapshot; onNewExperiment: () => void; onExport: (format: "json" | "csv" | "html") => void; onDatasets: () => void; initialBenchmark?: BenchmarkKind | ""; onAction: (id: string, action: string) => void; onRun: (run: BenchmarkRun) => void; onDeleted?: () => void }) {
   const { locale, t } = useI18n();
   const [query, setQuery] = useState("");
   const [cancelling, setCancelling] = useState<string>();
   const [logs, setLogs] = useState<string>();
+  const [deleting, setDeleting] = useState<DeletionTarget>();
+  const [notice, setNotice] = useState('');
   const cancelTarget = snapshot.experiments.find((item) => item.id === cancelling);
   const [view, setView] = useState<typeof experimentViews[number]["id"]>(initialBenchmark ? "results" : "plans");
   const [benchmark, setBenchmark] = useState<BenchmarkKind | "">(initialBenchmark);
@@ -41,6 +44,8 @@ export function ExperimentsPage({ snapshot, onNewExperiment, onExport, onDataset
 
   return (
     <div className="page">
+      {deleting && <DataDeleteDialog target={deleting} onClose={() => setDeleting(undefined)} onDeleted={() => { if (deleting.kind === 'experiment' && selected === deleting.id) setSelected(''); setNotice('Deleted. Historical snapshots and shared files were kept.'); onDeleted?.(); }} />}
+      {notice && <p className="wizard-notice" role="status">{t(notice)}</p>}
       {logs && <ContainerLogDialog scope={{ experimentId: logs }} onClose={() => setLogs(undefined)} />}
       {cancelTarget && <ConfirmDialog title={t("Cancel experiment?")} description={`${cancelTarget.name} — ${t("Cancellation interrupts active work and stops pending runs. Completed results and frozen packages are kept. To wait until the current stage finishes, use Pause instead.")}`} confirmLabel={t("Confirm cancellation")} cancelLabel={t("Keep running")} disabled={!["running", "preparing", "paused", "ready"].includes(cancelTarget.status)} onCancel={() => setCancelling(undefined)} onConfirm={() => { setCancelling(undefined); onAction(cancelTarget.id, "cancel"); }} />}
       <PageTitle
@@ -78,6 +83,7 @@ export function ExperimentsPage({ snapshot, onNewExperiment, onExport, onDataset
               <div className="experiment-main">
                 <div className="experiment-heading"><h3>{experiment.name}</h3><StatusBadge status={experiment.status} /></div>
                 <DatasetSnapshotBadge snapshot={experiment.datasetSnapshot} />
+                {!!experiment.deletedResultGroups && <p className="deletion-cohort-note">{t('{count} comparison groups were deleted; statistics use only remaining results.', { count: experiment.deletedResultGroups })}</p>}
                 {experiment.environmentPreparation && <p className="environment-progress" role="status">{t("Agent build environment")} · {experiment.environmentPreparation.taskId}: {t(experiment.environmentPreparation.message)}</p>}
                 <div className="experiment-meta">
                   <span>{benchmarkLabel(experiment.benchmark, t)}</span><i />
@@ -100,6 +106,7 @@ export function ExperimentsPage({ snapshot, onNewExperiment, onExport, onDataset
                 {["running", "preparing"].includes(experiment.status) ? <button className="icon-button" title={t("Pause after current stage")} onClick={() => onAction(experiment.id, "pause")}><Pause size={16} /></button> : ["ready", "paused"].includes(experiment.status) ? <button className="icon-button" title={t("Resume")} onClick={() => onAction(experiment.id, "resume")}><Play size={16} /></button> : ["failed", "cancelled"].includes(experiment.status) ? <button className="button tertiary" onClick={() => onAction(experiment.id, "retry")}>{t("Retry failed runs")}</button> : null}
                 {["running", "preparing", "paused", "ready"].includes(experiment.status) && <button className="button tertiary" onClick={() => setCancelling(experiment.id)}>{t("Cancel")}</button>}
                 <button className="button tertiary" onClick={() => { setSelected(experiment.id); setResultPage(0); setView("results"); }}>{t("Results")}</button>
+                <button type="button" className="button tertiary danger-text" onClick={() => setDeleting({ kind: 'experiment', id: experiment.id })}>{t('Delete experiment')}</button>
               </div>
             </article>
           );
@@ -112,9 +119,14 @@ export function ExperimentsPage({ snapshot, onNewExperiment, onExport, onDataset
         <select aria-label={t("Select experiment")} value={selected} onChange={(e) => { setSelected(e.target.value); setResultPage(0); }}><option value="">{t("All experiments")}</option>{benchmarkExperiments.map((experiment) => <option key={experiment.id} value={experiment.id}>{experiment.name}</option>)}</select>
         <div className="toolbar"><label>{t("Filter runs")}<input value={runQuery} onChange={(e) => { setRunQuery(e.target.value); setResultPage(0); }} /></label><label>{t("Status")}<select value={runStatus} onChange={(e) => { setRunStatus(e.target.value); setResultPage(0); }}><option value="">{t("All statuses")}</option>{["queued", "running", "grading", "completed", "failed", "cancelled"].map((status) => <option key={status} value={status}>{t(titleCase(status))}</option>)}</select></label></div>
         <p>{t("Comparison statistics exclude mock runs; the table labels them explicitly.")}</p>
+        {benchmarkExperiments.filter((experiment) => (!selected || selected === experiment.id) && experiment.deletedResultGroups).map((experiment) => <p className="deletion-cohort-note" key={experiment.id}>{experiment.name} · {t('{count} comparison groups were deleted; statistics use only remaining results.', { count: experiment.deletedResultGroups! })}</p>)}
         <details className="comparison-details"><summary>{t("Knowledge impact")}</summary>
         {pairedComparisons(selectedRuns.filter((run) => !run.mock)).map((block) => <p key={`${block.experimentId}:${block.arm}`}>{snapshot.experiments.find((experiment) => experiment.id === block.experimentId)?.name} · {t(titleCase(block.arm))} · {block.pairs} {t("pairs")} / {block.taskCount} {t("Tasks")} · {t("Knowledge lift")} {signedPercent(block.lift, 1, locale)} · 95% CI {block.ci95 ? block.ci95.map((value) => signedPercent(value, 1, locale)).join(" … ") : t("More tasks needed")} · {t("Repeat variance")} {block.repeatVariance.toFixed(3)}</p>)}
-        </details><div className="table-scroll"><table className="data-table"><thead><tr>{["Task", "Arm", "Status", "Tests", "Constraint", "Evidence"].map((label) => <th key={label}>{t(label)}</th>)}</tr></thead><tbody>{visibleRuns.slice(resultsWindow.start, resultsWindow.end).map((run) => <tr key={run.id}><td>{run.taskId}{run.mock && <small> · MOCK</small>}</td><td>{t(titleCase(run.arm))} · {run.repeat}</td><td><StatusBadge status={run.status} /></td><td>{run.testsPassed === undefined ? "—" : run.testsPassed ? t("PASS") : t("FAIL")}</td><td>{run.constraintVerdict ? t(titleCase(run.constraintVerdict)) : t("Not judged")}</td><td><button className="text-button" onClick={() => onRun(run)}>{t("Details")}</button></td></tr>)}</tbody></table></div>
+        </details><div className="table-scroll"><table className="data-table"><thead><tr>{["Task", "Arm", "Status", "Tests", "Constraint", "Evidence"].map((label) => <th key={label}>{t(label)}</th>)}</tr></thead><tbody>{visibleRuns.slice(resultsWindow.start, resultsWindow.end).map((run) => <tr key={run.id}>
+          <td>{run.taskId}{run.mock && <small> · MOCK</small>}</td><td>{t(titleCase(run.arm))} · {run.repeat}</td><td><StatusBadge status={run.status} /></td>
+          <td>{run.testsPassed === undefined ? "—" : run.testsPassed ? t("PASS") : t("FAIL")}</td><td>{run.constraintVerdict ? t(titleCase(run.constraintVerdict)) : t("Not judged")}</td>
+          <td><button className="text-button" onClick={() => onRun(run)}>{t("Details")}</button><button type="button" className="text-button danger-text" onClick={() => setDeleting({ kind: 'result', id: run.id })}>{t('Delete comparison group')}</button></td>
+        </tr>)}</tbody></table></div>
         {!visibleRuns.length && <p className="empty-state">{t("No matching runs")}</p>}
         <Pagination total={visibleRuns.length} page={resultPage} onChange={setResultPage} />
       </section>

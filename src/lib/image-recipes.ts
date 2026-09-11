@@ -7,7 +7,8 @@ export const dependencyTemplates = {
   adapter: 'apt-get update\napt-get install -y --no-install-recommends python3 git ca-certificates\nrm -rf /var/lib/apt/lists/*',
 };
 export function guidedDockerfile(commands: string, defaults: string, files: RecipeFile[]): string {
-  const lines = ['USER root', 'RUN mkdir -p /opt/company /home/ctxbench && chown 10001:10001 /home/ctxbench'];
+  const homeGuard = 'test ! -L /home && test ! -L /home/ctxbench';
+  const lines = ['USER root', `RUN ${homeGuard} && mkdir -p /opt/company /home/ctxbench && chown 10001:10001 /home/ctxbench`];
   for (const file of files) {
     if (!/^[\w./-]+$/.test(file.path) || file.path.startsWith('/') || file.path.split('/').some((part) => ['..', '.', ''].includes(part))) throw Error('Use relative build paths without traversal.');
     lines.push(`COPY ${JSON.stringify([file.path, '/opt/company/' + file.path])}`);
@@ -24,5 +25,15 @@ export function guidedDockerfile(commands: string, defaults: string, files: Reci
   return recipe + '\n' + env.map((line) => {
     const split = line.indexOf('=');
     return 'ENV ' + line.slice(0, split) + '=' + JSON.stringify(line.slice(split + 1)).replaceAll('$', '\\$');
-  }).join('\n') + '\nWORKDIR /workspace\n';
+  }).join('\n') + '\n' + [
+    // Package installation/version checks can create root-owned HOME contents.
+    // Repair only the fixed default HOME, never follow symlinks out of it, and
+    // keep arbitrary HOME/XDG paths under the operator's explicit control.
+    `RUN ${homeGuard} && chown -R -h 10001:10001 /home/ctxbench`,
+    'USER 10001:10001',
+    'RUN test -w /home/ctxbench && test -x /home/ctxbench',
+    'USER root',
+    'WORKDIR /workspace',
+    '',
+  ].join('\n');
 }

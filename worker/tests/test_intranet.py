@@ -114,6 +114,28 @@ class IntranetTests(unittest.TestCase):
         recipe["files"][0]["base64"] = base64.b64encode(b"\0\x01binary-installer\0").decode()
         self.service.enqueue("image-build", recipe)
 
+    def test_opencode_runtime_env_reference_survives_recipe_without_baking_credentials(self):
+        # Public OpenCode configuration may reference runtime env variables; it
+        # must stay literal through image preparation, never resolve in the worker.
+        secret = 'FAKE_ONLY_OPENCODE_RUNTIME_CREDENTIAL'
+        self.wb.redact = lambda text: text.replace(secret, '[REDACTED]')
+        configuration = {'provider': {'company': {'npm': '@ai-sdk/openai-compatible',
+            'options': {'baseURL': 'https://provider.invalid/v1',
+                        'apiKey': '{env:INTERNAL_AGENT_KEY}'}, 'models': {'model-v1': {}}}}}
+        contents = json.dumps(configuration).encode()
+        recipe = {'name': 'Runtime-configured Agent', 'baseImage': 'team/base:v1',
+                  'dockerfile': 'COPY opencode.json /opt/company/opencode.json\nENV OPENCODE_CONFIG=/opt/company/opencode.json',
+                  'network': 'none', 'files': [{'path': 'opencode.json', 'base64': base64.b64encode(contents).decode()}]}
+        operation = self.service.enqueue('image-build', recipe)
+        stored = self.engine.database.get_document('operations', operation['id'])
+        self.assertEqual(base64.b64decode(stored['payload']['files'][0]['base64']), contents)
+        self.assertNotIn(secret, json.dumps(stored))
+        compromised = {**recipe, 'files': [{'path': 'opencode.json',
+            'base64': base64.b64encode(contents.replace(b'{env:INTERNAL_AGENT_KEY}', secret.encode())).decode()}]}
+        with self.assertRaisesRegex(ValueError, 'Credentials are not allowed'):
+            self.service.enqueue('image-build', compromised)
+        self.assertEqual(len(self.engine.database.list_documents('operations')), 1)
+
     def test_digest_receipt_resolves_without_pull_after_portable_import(self):
         import docker
         reference = "internal.example/team/image@sha256:" + "d" * 64

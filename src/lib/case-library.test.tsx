@@ -6,6 +6,7 @@ import { translate } from '../i18n';
 import { caseLibraryChinese } from '../i18n.case-library';
 import { libraryError, librarySources, selectionCases, type LibraryInventory } from './case-library';
 import { CaseEditor } from '../components/CaseEditor';
+import { PatchFileImport } from '../components/PatchFileImport';
 import { SetEditor } from '../components/SetEditor';
 import { LibrarySourcePicker } from '../components/LibrarySourcePicker';
 import { DatasetSnapshotBadge } from '../components/DatasetSnapshotView';
@@ -24,6 +25,14 @@ const inventory: LibraryInventory = { version: 1, cases: [sample, { ...sample, i
   sets: [{ id: 'set-one', name: 'Service suite', benchmark: 'custom', revision: 3, caseIds: ['case-two', 'case-one'], count: 2, createdAt: '2026-09-08', updatedAt: '2026-09-08' }] };
 
 describe('editable case library', () => {
+  it.each(['en', 'zh-CN'] as const)('distinguishes current patch text from a selected source file in %s', (locale) => {
+    for (const content of ['', '   ', 'hand-edited patch text']) {
+      const html = render(<PatchFileImport label="Upload hidden test patch" content={content} onFile={noop} />, locale);
+      expect(html).toContain(translate(locale, content.trim() ? 'Patch text is present in the editor. It may be imported or edited; the current text is what will be saved.' : 'No patch text yet. You may type it above or import a patch file.'));
+      expect(html).toMatch(/<input[^>]+type="file"[^>]+hidden=""/);
+      expect(html).toContain(translate(locale, 'Importing replaces the current patch text. Cancelling or a read error keeps the existing text.'));
+    }
+  });
   it('keeps all Chinese labels active', () => {
     for (const [key, value] of Object.entries(caseLibraryChinese)) expect(translate('zh-CN', key), key).toBe(value);
   });

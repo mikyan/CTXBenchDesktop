@@ -16,6 +16,8 @@ try {
     await page.route('**/worker/**', (route) => route.abort());
     await page.addInitScript(() => {
       window.calls = []; window.jobs = {}; window.pullFails = false;
+      const readFile = File.prototype.arrayBuffer;
+      File.prototype.arrayBuffer = function (...args) { return window.failFileRead ? Promise.reject(Error('Fixture file read failed')) : readFile.apply(this, args); };
       window.__TAURI_INTERNALS__ = { invoke: async (command, args) => {
         window.calls.push({ command, ...structuredClone(args) });
         if (command === 'list_local_images') return { images: ['company/base:v1'] };
@@ -76,18 +78,41 @@ try {
     await guide.getByRole('button', { name: await t('Next'), exact: true }).click();
     await guide.getByRole('combobox', { name: await t('Dependency command template'), exact: true }).selectOption('python');
     await guide.getByRole('button', { name: await t('Next'), exact: true }).click();
-    await guide.getByLabel(await t('Non-secret configuration files'), { exact: true }).setInputFiles({ name: 'settings.json', mimeType: 'application/json', buffer: Buffer.from('{"mode":"batch"}') });
+    const upload = guide.getByRole('group', { name: await t('Non-secret configuration files'), exact: true }).locator('input[type="file"]');
+    assert(await upload.isHidden(), 'The reset native filename must not contradict the loaded file status');
+    const chosen = page.waitForEvent('filechooser');
+    await guide.getByRole('button', { name: await t('Choose build files'), exact: true }).click();
+    await (await chosen).setFiles({ name: 'settings.json', mimeType: 'application/json', buffer: Buffer.from('{"mode":"batch"}') });
+    await guide.getByRole('button', { name: await t('Replace loaded files'), exact: true }).waitFor();
+    const loadedStatus = guide.locator('.build-file-picker [role="status"]');
+    assert((await loadedStatus.innerText()).includes('1'));
+    await upload.setInputFiles([]); // An empty/cancelled selection must keep loaded bytes.
+    assert((await loadedStatus.innerText()).includes('1'));
+    await page.evaluate(() => { window.failFileRead = true; });
+    await upload.setInputFiles({ name: 'replacement.json', mimeType: 'application/json', buffer: Buffer.from('{}') });
+    await guide.getByRole('alert').waitFor();
+    assert((await loadedStatus.innerText()).includes('1'));
+    assert((await guide.innerText()).includes('settings.json → /opt/company/settings.json'));
+    await page.evaluate(() => { window.failFileRead = false; });
+    await upload.setInputFiles({ name: 'settings.json', mimeType: 'application/json', buffer: Buffer.from('{"mode":"updated"}') });
     await guide.getByRole('textbox', { name: await t('Image defaults (NAME=value, one per line)'), exact: true }).fill('HOME=/home/ctxbench\nMY_AGENT_CONFIG=/opt/company/settings.json');
     await guide.getByRole('button', { name: await t('Next'), exact: true }).click();
     assert((await guide.locator('pre').innerText()).includes('COPY ["settings.json","/opt/company/settings.json"]'));
     await guide.getByRole('button', { name: await t('Use recipe in the build form'), exact: true }).click();
     const build = page.getByRole('button', { name: await t('Build adapted image'), exact: true });
     assert(await build.isDisabled());
+    const finalUpload = page.getByRole('group', { name: await t('Local build files (public CA, requirements, installers)'), exact: true });
+    assert((await finalUpload.getByRole('status').innerText()).includes('1'), 'Applied recipe files stay visibly loaded in the final form');
+    await page.getByLabel(await t('I trust this recipe and base image. Build commands execute locally; I have checked that files and layers contain no credentials.'), { exact: true }).check();
+    await finalUpload.locator('input[type="file"]').setInputFiles({ name: 'settings.json', mimeType: 'application/json', buffer: Buffer.from('{"mode":"final"}') });
+    await page.waitForFunction((node) => !node.querySelector('button').matches(':disabled'), await finalUpload.elementHandle());
+    assert(await build.isDisabled(), 'Replacing build material requires renewed trust confirmation');
     await page.getByLabel(await t('I trust this recipe and base image. Build commands execute locally; I have checked that files and layers contain no credentials.'), { exact: true }).check();
     await build.click();
     await page.getByText('ctxbench/adapted:fixture', { exact: true }).waitFor();
     const request = await page.evaluate(() => window.calls.find((call) => call.path === '/intranet/operations/image-build').body);
     assert.equal(request.files[0].path, 'settings.json'); assert.equal(request.network, 'bridge');
+    assert.equal(Buffer.from(request.files[0].base64, 'base64').toString(), '{"mode":"final"}');
     assert(request.dockerfile.includes('MY_AGENT_CONFIG')); assert(!request.dockerfile.includes('FROM '));
     await page.getByRole('button', { name: 'Open case fixture', exact: true }).click();
     const dialog = page.locator('dialog[open]');
@@ -124,7 +149,7 @@ try {
     const experiment = await page.evaluate(() => window.experiment);
     assert.equal(experiment.budgetId, 'exhausted'); assert.equal(experiment.model.model, 'company-agent-model');
     assert.deepEqual(errors, []);
-    console.log(JSON.stringify({ locale, pullFailureAndRetry: true, recipePreviewBuild: true, independentAgentCommandSaved: true, unknownUsageDoesNotBlockExperiment: true }));
+    console.log(JSON.stringify({ locale, pullFailureAndRetry: true, recipePreviewBuild: true, loadedFileStateAndRecovery: true, independentAgentCommandSaved: true, unknownUsageDoesNotBlockExperiment: true }));
     await page.close();
   }
 } finally { await browser.close(); await server.close(); }

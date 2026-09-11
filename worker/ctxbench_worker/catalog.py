@@ -58,6 +58,8 @@ class Catalog:
             existing = connection.execute("SELECT 1 FROM documents WHERE kind='datasets' AND id=?", (key,)).fetchone()
             if existing:
                 record = self.verify(key)
+                if not internal:
+                    connection.execute("DELETE FROM documents WHERE kind='deletedLibrarySources' AND id=?", ('set-' + key,))
                 if not internal and record.pop('internalSnapshot', False):
                     connection.execute("UPDATE documents SET payload_json=? WHERE kind='datasets' AND id=?", (json.dumps(record), key))
                 return self.public(record)
@@ -84,7 +86,8 @@ class Catalog:
 
     def list(self) -> list[dict]:
         records = self.database.list_document_summaries('datasets', ('id', 'name', 'benchmark', 'count', 'createdAt', 'internalSnapshot'))
-        return [{k: v for k, v in record.items() if k != 'internalSnapshot'} for record in records if not record['internalSnapshot']]
+        deleted = {item['id'] for item in self.database.list_documents('deletedLibrarySources')}
+        return [{k: v for k, v in record.items() if k != 'internalSnapshot'} for record in records if not record['internalSnapshot'] and 'set-' + record['id'] not in deleted]
 
     def tasks(self, dataset: str) -> list[dict]:
         return [{"id": task["id"], "repository": task["repository"], "baseCommit": task["base_commit"],

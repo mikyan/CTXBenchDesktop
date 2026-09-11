@@ -10,6 +10,7 @@ import { DatasetSelfTest } from "./DatasetSelfTest";
 import { companyFeatureError } from "../lib/intranet";
 import { RemoteImagePull } from './RemoteImagePull';
 import { ImageRecipeGuide } from './ImageRecipeGuide';
+import { BuildFilePicker } from './BuildFilePicker';
 
 type Inspection = { filename: string; sha256: string; dataset: string; datasetId: string; images: number; baselines: number; contexts: number; conflicts: string[]; requiredBytes: number; freeBytes: number; ready: boolean };
 const emptyInventory: IntranetInventory = { profiles: [], drafts: [], adaptations: [], operations: [], transferDirectory: "" };
@@ -46,7 +47,7 @@ export function IntranetWorkbench({ distribution = "", section }: { distribution
   const queue = async (kind: string, value: unknown) => { const queued = await workerRequest<OperatorJob>(`/intranet/operations/${kind}`, "POST", value); setJob(queued); await refresh(); };
   const chooseDataset = (id: string) => { setDatasetId(id); setProbe(""); setContextIds([]); };
   const toggle = (current: string[], key: string) => current.includes(key) ? current.filter((id) => id !== key) : [...current, key];
-  const datasetPicker = <label>{t("Custom dataset")}<select value={datasetId} onChange={(e) => chooseDataset(e.target.value)}><option value="">{t("Choose a dataset")}</option>{datasets.filter((d) => d.benchmark === "custom").map((d) => <option key={d.id} value={d.id}>{d.name} · {d.count}</option>)}</select></label>;
+  const datasetPicker = (forExport = false) => <label>{t(forExport ? 'Custom case or dataset to export' : "Custom dataset")}<select value={datasetId} onChange={(e) => chooseDataset(e.target.value)}><option value="">{t(forExport ? 'Choose an existing case or dataset' : "Choose a dataset")}</option>{datasets.filter((d) => d.benchmark === "custom").map((d) => <option key={d.id} value={d.id}>{forExport ? `${t(d.id.startsWith('case-') ? 'Evaluation cases' : 'Datasets')}: ` : ''}{d.name} · {d.count}</option>)}</select></label>;
   return <section className="panel intranet-workbench" aria-labelledby="intranet-title">
     <div className="panel-header"><div>{!section && <span className="panel-kicker">{t("INTRANET ADAPTATION")}</span>}<h2 id="intranet-title">{t(section ?? "Company deployment workbench")}</h2></div><button className="button secondary" disabled={busy} onClick={() => void run(refresh)}>{t("Refresh")}</button></div>
     {!section && <p>{t("Version company settings, adapt local images, verify custom tests, and transfer pinned resources. These tools never start an Agent or modify an existing experiment.")}</p>}
@@ -81,12 +82,12 @@ export function IntranetWorkbench({ distribution = "", section }: { distribution
       </>}
       {tab === "Image adaptation" && <>
         <RemoteImagePull onInstalled={setBase} />
-        <ImageRecipeGuide onApply={(recipe) => { setRecipeName(recipe.name); setBase(recipe.baseImage); setDockerfile(recipe.dockerfile); setFiles(recipe.files); setBuildNetwork(recipe.network); setTrustBuild(false); setRecipeOpen(true); setMessage(t('Recipe copied. Review and confirm the build below.')); }} />
+        <ImageRecipeGuide distribution={distribution} onApply={(recipe) => { setRecipeName(recipe.name); setBase(recipe.baseImage); setDockerfile(recipe.dockerfile); setFiles(recipe.files); setBuildNetwork(recipe.network); setTrustBuild(false); setRecipeOpen(true); setMessage(t('Recipe copied. Review and confirm the build below.')); }} />
         <details open={recipeOpen} onToggle={(e) => setRecipeOpen(e.currentTarget.open)}><summary>{t('Build form / advanced Dockerfile')}</summary>
         <p>{t("Extend an existing local image without editing the benchmark baseline. FROM is pinned to its image ID automatically. The result gets a new unique tag; production tags are not replaced.")}</p>
         <div className="intranet-grid"><label>{t("Adaptation name")}<input value={recipeName} onChange={(e) => setRecipeName(e.target.value)} /></label><label>{t("Local base image")}<input value={base} onChange={(e) => setBase(e.target.value)} /></label></div>
         <label>{t("Dockerfile instructions after FROM")}<textarea rows={10} value={dockerfile} onChange={(e) => setDockerfile(e.target.value)} spellCheck={false} /></label>
-        <label>{t("Local build files (public CA, requirements, installers)")}<input type="file" multiple onChange={(e) => { const selected = Array.from(e.target.files ?? []); e.target.value = ""; void run(async () => setFiles(await buildFiles(selected))); }} /></label>
+        <BuildFilePicker label="Local build files (public CA, requirements, installers)" count={files.length} busy={busy} onSelect={(selected) => { void run(async () => { setFiles(await buildFiles(selected)); setTrustBuild(false); }); }} />
         <p>{t("Uploads replace the current file list. Maximum 30 MiB / 200 files; large dependencies should be baked into the local base image. Credentials and private keys must not be copied into layers.")}</p>
         {files.map((file, index) => <label key={index}>{t("Build context path")}<input value={file.path} onChange={(e) => setFiles(files.map((f, n) => n === index ? { ...f, path: e.target.value } : f))} /></label>)}
         <label>{t("Build network")}<select value={buildNetwork} onChange={(e) => setBuildNetwork(e.target.value)}><option value="none">{t("Offline (no build network)")}</option><option value="bridge">{t("Network enabled (use company sources in recipe)")}</option></select></label>
@@ -98,7 +99,7 @@ export function IntranetWorkbench({ distribution = "", section }: { distribution
       </>}
       {tab === "Dataset self-test" && <>
         <p>{t("Create or restore drafts in Datasets → Create dataset. Self-test an existing custom dataset here without modifying it.")}</p>
-        {datasetPicker}<button className="button secondary" disabled={!datasetId} onClick={() => void run(async () => { const value = await workerRequest<{ name: string; rows: unknown[] }>(`/intranet/datasets/${datasetId}`); setProbe(JSON.stringify({ ...value, benchmark: "custom" })); })}>{t("Load evaluator definition for self-test")}</button>
+        {datasetPicker()}<button className="button secondary" disabled={!datasetId} onClick={() => void run(async () => { const value = await workerRequest<{ name: string; rows: unknown[] }>(`/intranet/datasets/${datasetId}`); setProbe(JSON.stringify({ ...value, benchmark: "custom" })); })}>{t("Load evaluator definition for self-test")}</button>
         {probe && <DatasetSelfTest key={datasetId} payload={probe} disabled={busy} />}
       </>}
       {tab === "Portable resources" && <>
@@ -107,7 +108,8 @@ export function IntranetWorkbench({ distribution = "", section }: { distribution
         <p>{t("Transfer directory inside Worker")}: <code>{inventory.transferDirectory || t("Connect the Worker to display its path.")}</code></p>
         {inventory.hostTransferDirectory && <p>{t("Transfer directory in WSL")}: <code>{inventory.hostTransferDirectory}</code>{distribution && inventory.hostTransferDirectory.startsWith("/") && <><br />{t("Windows Explorer path")}: <code>{`\\\\wsl.localhost\\${distribution}${inventory.hostTransferDirectory.replaceAll("/", "\\")}`}</code></>}</p>}
         <p>{t("Copy the ZIP between the host directories mounted at this Worker path on both computers. Do not paste a Windows path here. Install/start the destination Worker using the separate offline runtime package first.")}</p>
-        <details open><summary>{t("Export benchmark resources")}</summary>{datasetPicker}
+        <details open><summary>{t("Export benchmark resources")}</summary>{datasetPicker(true)}
+          <p>{t('Export one case directly, or a dataset. The ZIP includes its definition, pinned baselines, required and selected images, and selected frozen context; runtime credentials must be configured separately on the destination.')}</p>
           <label>{t("Additional local image references (one per line)")}<textarea value={extraImages} onChange={(e) => setExtraImages(e.target.value)} /></label><p>{t("Task images are included automatically. Add your Agent image and any runtime images you also want to carry.")}</p>
           {inventory.profiles.map((p) => <label className="check-line" key={p.id}><input type="checkbox" checked={profileIds.includes(p.id)} onChange={() => setProfileIds(toggle(profileIds, p.id))} />{t("Include profile")}: {p.document.name} · {p.id.slice(0, 8)}</label>)}
           <button className="button secondary" onClick={() => void run(async () => { const value = await workerRequest<{ artifacts: KnowledgeArtifact[] }>("/snapshot?compact=true"); setContexts(value.artifacts); })}>{t("Load frozen context choices")}</button>

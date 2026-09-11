@@ -32,7 +32,9 @@ def advice(stage, text):
     lower = text.lower()
     if any(word in lower for word in ('no space left', 'disk space', 'disk full')):
         return 'storage', 'Free space on the Windows disk and WSL disk, then retry explicitly.'
-    if any(word in lower for word in ('permission denied', 'access is denied', 'dubious ownership', 'read-only file')):
+    if 'dubious ownership' in lower:
+        return 'repository', 'Git rejected a local repository owned by another user. This is not a write-permission error. Update the evaluation service for command-scoped trust of the selected local repository; do not change its ownership or globally trust every repository.'
+    if any(word in lower for word in ('permission denied', 'access is denied', 'read-only file')):
         return 'permission', 'Check WSL directory ownership, UID 10001 access and whether the mounted directory is writable.'
     if any(word in lower for word in ('unauthorized', 'authentication', 'access denied', '401', '403')):
         return 'authentication', 'Check access to the Git or image registry and runtime credentials. Do not paste credentials into commands.'

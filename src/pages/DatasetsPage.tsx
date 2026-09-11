@@ -17,6 +17,7 @@ import { DatasetSnapshotView } from '../components/DatasetSnapshotView';
 import { FormError } from '../components/Dialogs';
 import { IntranetWorkbench } from '../components/IntranetWorkbench';
 import { DatasetWizard } from '../components/DatasetWizard';
+import { DataDeleteDialog, type DeletionTarget } from '../components/DataDeleteDialog';
 
 const views = [{ id: 'cases', label: 'Evaluation cases' }, { id: 'sets', label: 'Datasets' }, { id: 'downloads', label: 'Standard downloads' }, { id: 'self-test', label: 'Dataset self-test' }, { id: 'snapshots', label: 'Run snapshots' }] as const;
 export function DatasetsPage({ snapshot, onImport, onExperiment, onGenerate, initialView = 'sets' }: {
@@ -35,6 +36,8 @@ export function DatasetsPage({ snapshot, onImport, onExperiment, onGenerate, ini
   const [snapshots, setSnapshots] = useState<DatasetSnapshot[]>([]); const [selectedSnapshot, setSelectedSnapshot] = useState<string>();
   const [revision, setRevision] = useState(0);
   const [legacyDraft, setLegacyDraft] = useState(false);
+  const [deleting, setDeleting] = useState<DeletionTarget>();
+  const [notice, setNotice] = useState('');
   const imports = (snapshot.datasets ?? []).map((item) => item.id).join(',');
   const refresh = () => setRevision((current) => current + 1);
   useEffect(() => { let active = true; setError(''); setLoadError('');
@@ -55,6 +58,7 @@ export function DatasetsPage({ snapshot, onImport, onExperiment, onGenerate, ini
         <button className="button primary" disabled={initialView === 'sets' && !ready} onClick={() => initialView === 'cases' ? setEditCase({}) : setEditSet({})}><Plus size={16} />{t(initialView === 'cases' ? 'Create evaluation case' : 'Compose dataset')}</button></>} />
     <SectionNav label="Case library views" items={views} value={view} onChange={(value) => { setView(value); setQuery(''); setPage(0); }} />
     {error && <FormError>{t(error)}</FormError>}
+    {notice && <p role="status" className="wizard-notice">{t(notice)}</p>}
     {loadError && <FormError>{`${t('Could not load existing cases. This is a library loading error, not an error in a new case. You can still open the case editor; saving requires a working evaluation service. Use Refresh to try loading again.')} ${t(loadError)}`}</FormError>}
     {!!library.importWarnings?.length && <aside className="wizard-notice" role="status"><strong>{t('Some imported datasets could not be loaded')}</strong><p>{t('Available cases and independent case creation are unaffected. No source data or historical results were deleted.')}</p>
       <ul>{library.importWarnings.map((warning) => <li key={warning.datasetId}>{warning.name} · {t(warning.message)}</li>)}</ul>
@@ -73,6 +77,7 @@ export function DatasetsPage({ snapshot, onImport, onExperiment, onGenerate, ini
         <details><summary>{t('Task prompt · agent-visible')}</summary><p className="task-prompt">{item.prompt}</p></details>
         <div className="form-actions"><button className="button secondary" onClick={() => setEditCase({ id: item.id })}>{t('Edit evaluation case')}</button>
           {onGenerate && <button className="text-button" onClick={() => onGenerate(item.id)}>{t('Generate context')}</button>}
+          <button type="button" className="text-button danger-text" onClick={() => setDeleting({ kind: 'case', id: item.id })}>{t('Delete evaluation case')}</button>
           <button className="text-button" onClick={() => onExperiment(item.id)}>{t('New experiment')}</button>
           {item.benchmark !== 'custom' && <button className="text-button" onClick={() => setInstallDataset(item)}>{t('Install project images')}</button>}
         </div>
@@ -83,10 +88,12 @@ export function DatasetsPage({ snapshot, onImport, onExperiment, onGenerate, ini
       {ready && !sets.length && <section className="panel empty-state"><h2>{t('No datasets yet')}</h2><p>{t('Create a case or import standard cases first, then compose a dataset here.')}</p><button className="button secondary" onClick={() => setView('cases')}>{t('Evaluation cases')}</button></section>}
       <div className="dataset-library">{sets.slice(range.start, range.end).map((item) => <article className="panel dataset-card" key={item.id}>
         <span className="panel-kicker">{benchmarkLabel(item.benchmark, t)} · v{item.revision}</span><h2>{item.name}</h2><p>{item.count} {t('Tasks')} · {t('Editable composition')}</p>
+        {!item.count && <p className="deletion-cohort-note">{t('Empty dataset: add cases before running again')}</p>}
         <details><summary>{t('Browse tasks')}</summary>{selectionCases(library, item).map((member) => <div className="collection-member" key={member.id}><span>{member.name} · v{member.revision}</span><button className="text-button" onClick={() => setEditCase({ id: member.id })}>{t('Edit evaluation case')}</button></div>)}</details>
         <div className="form-actions"><button className="button secondary" onClick={() => setEditSet({ record: item })}>{t('Edit dataset composition')}</button>
-          {item.benchmark !== 'custom' && <button className="text-button" onClick={() => setInstallDataset(item)}>{t('Install project images')}</button>}
-          <button className="text-button" onClick={() => onExperiment(item.id)}>{t('New experiment')}</button>
+          <button type="button" className="text-button danger-text" onClick={() => setDeleting({ kind: 'set', id: item.id })}>{t('Delete dataset')}</button>
+          {item.benchmark !== 'custom' && <button className="text-button" disabled={!item.count} onClick={() => setInstallDataset(item)}>{t('Install project images')}</button>}
+          <button className="text-button" disabled={!item.count} onClick={() => onExperiment(item.id)}>{t('New experiment')}</button>
         </div>
       </article>)}</div>
       <Pagination total={sets.length} page={page} size={20} onChange={setPage} />
@@ -101,6 +108,7 @@ export function DatasetsPage({ snapshot, onImport, onExperiment, onGenerate, ini
       <Pagination total={snapshots.length} page={page} size={20} onChange={setPage} />
     </section>}
     {editCase && <CaseEditor caseId={editCase.id} onClose={() => setEditCase(undefined)} onSaved={refresh} />}
+    {deleting && <DataDeleteDialog target={deleting} onClose={() => setDeleting(undefined)} onDeleted={() => { setNotice('Deleted. Historical snapshots and shared files were kept.'); refresh(); }} />}
     {legacyDraft && <DatasetWizard legacyImport onClose={() => setLegacyDraft(false)} onComplete={refresh} />}
     {editSet && <SetEditor collection={editSet.record} library={library} onClose={() => setEditSet(undefined)} onSaved={refresh} />}
     {selectedSnapshot && <DatasetSnapshotView id={selectedSnapshot} onClose={() => setSelectedSnapshot(undefined)} />}

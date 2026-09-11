@@ -34,6 +34,8 @@ export interface FailureDiagnostic {
 }
 
 export interface Experiment {
+  deletedResultGroups?: number;
+  deletedResultRuns?: number;
   failure?: string;
   diagnostic?: FailureDiagnostic;
   datasetSnapshot?: import('../lib/case-library').DatasetSnapshot;

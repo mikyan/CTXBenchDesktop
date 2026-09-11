@@ -68,6 +68,7 @@ class Workbench:
         self._wake = threading.Event()
         self._thread = None
         self._active: dict[str, str] = {}
+        self._executing_operation = None
         self._lock = threading.RLock()
         self._scope = threading.local()
         self.budgets = TokenBudget(self.db)
@@ -321,6 +322,7 @@ class Workbench:
                 operations = sorted(self.db.list_documents("operations"), key=lambda item: item["createdAt"])
                 operation = next((item for item in operations if item["status"] == "queued"), None)
                 if operation:
+                    self._executing_operation = operation['id']
                     operation.update(status="running", updatedAt=utc_now())
                     operation.pop('failure', None)
                     operation.pop('diagnostic', None)
@@ -352,6 +354,7 @@ class Workbench:
                         operation['progress'] = current['progress']
                     operation["updatedAt"] = utc_now()
                     self.db.put_document("operations", operation["id"], operation)
+                self._executing_operation = None
 
     @scoped('operationId', 'id')
     @observed('Prepare queued operation')
@@ -939,7 +942,12 @@ class Workbench:
         operations = self.db.list_documents("operations")
         # Model requests, dataset gold patches and credentials are never part of a dashboard snapshot.
         experiments = self.db.list_experiments()
+        deleted_groups = self.db.list_documents('deletionEvents')
         for experiment in experiments:
+            removed = [item for item in deleted_groups if item.get('experimentId') == experiment['id'] and item['kind'] == 'result']
+            if removed:
+                experiment['deletedResultGroups'] = len(removed)
+                experiment['deletedResultRuns'] = sum(item['runCount'] for item in removed)
             attempts = sorted((op for op in operations if op['kind'] == 'experiment' and op['payload'].get('experimentId') == experiment['id']), key=lambda op: op['updatedAt'], reverse=True)
             if experiment['status'] in {'failed', 'paused'} and attempts and attempts[0].get('failure'):
                 experiment['failure'] = attempts[0]['failure']

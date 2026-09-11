@@ -14,6 +14,9 @@ import { caseLibraryChinese } from './i18n.case-library';
 import { ciChinese } from './i18n.ci';
 import { imageWorkshopChinese } from './i18n.image-workshop';
 import { liveLogsChinese } from './i18n.live-logs';
+import { deletionsChinese } from './i18n.deletions';
+import { userHelpChinese } from './i18n.user-help';
+import { experimentGuidanceChinese } from './i18n.experiment-guidance';
 import { I18nContext, type I18nValue } from "./i18n.context";
 
 export type Locale = "en" | "zh-CN";
@@ -37,6 +40,17 @@ const zhCN: Record<string, string> = {
   ...ciChinese,
   ...imageWorkshopChinese,
   ...liveLogsChinese,
+  ...deletionsChinese,
+  ...userHelpChinese,
+  ...experimentGuidanceChinese,
+  'Isolated acceptance instance — not your production workspace': '隔离验收实例 — 不是你的正式工作区',
+  'Production service controls and application image installation are disabled. Custom image adaptation, cases, experiments and image export remain available.': '已禁用正式服务控制和应用镜像安装；仍可制作自定义镜像、创建用例、运行实验和导出镜像。',
+  'Isolated acceptance environment': '隔离验收环境',
+  'Production environment controls are disabled in isolated acceptance mode. Ask the test coordinator to manage the isolated service.': '隔离验收模式已禁用正式环境控制。请联系测试协调者管理隔离服务。',
+  'CTXBENCH_DEBUG_WORKER_PORT must be an integer between 1 and 65535. No service request was sent.': 'CTXBENCH_DEBUG_WORKER_PORT 必须为 1 至 65535 之间的整数，未向任何评测服务发送请求。',
+  'Debug isolation cannot use the production service port 48173. Choose another local port; no service request was sent.': '调试隔离模式不能使用正式服务端口 48173。请选择其他本机端口，未向任何评测服务发送请求。',
+  'The local service did not return a CTXBench health response.': '本地服务未返回有效的 CTXBench 健康状态。',
+  'Worker {result} · {address}': '本地评测服务 {result} · {address}',
   "Experiment plan created. Context preparation is queued.": "实验计划已创建，知识上下文准备任务已进入队列。",
   "Environment diagnostics completed.": "环境诊断已完成。",
   "Could not start CTXBench": "无法启动 CTXBench",

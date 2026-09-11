@@ -1,4 +1,6 @@
 export const intranetChinese: Record<string, string> = {
+  'Custom case or dataset to export': '要导出的自定义用例或评测集',
+  'Export one case directly, or a dataset. The ZIP includes its definition, pinned baselines, required and selected images, and selected frozen context; runtime credentials must be configured separately on the destination.': '可以直接导出一个用例，无需先组合成评测集，也可以导出整个评测集。ZIP 包含对应定义、固定代码基线、必需及所选镜像、所选冻结知识库；运行时密钥需要在目标电脑单独配置。',
   "Resource bundle export": "资源包导出", "Resource bundle import": "资源包导入", "Resource bundle verification": "资源包校验",
   "Copy an existing custom dataset into a draft": "将已有自定义评测集复制为草稿", "Replace draft with an editable dataset copy": "用评测集的可编辑副本替换当前草稿",
   "Changes since loaded version: {added} added, {removed} removed, {changed} edited tasks.": "相较加载版本：新增 {added} 个、移除 {removed} 个、修改 {changed} 个用例。", "Shared defaults or dataset name changed.": "共用默认配置或评测集名称已修改。",

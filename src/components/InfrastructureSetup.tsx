@@ -13,9 +13,10 @@ import { offlineExportStore } from "../lib/offline-export";
 import { OfflineImageExport, OfflineExportProgress } from "./OfflineImageExport";
 import { RuntimeSafety } from "./RuntimeSafety";
 
-export function InfrastructureSetup({ distribution, onDistribution, onDiagnose, onBusy, diagnosing, view = "all", onSection, onExperiments, onKnowledge }: {
+export function InfrastructureSetup({ distribution, onDistribution, onDiagnose, onBusy, diagnosing, view = "all", onSection, onExperiments, onKnowledge, isolated = false }: {
   distribution: string; onDistribution: (name: string) => void; onDiagnose: (distribution?: string) => void; onBusy: (busy: boolean) => void; diagnosing: boolean;
   view?: "runtime" | "images" | "all";
+  isolated?: boolean;
   onSection?: (section: "runtime" | "images" | "credentials") => void;
   onExperiments?: () => void; onKnowledge?: () => void;
 }) {
@@ -58,7 +59,7 @@ export function InfrastructureSetup({ distribution, onDistribution, onDiagnose, 
   useEffect(() => {
     let current = true;
     setInfo(undefined);
-    if (!distribution.trim()) { setChecking(false); return; }
+    if (isolated || !distribution.trim()) { setChecking(false); return; }
     setChecking(true);
     // Avoid launching WSL for every keystroke of a manually entered name.
     const timer = window.setTimeout(() => {
@@ -67,7 +68,7 @@ export function InfrastructureSetup({ distribution, onDistribution, onDiagnose, 
         .finally(() => { if (current) setChecking(false); });
     }, 600);
     return () => { current = false; window.clearTimeout(timer); };
-  }, [distribution, refresh]);
+  }, [distribution, refresh, isolated]);
 
   const action = async (value: WorkerAction) => {
     if (active) return;
@@ -101,6 +102,13 @@ export function InfrastructureSetup({ distribution, onDistribution, onDiagnose, 
     else if (target === "offline") { setMode("offline"); setImageOperation("install"); onSection?.("images"); }
     else if (target !== "downloads") { if (target === "images") setImageOperation("install"); onSection?.(target); }
   };
+  if (isolated) return <section className="panel setup-panel">
+    <h2>{t('Isolated acceptance environment')}</h2>
+    <p>{t('Production environment controls are disabled in isolated acceptance mode. Ask the test coordinator to manage the isolated service.')}</p>
+    <WslDistributionPicker value={distribution} onChange={onDistribution} disabled={Boolean(active) || diagnosing} />
+    {view !== 'runtime' && <><OfflineImageExport key={distribution} distribution={distribution} disabled={Boolean(active) || diagnosing || !distribution.trim()} state={exported} onBegin={() => setResult(undefined)} />
+      {exported && exported.distribution === distribution && <OfflineExportProgress state={exported} />}</>}
+  </section>;
   return <section className="panel setup-panel" aria-labelledby="setup-heading">
     <div className="panel-header"><div><h2 id="setup-heading" tabIndex={-1}>{t(view === "images" ? "Application images" : "Install and start the worker")}</h2></div><Download size={22} aria-hidden="true" /></div>
     <div className="setup-content">

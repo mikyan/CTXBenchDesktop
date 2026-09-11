@@ -32,9 +32,9 @@ export function Modal({ title, children, onClose, busy = false, warnOnClose = fa
   </dialog>;
 }
 
-export function ConfirmDialog({ title, description, children, onCancel, onConfirm, confirmLabel, cancelLabel, disabled = false }: {
+export function ConfirmDialog({ title, description, children, onCancel, onConfirm, confirmLabel, cancelLabel, disabled = false, busy = false }: {
   title: string; description: string; children?: ReactNode; onCancel: () => void; onConfirm: () => void;
-  confirmLabel: string; cancelLabel?: string; disabled?: boolean;
+  confirmLabel: string; cancelLabel?: string; disabled?: boolean; busy?: boolean;
 }) {
   const { t } = useI18n(); const ref = useRef<HTMLDialogElement>(null); const titleId = useId(); const descriptionId = useId();
   useEffect(() => {
@@ -43,10 +43,11 @@ export function ConfirmDialog({ title, description, children, onCancel, onConfir
     return () => { dialog.close(); if (previous instanceof HTMLElement && previous.isConnected) previous.focus({ preventScroll: true }); };
   }, []);
   return <dialog ref={ref} role="alertdialog" aria-modal="true" aria-labelledby={titleId} aria-describedby={descriptionId} className="confirmation-dialog"
-    onKeyDown={keepTabInDialog} onCancel={(event) => { event.preventDefault(); event.stopPropagation(); onCancel(); }} onChange={(event) => event.stopPropagation()}>
+    onKeyDown={keepTabInDialog} onCancel={(event) => { event.preventDefault(); event.stopPropagation(); if (!busy) onCancel(); }} onChange={(event) => event.stopPropagation()}>
     <h2 id={titleId}>{title}</h2><p id={descriptionId}>{description}</p>{children}
-    <footer><button type="button" autoFocus className="button secondary" onClick={onCancel}>{cancelLabel ?? t("Cancel")}</button>
-      <button type="button" className="button danger" disabled={disabled} onClick={onConfirm}>{confirmLabel}</button></footer>
+    {busy && <p role="status">{t('Working — please wait before closing.')}</p>}
+    <footer><button type="button" autoFocus className="button secondary" disabled={busy} onClick={onCancel}>{cancelLabel ?? t("Cancel")}</button>
+      <button type="button" className="button danger" disabled={disabled || busy} onClick={onConfirm}>{confirmLabel}</button></footer>
   </dialog>;
 }
 

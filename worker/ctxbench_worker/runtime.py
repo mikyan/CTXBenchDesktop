@@ -12,6 +12,7 @@ import tarfile
 import time
 import uuid
 import re
+import shlex
 from pathlib import Path, PurePosixPath
 
 from .datasets import TaskRecord
@@ -37,6 +38,33 @@ def git(workspace: Path, *arguments: str, data: bytes | None = None) -> bytes:
     if result.returncode:
         raise RuntimeError(result.stderr.decode(errors="replace")[-3000:])
     return result.stdout
+
+
+def local_fetch_options(repository: str) -> list[str]:
+    """Trust only the operator-selected local source, for this upload-pack process.
+
+    Local Git transports start a separate upload-pack process; the fetch client's
+    -c settings alone do not cover ownership checks in that process. Never write
+    global configuration or extend this exception to remote/relative addresses.
+    """
+    candidate = Path(repository)
+    if not candidate.is_absolute() or not candidate.is_dir():
+        return []
+    root = candidate.resolve()
+    git_dir = root / '.git'
+    if git_dir.is_dir() and not git_dir.is_symlink():
+        paths = (root, git_dir)
+    elif (root / 'HEAD').is_file() and (root / 'objects').is_dir():
+        paths = (root,)  # An explicitly selected bare repository.
+    else:
+        return []  # Do not follow .git files/symlinks into unrelated directories.
+    if any('*' in path.as_posix() for path in paths):
+        return []  # safe.directory interprets wildcard suffixes, not literal paths.
+    command = ['git', '-c', 'core.hooksPath=/dev/null', '-c', 'safe.directory=']
+    for path in paths:
+        command.extend(['-c', 'safe.directory=' + path.as_posix()])
+    command.append('upload-pack')
+    return ['--upload-pack=' + shlex.join(command)]
 
 
 def seal(workspace: Path) -> str:
@@ -276,7 +304,8 @@ class Runtime:
             if self.environment.get("offline"):
                 raise ValueError(f"Offline preparation: baseline {task.base_commit} is missing. Import a resource bundle first.")
             mirror = next((item["mirror"] for item in self.environment.get("gitMirrors", []) if item["repository"] == task.repository), "origin")
-            git(source, "fetch", "--depth=1", mirror, task.base_commit)
+            local_options = local_fetch_options(task.repository if mirror == 'origin' else mirror)
+            git(source, "fetch", "--depth=1", *local_options, mirror, task.base_commit)
         # Portable baselines intentionally omit parent objects. `git show` can
         # traverse parents even with -s; read the commit's own timestamp instead.
         raw_commit = git(source, "cat-file", "-p", task.base_commit)

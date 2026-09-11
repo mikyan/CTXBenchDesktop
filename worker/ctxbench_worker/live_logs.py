@@ -27,6 +27,20 @@ SCOPES = {'experimentId', 'operationId', 'benchmarkRunId', 'runId'}
 PAGE = 64_000
 
 
+def valid_log_scope(key, value):
+    if not isinstance(value, str):
+        return False
+    if re.fullmatch(r'[A-Za-z0-9_-]{1,100}', value):
+        return True
+    # The planner's benchmark identity is experiment:task:repeat:arm. Task IDs
+    # are operator text (including Unicode, dots and colons), not file paths.
+    # This value is used only in the parameterized metadata query below. Other
+    # scopes and the separate archive/session path validation remain unchanged.
+    return key == 'benchmarkRunId' and len(value) <= 4096 and re.fullmatch(
+        r'[A-Za-z0-9_-]{1,100}:[^\x00-\x1f\x7f]+:(?:[1-9]|[1-4][0-9]|50):'
+        r'(?:none|manual|skill-generated|developer-historical)', value) is not None
+
+
 @contextmanager
 def log_scope(**values):
     token = _scope.set({**_scope.get(), **{key: value for key, value in values.items() if value}})
@@ -119,7 +133,7 @@ class ContainerLogs:
                 'endOffset': row['end'], 'updatedAt': row['updated'], 'truncated': row['start'] > 0}
 
     def list(self, *, before=None, **scope):
-        if not scope or set(scope) - SCOPES or any(not isinstance(value, str) or not re.fullmatch(r'[A-Za-z0-9_-]{1,100}', value) for value in scope.values()):
+        if not scope or set(scope) - SCOPES or any(not valid_log_scope(key, value) for key, value in scope.items()):
             raise ValueError('Select a valid experiment, preparation or run to view container logs.')
         if before is not None and (type(before) is not int or before < 1 or before > 2**53 - 1):
             raise ValueError('Invalid log inventory cursor.')

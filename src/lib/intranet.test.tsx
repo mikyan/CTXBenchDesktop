@@ -15,6 +15,16 @@ function render(element: React.ReactNode, locale: "en" | "zh-CN" = "en") {
   return renderToStaticMarkup(createElement(I18nContext.Provider, { value: { locale, setLocale: () => {}, t: (key, values) => translate(locale, key, values) } }, element));
 }
 describe("intranet operator tools", () => {
+  it.each(['en', 'zh-CN'] as const)('clarifies standalone resource export without renaming other dataset concepts in %s', locale => {
+    const portable = render(createElement(IntranetWorkbench, { section: 'Portable resources' }), locale);
+    expect(portable).toContain(translate(locale, 'Custom case or dataset to export'));
+    expect(portable).toContain(translate(locale, 'Choose an existing case or dataset'));
+    expect(portable).toContain(translate(locale, 'Export one case directly, or a dataset. The ZIP includes its definition, pinned baselines, required and selected images, and selected frozen context; runtime credentials must be configured separately on the destination.'));
+    expect(portable).not.toContain('<label>' + translate(locale, 'Custom dataset') + '<select');
+    const selfTest = render(createElement(IntranetWorkbench, { section: 'Dataset self-test' }), locale);
+    expect(selfTest).toContain('<label>' + translate(locale, 'Custom dataset') + '<select');
+    expect(selfTest).not.toContain(translate(locale, 'Custom case or dataset to export'));
+  });
   it("profiles are strict, share names not environment values, and default to offline preparation", () => {
     const profile = defaultCompanyProfile();
     expect(companyProfileSchema.parse(profile)).toEqual(profile);

@@ -30,6 +30,7 @@ try {
         invoke: async (command, args) => {
           const model = window.testModel;
           model.calls.push({ command, action: args?.action, distribution: args?.distribution, filename: args?.filename, byteCount: args?.bytes?.length, path: args?.path });
+          if (command === "desktop_connection") return { isolated: false, baseUrl: "http://127.0.0.1:48173/v1" };
           if (command === "list_wsl_distributions") return { defaultDistribution: "ubuntu-24.04", distributions: ["ubuntu-24.04", "Debian"].map((name) => ({ name, state: "Running", version: 2, isDefault: name !== "Debian" })) };
           if (command === "get_deployment_info") return structuredClone({ ...model.info, distribution: args.distribution });
           if (command === "select_offline_bundle") return "D:\\离线镜像\\images.zip";

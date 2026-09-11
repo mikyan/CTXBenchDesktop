@@ -2,7 +2,7 @@ import { useEffect, useRef, useState } from "react";
 import type { ContextArm, CreateExperimentRequest, DatasetRecord, FrozenModelConfig, KnowledgeArtifact, RuntimeSettings, TaskSummary, TokenBudgetRecord } from "../domain/types";
 import { useI18n } from "../i18n";
 import { workerRequest } from "../lib/desktop";
-import { Modal, ProfileEditor, defaultProfile } from "./WorkbenchDialogs";
+import { Modal, ProfileEditor, defaultProfile, PreparationDialog } from "./WorkbenchDialogs";
 import { EnvironmentNamesField } from "./EnvironmentNamesField";
 import { environmentNamesError, parseEnvironmentNames } from "../lib/environment";
 import { WorkflowEditor } from "./WorkflowEditor";
@@ -18,9 +18,12 @@ import { libraryError, librarySources, loadLibrary, type LibrarySelection } from
 import { LibrarySourcePicker } from './LibrarySourcePicker';
 import { ProjectImageSourceNotice } from './ProjectImageSourceNotice';
 import { CISelectionNotice } from './CISelectionNotice';
+import { FrozenPackagePicker } from './FrozenPackagePicker';
+import { AgentImageReview } from './AgentImageReview';
 
-export function ExperimentComposer({ creating, onClose, onCreate, artifacts, initialDataset = "", imageSelection }: {
+export function ExperimentComposer({ creating, onClose, onCreate, artifacts, initialDataset = "", imageSelection, artifactLoadError = false, onRefreshArtifacts }: {
   creating: boolean; onClose: () => void; onCreate: (request: CreateExperimentRequest) => Promise<void>; artifacts: KnowledgeArtifact[]; initialDataset?: string; imageSelection?: import("../lib/standard-images").ImageSelection;
+  artifactLoadError?: boolean; onRefreshArtifacts?: () => Promise<void>;
 }) {
   const { t } = useI18n();
   const [step, setStep] = useState<"tasks" | "execution" | "review">("tasks");
@@ -41,6 +44,15 @@ export function ExperimentComposer({ creating, onClose, onCreate, artifacts, ini
   const [network, setNetwork] = useState<CreateExperimentRequest["resources"]["network"]>("api-only");
   const [prepareOnly, setPrepareOnly] = useState(false); const [constraints, setConstraints] = useState(false);
   const [packages, setPackages] = useState<Record<string, string>>({}); const [error, setError] = useState("");
+  const [importingPackage, setImportingPackage] = useState(false);
+  const [refreshingPackages, setRefreshingPackages] = useState(false);
+  const [packageRefreshFailed, setPackageRefreshFailed] = useState(false);
+  const refreshPackages = async () => {
+    if (!onRefreshArtifacts || refreshingPackages) return;
+    setRefreshingPackages(true); setPackageRefreshFailed(false);
+    try { await onRefreshArtifacts(); } catch { setPackageRefreshFailed(true); }
+    finally { setRefreshingPackages(false); }
+  };
   const [constraintPackages, setConstraintPackages] = useState<Record<string, string>>({});
   const [availableConstraints, setAvailableConstraints] = useState<{ id: string; repository: string; commit: string; count: number; historyVersion?: number }[]>([]);
   const [checking, setChecking] = useState(false);
@@ -123,7 +135,7 @@ export function ExperimentComposer({ creating, onClose, onCreate, artifacts, ini
       {visible.map((task) => <label className="check-line" key={task.id}><input type="checkbox" checked={selected.includes(task.id)} onChange={(e) => setSelected((current) => e.target.checked ? [...current, task.id] : current.filter((id) => id !== task.id))} /><span>{task.id}<small>{task.repository} · {task.baseCommit.slice(0, 12)}</small></span></label>)}
     </div>
     <label>{t("Context comparison")}<select value={arm} onChange={(e) => setArm(e.target.value as typeof arm)}><option value="skill-generated">{t("Skill generated")}</option><option value="manual">{t("Frozen package (generated or manual)")}</option><option value="developer-historical">{t("Developer historical")}</option></select></label>
-    {arm === "manual" && selected.map((id) => { const task = tasks.find((task) => task.id === id)!; return <label key={id}>{id}<select value={packages[id] ?? ""} onChange={(e) => setPackages({ ...packages, [id]: e.target.value })}><option value="">{t("Select matching package")}</option>{artifacts.filter((item) => item.repository === task.repository && item.commit === task.baseCommit && item.status === "ready").map((item) => <option key={item.id} value={item.id}>{item.source} · {item.id.slice(0, 16)} · {item.files} {t("files")}</option>)}</select></label>; })}
+    {arm === "manual" && selected.length > 0 && <FrozenPackagePicker tasks={tasks.filter(task => selected.includes(task.id))} artifacts={artifacts} values={packages} onChange={setPackages} loading={refreshingPackages} failed={artifactLoadError || packageRefreshFailed} onRefresh={onRefreshArtifacts ? () => void refreshPackages() : undefined} onImport={() => setImportingPackage(true)} />}
     <div className="form-grid two"><label>{t("Repeats")}<input type="number" min={1} max={50} value={repeats} onChange={(e) => setRepeats(Number(e.target.value))} /></label><label>{t("Random seed")}<input type="number" value={seed} onChange={(e) => setSeed(Number(e.target.value))} /></label></div>
     </div><div hidden={step !== "execution"} className="composer-step">
     <CompanyProfilePicker value={companyProfileId} onChange={(record) => {
@@ -153,7 +165,8 @@ export function ExperimentComposer({ creating, onClose, onCreate, artifacts, ini
       <AgentArgsField value={agentArgs} onChange={setAgentArgs} />
       <div className="form-grid two"><label>CPU<input type="number" min={1} value={cpu} onChange={(e) => setCpu(Number(e.target.value))} /></label><label>{t("Memory (GiB)")}<input type="number" min={1} value={memory} onChange={(e) => setMemory(Number(e.target.value))} /></label><label>{t("Timeout (minutes)")}<input type="number" min={1} value={timeout} onChange={(e) => setTimeoutMinutes(Number(e.target.value))} /></label><label>{t("Network")}<select value={network} onChange={(e) => setNetwork(e.target.value as typeof network)}>{["api-only", "offline", "unrestricted"].map((item) => <option key={item}>{item}</option>)}</select></label></div></details>
     </div><div hidden={step !== "review"} className="composer-step">
-    <h3>{t("Review the plan before starting")}</h3><dl className="review-grid"><div><dt>{t("Experiment name")}</dt><dd>{name}</dd></div><div><dt>{t("Dataset or manifest")}</dt><dd>{datasets.find((item) => item.id === dataset)?.name}</dd></div><div><dt>{t("Tasks")}</dt><dd>{selected.length} × {repeats}</dd></div><div><dt>{t("Context arm")}</dt><dd>{t(arm === "skill-generated" ? "Skill generated" : arm === "manual" ? "Frozen package (generated or manual)" : "Developer historical")}</dd></div><div><dt>{t("Model")}</dt><dd>{profiles.solver.provider} / {profiles.solver.model}</dd></div><div><dt>{t("Agent image")}</dt><dd>{image}</dd></div></dl>
+    <h3>{t("Review the plan before starting")}</h3><dl className="review-grid"><div><dt>{t("Experiment name")}</dt><dd>{name}</dd></div><div><dt>{t("Dataset or manifest")}</dt><dd>{datasets.find((item) => item.id === dataset)?.name}</dd></div><div><dt>{t("Tasks")}</dt><dd>{selected.length} × {repeats}</dd></div><div><dt>{t("Context arm")}</dt><dd>{t(arm === "skill-generated" ? "Skill generated" : arm === "manual" ? "Frozen package (generated or manual)" : "Developer historical")}</dd></div><div><dt>{t("Experiment default model")}</dt><dd>{profiles.solver.provider} / {profiles.solver.model}</dd></div><div><dt>{t("Experiment default Agent image")}</dt><dd>{image}</dd></div></dl>
+    <AgentImageReview tasks={tasks.filter(task => selected.includes(task.id))} image={image} projectEnvironment={projectEnvironment} generatesContext={arm === 'skill-generated'} />
     <p>{t("Changing a field invalidates the previous preflight. The no-context baseline is always included.")}</p>
     {hasCustomCommands && <p className="wizard-notice">{t('Missing token usage does not block custom commands or affect grading. These commands bypass shared token accounting; only metered roles remain budget-protected. Token totals and allowances exclude custom commands, not their actual consumption. Configure spending limits in your Agent or Provider.')}</p>}
     <p>{t("Agent build environment")}: {t(projectEnvironment ? "Prepared project environment" : "Agent image as-is")}</p>
@@ -177,5 +190,6 @@ export function ExperimentComposer({ creating, onClose, onCreate, artifacts, ini
       <span>{selected.length} {t("Tasks")} · {selected.length * repeats * 2} {t("runs")}</span>
       {step !== "review" ? <button className="button primary" disabled={creating || checking} onClick={() => go(step === "tasks" ? "execution" : "review")}>{t(step === "tasks" ? "Continue to execution" : "Continue to review")}</button> : <button className="button primary" disabled={creating || checking || !selected.length || !name.trim()} onClick={() => void submit()}>{creating ? t("Creating plan…") : t("Create & prepare")}</button>}
     </footer>
+    {importingPackage && <PreparationDialog kind="manual" initialSource={dataset} onClose={() => setImportingPackage(false)} onComplete={() => void refreshPackages()} />}
   </Modal>;
 }
