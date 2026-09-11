@@ -1,185 +1,185 @@
 README.md
-  s_160ecc294b79e0::t_6d24dbb57a0823 1-67
+  s_160ecc294b79e0::t_4e6b4d81b1c774 1-67
 src-tauri/capabilities/default.json
-  s_160ecc294b79e0::t_94a9a87e968743 1-7
-src/domain/report.test.ts
-  s_160ecc294b79e0::t_172441e6d14014 1-14
-src/lib/desktop.ts
-  s_160ecc294b79e0::t_cfed0af46f06da 1-93
-src/pages/DashboardPage.tsx
-  s_160ecc294b79e0::t_15370e2a4d3c45 1-268
-src/pages/InfrastructurePage.tsx
-  s_160ecc294b79e0::t_0f3f78f0900871 1-80
-worker/requirements.txt
-  s_160ecc294b79e0::t_326139a1b50840 1-4
-.dockerignore
-  s_93c984b7787ad2::t_481114fe82f9f9 1-16
-.env.example
-  s_93c984b7787ad2::t_e1ca1015ba9c51 1-13
-.gitattributes
-  s_93c984b7787ad2::t_8965b14a696aec 1-4
-.gitignore
-  s_93c984b7787ad2::t_edc48f2f09f695 1-21
-.npmrc
-  s_93c984b7787ad2::t_29e4dff0837a3c 1
-AGENTS.md
-  s_93c984b7787ad2::t_b9e44bfce102eb 1-11
-assets/ctxbench-icon.svg
-  s_93c984b7787ad2::t_163f3cebf1fe31 1-21
-docker/agent-pi/Dockerfile
-  s_93c984b7787ad2::t_addbfe3958bb47 1-25
-docker/agent-pi/entrypoint.mjs
-  s_93c984b7787ad2::t_dde205a7fe0995 1-206
-docker/agent-pi/mock-pi.mjs
-  s_93c984b7787ad2::t_322aeb95ad5e3b 1-74
-docker/compose.yaml
-  s_93c984b7787ad2::t_af36e087441288 1-60
-docker/egress-proxy/Dockerfile
-  s_93c984b7787ad2::t_3b22cdaf5b76f1 1-9
-docker/egress-proxy/squid.conf
-  s_93c984b7787ad2::t_9bf781bf81e3ff 1-19
-docker/worker/Dockerfile
-  s_93c984b7787ad2::t_7e5e24795c5f9a 1-15
-docs/agent-adapters.md
-  s_93c984b7787ad2::t_084d4b9f87d83f 1-38
-docs/architecture.md
-  s_93c984b7787ad2::t_cf3e36443c0789 1-48
-docs/evaluation.md
-  s_93c984b7787ad2::t_220b291a5efa4e 1-43
-index.html
-  s_93c984b7787ad2::t_071cb9b449dc24 1-13
-package-lock.json
-  s_93c984b7787ad2::t_ea0533d6b09fed 1-2348
-package.json
-  s_93c984b7787ad2::t_8274bf1e0a2e31 1-33
-schemas/agent-request.schema.json
-  s_93c984b7787ad2::t_01640320d75d85 1-27
-schemas/agent-result.schema.json
-  s_93c984b7787ad2::t_1a408eda51ffbf 1-21
-schemas/context-manifest.schema.json
-  s_93c984b7787ad2::t_e74a48716516cb 1-24
-schemas/custom-task.schema.json
-  s_93c984b7787ad2::t_a112046ace5718 1-40
-schemas/review-archive.schema.json
-  s_93c984b7787ad2::t_0a0cdddd999e11 1-45
-scripts/doctor.ps1
-  s_93c984b7787ad2::t_653fda0a3f7d68 1-23
-scripts/images-export.sh
-  s_93c984b7787ad2::t_991d2dcb3400b9 1-12
-scripts/images-import.sh
-  s_93c984b7787ad2::t_31e0c56f71a98f 1-9
-scripts/wsl/install-docker.sh
-  s_93c984b7787ad2::t_cc9c35ca602d8d 1-30
-skills/ctxbench-generate-context/SKILL.md
-  s_93c984b7787ad2::t_e4125983030fcd 1-31
-src-tauri/Cargo.lock
-  s_93c984b7787ad2::t_7c389e5bf0d0f3 1-4935
-src-tauri/Cargo.toml
-  s_93c984b7787ad2::t_db954464f06967 1-21
-src-tauri/build.rs
-  s_93c984b7787ad2::t_5818c7a16a2ab8 1-3
-src-tauri/icons/android/mipmap-anydpi-v26/ic_launcher.xml
-  s_93c984b7787ad2::t_cafea08ff5204c 1-5
-src-tauri/icons/android/values/ic_launcher_background.xml
-  s_93c984b7787ad2::t_7b095625c79b4f 1-4
-src-tauri/src/lib.rs
-  s_79aaaf28ec466b::t_415ec6cfb497d9 1-256
-src-tauri/src/main.rs
-  s_93c984b7787ad2::t_85eae7827c4789 1-3
-src-tauri/tauri.conf.json
-  s_93c984b7787ad2::t_aae38dc371e5c6 1-35
-src/App.tsx
-  s_93c984b7787ad2::t_56b6a4f5814935 1-102
-src/app-types.ts
-  s_93c984b7787ad2::t_17a3c3521eab2a 1
-src/components/Sidebar.tsx
-  s_93c984b7787ad2::t_a5134da282f384 1-71
+  s_160ecc294b79e0::t_494ff444b5e435 1-7
 src/components/Topbar.tsx
-  s_93c984b7787ad2::t_f871d6c4482fe4 1-24
+  s_160ecc294b79e0::t_9e7be0462defce 1-24
+src/domain/report.test.ts
+  s_160ecc294b79e0::t_24af451d8afa79 1-14
+src/lib/desktop.ts
+  s_160ecc294b79e0::t_d48f4d5aa1da7f 1-93
+src/pages/DashboardPage.tsx
+  s_160ecc294b79e0::t_1b973a9541a762 1-268
+src/pages/InfrastructurePage.tsx
+  s_160ecc294b79e0::t_823bd98de3da50 1-80
+worker/requirements.txt
+  s_160ecc294b79e0::t_997ed5c47860cd 1-4
+.dockerignore
+  s_93c984b7787ad2::t_2134b46c8361fe 1-16
+.env.example
+  s_93c984b7787ad2::t_9a1d1dfd9e0faf 1-13
+.gitattributes
+  s_93c984b7787ad2::t_1819f3ee3ee72e 1-4
+.gitignore
+  s_93c984b7787ad2::t_cf9125c1f18aae 1-21
+.npmrc
+  s_93c984b7787ad2::t_6368f8dc9aee82 1
+AGENTS.md
+  s_93c984b7787ad2::t_f0828f9e02878e 1-11
+assets/ctxbench-icon.svg
+  s_93c984b7787ad2::t_2f20834a5b8313 1-21
+docker/agent-pi/Dockerfile
+  s_93c984b7787ad2::t_88ac09956b9870 1-25
+docker/agent-pi/entrypoint.mjs
+  s_93c984b7787ad2::t_9745b08f05994d 1-206
+docker/agent-pi/mock-pi.mjs
+  s_93c984b7787ad2::t_5f50792d487345 1-74
+docker/compose.yaml
+  s_93c984b7787ad2::t_ff3056cbc2abf3 1-60
+docker/egress-proxy/Dockerfile
+  s_93c984b7787ad2::t_20cab843ea1692 1-9
+docker/egress-proxy/squid.conf
+  s_93c984b7787ad2::t_111a27390de1d4 1-19
+docker/worker/Dockerfile
+  s_93c984b7787ad2::t_afcf7b9b8b40d6 1-15
+docs/agent-adapters.md
+  s_93c984b7787ad2::t_8a58633a21a193 1-38
+docs/architecture.md
+  s_93c984b7787ad2::t_d52e23cfc417ab 1-48
+docs/evaluation.md
+  s_93c984b7787ad2::t_41044e06a27afd 1-43
+index.html
+  s_93c984b7787ad2::t_5a56ac3946d56e 1-13
+package-lock.json
+  s_93c984b7787ad2::t_eea54c611b26d8 1-2348
+package.json
+  s_93c984b7787ad2::t_813d69ce0d2c83 1-33
+schemas/agent-request.schema.json
+  s_93c984b7787ad2::t_78bb3d4aeccda7 1-27
+schemas/agent-result.schema.json
+  s_93c984b7787ad2::t_2c231b25da4ddf 1-21
+schemas/context-manifest.schema.json
+  s_93c984b7787ad2::t_3a6a5852b2f02f 1-24
+schemas/custom-task.schema.json
+  s_93c984b7787ad2::t_50c3be1c1b3591 1-40
+schemas/review-archive.schema.json
+  s_93c984b7787ad2::t_2fbb7b6dc460d5 1-45
+scripts/doctor.ps1
+  s_93c984b7787ad2::t_70d16810ebfcf9 1-23
+scripts/images-export.sh
+  s_93c984b7787ad2::t_75c78964006ea2 1-12
+scripts/images-import.sh
+  s_93c984b7787ad2::t_7ecc18b2df058e 1-9
+scripts/wsl/install-docker.sh
+  s_93c984b7787ad2::t_ca39d6ae72ca25 1-30
+skills/ctxbench-generate-context/SKILL.md
+  s_93c984b7787ad2::t_a31a88970b6971 1-31
+src-tauri/Cargo.lock
+  s_93c984b7787ad2::t_8a7c0152ce2815 1-4935
+src-tauri/Cargo.toml
+  s_93c984b7787ad2::t_8ff518c3bee443 1-21
+src-tauri/build.rs
+  s_93c984b7787ad2::t_90e59799737833 1-3
+src-tauri/icons/android/mipmap-anydpi-v26/ic_launcher.xml
+  s_93c984b7787ad2::t_0c11d69f37dc5a 1-5
+src-tauri/icons/android/values/ic_launcher_background.xml
+  s_93c984b7787ad2::t_53dd06943a688e 1-4
+src-tauri/src/lib.rs
+  s_79aaaf28ec466b::t_36b156c8b00119 1-256
+src-tauri/src/main.rs
+  s_93c984b7787ad2::t_aa5a5c8a9ab3c0 1-3
+src-tauri/tauri.conf.json
+  s_93c984b7787ad2::t_5e3889997dea01 1-35
+src/App.tsx
+  s_79aaaf28ec466b::t_7496a4460e27e2 1-102
+src/app-types.ts
+  s_93c984b7787ad2::t_961c305b1af781 1
+src/components/Sidebar.tsx
+  s_93c984b7787ad2::t_e785656e8deaf4 1-71
 src/components/shared.tsx
-  s_93c984b7787ad2::t_6d60c910dfced2 1-73
+  s_93c984b7787ad2::t_5ca44eba67a452 1-73
 src/data/demo.ts
-  s_93c984b7787ad2::t_e7130c67e06e69 1-301
+  s_93c984b7787ad2::t_b2b22f1fb74292 1-301
 src/domain/artifact.test.ts
-  s_93c984b7787ad2::t_072ef7a6d20790 1-20
+  s_93c984b7787ad2::t_c3c76675fcc4d9 1-20
 src/domain/artifact.ts
-  s_93c984b7787ad2::t_cdd31a63d47dbb 1-32
+  s_93c984b7787ad2::t_47e3e71e1145a9 1-32
 src/domain/metrics.test.ts
-  s_93c984b7787ad2::t_01854d553b7448 1-45
+  s_93c984b7787ad2::t_0416d5e63803e4 1-45
 src/domain/metrics.ts
-  s_93c984b7787ad2::t_afd99071a2b6f4 1-88
+  s_93c984b7787ad2::t_5486d55254ce2e 1-88
 src/domain/planner.test.ts
-  s_93c984b7787ad2::t_8de2b69a541b12 1-45
+  s_93c984b7787ad2::t_d0707ab74c75c0 1-45
 src/domain/planner.ts
-  s_93c984b7787ad2::t_d419aadd7528ca 1-78
+  s_93c984b7787ad2::t_81cc9505d981c9 1-78
 src/domain/report.ts
-  s_93c984b7787ad2::t_cd8d2f27d00268 1-32
+  s_93c984b7787ad2::t_33670284126d70 1-32
 src/domain/types.ts
-  s_93c984b7787ad2::t_723691ddc7367f 1-170
+  s_93c984b7787ad2::t_5df06f5f136641 1-170
 src/lib/format.ts
-  s_93c984b7787ad2::t_ae5599b58f96ee 1-35
+  s_93c984b7787ad2::t_a9c5961623ebc8 1-35
 src/main.tsx
-  s_93c984b7787ad2::t_35dc011414f46f 1-10
+  s_93c984b7787ad2::t_e514cbf2be0360 1-10
 src/pages/ConstraintsPage.tsx
-  s_93c984b7787ad2::t_f41c6b76031940 1-66
+  s_93c984b7787ad2::t_2febda5f564a3c 1-66
 src/pages/ExperimentsPage.tsx
-  s_93c984b7787ad2::t_fdbe1d1bb58a55 1-82
+  s_93c984b7787ad2::t_92054f17d07ed7 1-82
 src/pages/KnowledgePage.tsx
-  s_93c984b7787ad2::t_619f2c924dbd98 1-82
+  s_93c984b7787ad2::t_f5f7958d26d79a 1-82
 src/styles.css
-  s_93c984b7787ad2::t_0ca8f1279b53d1 1-266
+  s_93c984b7787ad2::t_cc4a8c3b07bf73 1-266
 tsconfig.app.json
-  s_93c984b7787ad2::t_96b8456a37877b 1-21
+  s_93c984b7787ad2::t_efeeb18b20e8f8 1-21
 tsconfig.json
-  s_93c984b7787ad2::t_4ff7458cb25dda 1-7
+  s_93c984b7787ad2::t_9f5a67f7b1e4ab 1-7
 tsconfig.node.json
-  s_93c984b7787ad2::t_38600cad81e34c 1-11
+  s_93c984b7787ad2::t_35dd74c55e1335 1-11
 vite.config.ts
-  s_93c984b7787ad2::t_7dc757ec01a979 1-16
+  s_93c984b7787ad2::t_07ef62c7b8d889 1-16
 worker/ctxbench_worker/__init__.py
-  s_93c984b7787ad2::t_6764621fe136c2 1-3
+  s_93c984b7787ad2::t_69cff291422225 1-3
 worker/ctxbench_worker/__main__.py
-  s_93c984b7787ad2::t_795badee9165f2 1-5
+  s_93c984b7787ad2::t_4293cc58c6293c 1-5
 worker/ctxbench_worker/api.py
-  s_93c984b7787ad2::t_cfd6840026ce7b 1-192
+  s_93c984b7787ad2::t_6944d7a0e2b094 1-192
 worker/ctxbench_worker/artifacts.py
-  s_93c984b7787ad2::t_89926a47a8ff62 1-112
+  s_93c984b7787ad2::t_757af09fe31c2c 1-112
 worker/ctxbench_worker/constraints.py
-  s_93c984b7787ad2::t_b5b1a63e5aa07c 1-160
+  s_93c984b7787ad2::t_bced8577df5094 1-160
 worker/ctxbench_worker/database.py
-  s_93c984b7787ad2::t_ef4445065e09f9 1-262
+  s_93c984b7787ad2::t_ce8860a8ea2ef7 1-262
 worker/ctxbench_worker/datasets.py
-  s_93c984b7787ad2::t_f22b6f3bc488d0 1-124
+  s_93c984b7787ad2::t_2efc1299988d68 1-124
 worker/ctxbench_worker/engine.py
-  s_93c984b7787ad2::t_7d27a5ad5897c5 1-88
+  s_93c984b7787ad2::t_6047a727078a3e 1-88
 worker/ctxbench_worker/jobs.py
-  s_93c984b7787ad2::t_92974550e6c40d 1-80
+  s_93c984b7787ad2::t_615096f02f9dd7 1-80
 worker/ctxbench_worker/models.py
-  s_93c984b7787ad2::t_1ed7482bc9dfce 1-84
+  s_93c984b7787ad2::t_582c4853a2987c 1-84
 worker/ctxbench_worker/planner.py
-  s_93c984b7787ad2::t_8fea40efcba5e5 1-62
+  s_93c984b7787ad2::t_519e0c33da0984 1-62
 worker/ctxbench_worker/runner.py
-  s_93c984b7787ad2::t_569668dce68f40 1-262
+  s_93c984b7787ad2::t_862e9a227cc94d 1-262
 worker/ctxbench_worker/workspace.py
-  s_93c984b7787ad2::t_37fb115a468fb4 1-89
+  s_93c984b7787ad2::t_b4bf4a93dee2c3 1-89
 worker/tests/test_api.py
-  s_93c984b7787ad2::t_0dfd1646eb7510 1-35
+  s_93c984b7787ad2::t_2c14bd1286f571 1-35
 worker/tests/test_artifacts.py
-  s_93c984b7787ad2::t_8d2a6eddb30f6d 1-51
+  s_93c984b7787ad2::t_5e7a62ea4389af 1-51
 worker/tests/test_constraints.py
-  s_93c984b7787ad2::t_347e92f21a0306 1-59
+  s_93c984b7787ad2::t_49bbdba5cda304 1-59
 worker/tests/test_database.py
-  s_93c984b7787ad2::t_ff08413042ba29 1-33
+  s_93c984b7787ad2::t_27c47a406875e6 1-33
 worker/tests/test_datasets.py
-  s_93c984b7787ad2::t_886103686a8843 1-38
+  s_93c984b7787ad2::t_368d6609c03020 1-38
 worker/tests/test_jobs.py
-  s_93c984b7787ad2::t_dda07fd5fd1238 1-52
+  s_93c984b7787ad2::t_3a2e5085570e6e 1-52
 worker/tests/test_planner.py
-  s_93c984b7787ad2::t_4622dc71df77f3 1-42
+  s_93c984b7787ad2::t_3f2e1ac5f0c192 1-42
 worker/tests/test_runner.py
-  s_93c984b7787ad2::t_50af07c8924691 1-52
+  s_93c984b7787ad2::t_708f9dabcf9791 1-52
 worker/tests/test_workspace.py
-  s_93c984b7787ad2::t_f973f45431357d 1-47
+  s_93c984b7787ad2::t_7305022e107d80 1-47
 ---
 {
   "schema_version": "authorship/3.0.0",
