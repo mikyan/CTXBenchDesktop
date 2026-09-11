@@ -1,0 +1,21 @@
+worker/tests/test_local_git.py
+  s_160ecc294b79e0::t_24bec2e60d875d 7,15-19
+  s_160ecc294b79e0::t_e4ec96436440ab 48-49
+  s_160ecc294b79e0::t_bcc5ecbdb98af1 42-45,50-53,55-56,63-66
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "development:1.7.3",
+  "base_commit_sha": "a0702763a3bbf3360e5cab1f78f45d02ac39e571",
+  "prompts": {},
+  "sessions": {
+    "s_160ecc294b79e0": {
+      "agent_id": {
+        "tool": "codex",
+        "id": "01a06b47-944f-76f3-8380-74bb83cda689",
+        "model": "gpt-6-astra"
+      },
+      "human_author": "AI_BA <ai_ball@outlook.com>"
+    }
+  }
+}
