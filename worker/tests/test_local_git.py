@@ -4,6 +4,7 @@ import subprocess
 import tempfile
 import unittest
 from pathlib import Path
+from unittest.mock import patch
 
 from worker.ctxbench_worker.runtime import Runtime, git, local_fetch_options, seal
 from worker.ctxbench_worker.datasets import custom_task
@@ -11,6 +12,11 @@ from worker.ctxbench_worker.datasets import custom_task
 
 class LocalGitTests(unittest.TestCase):
     def setUp(self):
+        # Do not let developer-global Git hooks or trace consumers act on these
+        # disposable repositories (including after the Git process has exited).
+        environment = patch.dict(os.environ, {'GIT_CONFIG_NOSYSTEM': '1', 'GIT_CONFIG_GLOBAL': os.devnull})
+        environment.start()
+        self.addCleanup(environment.stop)
         self.temp = tempfile.TemporaryDirectory()
         self.addCleanup(self.temp.cleanup)
         self.root = Path(self.temp.name).resolve()
@@ -33,23 +39,31 @@ class LocalGitTests(unittest.TestCase):
 
     def test_foreign_owned_source_fetch_is_command_scoped_and_preserves_pinned_commit(self):
         destination = self.root / 'destination'; destination.mkdir(); git(destination, 'init', '-q')
-        # Git's own ownership-test switch reliably exercises the check without
-        # chown, sudo or host-global trust, on both Windows and Linux.
+        # Exercise ownership without chown, sudo or host-global trust. New Git
+        # upload-pack accepts foreign owners (ENTER_REPO_ANY_OWNER_OK), whereas
+        # repository discovery still checks ownership. Probe that independently
+        # so both transport policies verify our command-scoped compatibility.
         environment = {**os.environ, 'GIT_TEST_ASSUME_DIFFERENT_OWNER': '1',
                        'GIT_CONFIG_NOSYSTEM': '1', 'GIT_CONFIG_GLOBAL': os.devnull}
-        base = ['git', '-c', 'safe.directory=', '-c', 'safe.directory=' + destination.as_posix(), '-C', str(destination)]
+        base = ['git', '-c', 'maintenance.auto=false', '-c', 'gc.auto=0',
+                '-c', 'safe.directory=', '-c', 'safe.directory=' + destination.as_posix(), '-C', str(destination)]
+        ownership_probe = ['git', '-c', 'safe.directory=', '-C', str(self.repo), 'rev-parse', 'HEAD']
+        untrusted = subprocess.run(ownership_probe, env=environment, capture_output=True)
+        self.assertNotEqual(untrusted.returncode, 0)
+        self.assertIn(b'dubious ownership', untrusted.stderr)
         failed = subprocess.run([*base, 'fetch', '--depth=1', str(self.repo), self.commit], env=environment, capture_output=True)
-        if os.name == 'nt' and failed.returncode == 0:
-            self.skipTest('This Windows Git does not enforce upload-pack ownership; run this regression on Linux Git')
-        self.assertNotEqual(failed.returncode, 0)
-        self.assertIn(b'dubious ownership', failed.stderr)
+        if failed.returncode != 0:
+            self.assertIn(b'dubious ownership', failed.stderr)
         fixed = subprocess.run([*base, 'fetch', '--depth=1', *local_fetch_options(str(self.repo)), str(self.repo), self.commit], env=environment, capture_output=True)
         self.assertEqual(fixed.returncode, 0, fixed.stderr.decode(errors='replace'))
         self.assertEqual(git(destination, 'rev-parse', 'FETCH_HEAD').decode().strip(), self.commit)
         self.assertEqual((self.repo / '.git/config').read_bytes(), self.before)
         self.assertEqual((self.repo / 'baseline.txt').read_text(encoding='utf-8'), 'baseline only')
         again = subprocess.run([*base, 'fetch', '--depth=1', str(self.repo), self.commit], env=environment, capture_output=True)
-        self.assertNotEqual(again.returncode, 0, 'Trust must not persist after the scoped fetch')
+        self.assertEqual(again.returncode, failed.returncode, 'Scoped fetch must not change the unscoped transport policy')
+        still_untrusted = subprocess.run(ownership_probe, env=environment, capture_output=True)
+        self.assertNotEqual(still_untrusted.returncode, 0, 'Trust must not persist after the scoped fetch')
+        self.assertIn(b'dubious ownership', still_untrusted.stderr)
 
     def test_baseline_uses_selected_source_or_configured_local_mirror_without_identity_change(self):
         task = custom_task({'id': 'fixture', 'repository': 'https://git.example/original', 'baseCommit': self.commit,
