@@ -1,0 +1,324 @@
+scripts/stage-deployment.mjs
+  s_160ecc294b79e0::t_e82dcace38298c 23
+  s_160ecc294b79e0::t_b78d34f9c1156f 25
+src/components/Topbar.tsx
+  s_160ecc294b79e0::t_6e82d3ba1a9de9 2,4,13,28,31
+  s_160ecc294b79e0::t_4d212fad5effbd 7-8,12,15
+worker/ctxbench_worker/diagnostics.py
+  s_160ecc294b79e0::t_46fe6f4c14dd5a 35-37
+docs/acceptance/ux-opencode-20260910/fixes.md
+  s_160ecc294b79e0::t_f21a8519e8ad1a 110,112
+  s_160ecc294b79e0::t_b6ee42c8f81467 44-46,50,120
+  s_160ecc294b79e0::t_d1e60b289934a4 57,70-72,79-80,82-88
+  s_160ecc294b79e0::t_7a396e783c45db 19
+  s_160ecc294b79e0::t_c30f129a9f8eef 28
+  s_160ecc294b79e0::t_76a0085ca6548a 75-78,113
+  s_160ecc294b79e0::t_cdc561a0367a17 128-129,143,151
+  s_160ecc294b79e0::t_4d212fad5effbd 1-10,20-22
+  s_160ecc294b79e0::t_9656989a12e329 12,49
+  s_160ecc294b79e0::t_a22e888743f488 63,65-69
+  s_160ecc294b79e0::t_8691209eec9e31 94-99,101
+  s_160ecc294b79e0::t_fdbfdd6925b4e5 35
+  s_160ecc294b79e0::t_120bc3b7942145 43,47-48
+  s_160ecc294b79e0::t_5d65b02377c2fc 55
+  s_160ecc294b79e0::t_9a8a3d0c192939 100
+  s_160ecc294b79e0::t_3315d9c006a945 73,81
+  s_160ecc294b79e0::t_b0ff323a4f20a8 89
+  s_160ecc294b79e0::t_6e82d3ba1a9de9 23-27
+  s_160ecc294b79e0::t_6bc09866873b22 42,52,116-119
+  s_160ecc294b79e0::t_01fa9883dec369 111
+  s_160ecc294b79e0::t_0e2cb91a35860e 91,93,102-105,109
+  s_160ecc294b79e0::t_b98b8b687cef5d 29-34,37-41
+  s_160ecc294b79e0::t_945873d10e6077 11,13-18
+  s_160ecc294b79e0::t_071a3b5ac3a7f5 53-54,74,114-115
+  s_160ecc294b79e0::t_050e2522ac98b3 64,90
+  s_160ecc294b79e0::t_9a496bd6ceccd0 138
+  s_160ecc294b79e0::t_40e7f81849841a 121-127,130-137,139-142,144-150,152-238
+  s_160ecc294b79e0::t_b82a8e7968bfea 36
+  s_160ecc294b79e0::t_14f7c7f49099be 92,106-108
+  s_160ecc294b79e0::t_9149fe7022f37c 51,56,58-62
+src/i18n.image-workshop.ts
+  s_160ecc294b79e0::t_9149fe7022f37c 5-7
+  s_160ecc294b79e0::t_120bc3b7942145 8-12
+  s_160ecc294b79e0::t_b98b8b687cef5d 13-16
+  s_160ecc294b79e0::t_bdf9453f08b06d 2-4
+src/components/InfrastructureSetup.tsx
+  s_160ecc294b79e0::t_4d212fad5effbd 16,19,62,71,105-111
+src/components/IntranetWorkbench.tsx
+  s_160ecc294b79e0::t_b98b8b687cef5d 85
+  s_160ecc294b79e0::t_0c23f103f35a96 50,102,111-112
+  s_160ecc294b79e0::t_120bc3b7942145 13,90
+src/testing/case-step-focus.smoke.mjs
+  s_160ecc294b79e0::t_5d65b02377c2fc 58-61
+  s_160ecc294b79e0::t_5058742e6a420e 20-21,84-86,88-104,112,114
+  s_160ecc294b79e0::t_a68a4b3ca2e8a8 47
+  s_160ecc294b79e0::t_80ac4b7bab791e 48
+  s_160ecc294b79e0::t_24b32767ed1d1e 1-19,22-46,49-57,62-83,105-111,113,115-117
+  s_160ecc294b79e0::t_d679b1b10c1b28 87
+src/domain/report.test.ts
+  s_160ecc294b79e0::t_96fb98d2c7c77f 6-15
+src-tauri/src/worker_connection.rs
+  s_160ecc294b79e0::t_55cb4e03a5db8a 7,28-30,76-81,83-84
+  s_160ecc294b79e0::t_eb177eb60c9d32 1-6,8-27,31-75,82,85-86
+src/i18n.deletions.ts
+  s_160ecc294b79e0::t_fc5106a74bb15f 1-32
+src/components/DataDeleteDialog.test.tsx
+  s_160ecc294b79e0::t_96fb98d2c7c77f 1,3-7,9,12-13,15-20,22-35
+  s_160ecc294b79e0::t_b78d34f9c1156f 2,8,10-11,14,21
+docs/data-deletion.md
+  s_160ecc294b79e0::t_b78d34f9c1156f 1-43
+  s_160ecc294b79e0::t_6a2f9ca08acdbc 44-45
+scripts/maintenance-ui-smoke.mjs
+  s_160ecc294b79e0::t_fa0cf36540a1cf 33
+src/components/AgentImageReview.tsx
+  s_160ecc294b79e0::t_d012adb0cefc95 1-19
+src/domain/report.ts
+  s_160ecc294b79e0::t_fc5106a74bb15f 35
+src/lib/deletion-export.test.ts
+  s_160ecc294b79e0::t_96fb98d2c7c77f 1-34
+src/testing/run-evidence.smoke.mjs
+  s_160ecc294b79e0::t_71c8fc255a7a29 1-84
+scripts/data-deletion-ui-smoke.mjs
+  s_160ecc294b79e0::t_658db8a8811eb7 148
+  s_160ecc294b79e0::t_d8e28cae2ac9f5 1-140,142-147,149-181
+  s_160ecc294b79e0::t_23cc6f6d1c1ecd 141
+src/i18n.live-logs.ts
+  s_160ecc294b79e0::t_1613526c6d7896 2-3
+  s_160ecc294b79e0::t_8b8c8027eededc 4
+scripts/image-workshop-ui-smoke.mjs
+  s_160ecc294b79e0::t_5ba723067f496e 81,108
+  s_160ecc294b79e0::t_1dbe7472a20048 19-20,82-97,104-107,109,115,152
+src/components/PatchFileImport.tsx
+  s_160ecc294b79e0::t_9149fe7022f37c 1-18
+src/i18n.tsx
+  s_160ecc294b79e0::t_d012adb0cefc95 19,45
+  s_160ecc294b79e0::t_120bc3b7942145 51
+  s_160ecc294b79e0::t_6e82d3ba1a9de9 18,44
+  s_160ecc294b79e0::t_fc5106a74bb15f 17,43
+  s_160ecc294b79e0::t_4d212fad5effbd 46-50,52-53
+docs/acceptance/ux-opencode-20260910/coordination.md
+  s_160ecc294b79e0::t_c3e4f9b2feec4b 140-141
+  s_160ecc294b79e0::t_bec892f11a09b8 55-60
+  s_160ecc294b79e0::t_e2e8545438b9be 45,47-54
+  s_160ecc294b79e0::t_df637002c82d58 118-125
+  s_160ecc294b79e0::t_8a031cd1e8a677 67-72
+  s_160ecc294b79e0::t_508a94546b4f8c 3,136-139
+  s_160ecc294b79e0::t_05222136649fc3 9
+  s_160ecc294b79e0::t_1c0431d895ad81 73-78
+  s_160ecc294b79e0::t_ac4872717d19c8 134-135
+  s_160ecc294b79e0::t_5f7f5f9e3f4b56 97-106
+  s_160ecc294b79e0::t_7f57308b2f8e14 61-66
+  s_160ecc294b79e0::t_df30d341c75cb8 21,39-44
+  s_160ecc294b79e0::t_4d191f281577b0 4-8,10-12,25,46,107-117
+  s_160ecc294b79e0::t_7b98c9fecf9ad9 1-2,13-20,22-24,26-38
+  s_160ecc294b79e0::t_28a0325cc95ad6 126-133
+  s_160ecc294b79e0::t_6ed42bff0faebb 87-96
+  s_160ecc294b79e0::t_be321e80cba05e 79-86
+src/components/BuildFilePicker.tsx
+  s_160ecc294b79e0::t_120bc3b7942145 1-21
+src/components/LocalImageSelect.tsx
+  s_160ecc294b79e0::t_b98b8b687cef5d 1-40
+src/components/ImageRecipeGuide.tsx
+  s_160ecc294b79e0::t_bdf9453f08b06d 19,41,48
+  s_160ecc294b79e0::t_b98b8b687cef5d 6,9,23,25
+  s_160ecc294b79e0::t_120bc3b7942145 7,36
+worker/ctxbench_worker/live_logs.py
+  s_160ecc294b79e0::t_b639a7f2f1c347 30-43,136
+src/components/WorkbenchDialogs.tsx
+  s_160ecc294b79e0::t_68020c00d120e4 5
+  s_160ecc294b79e0::t_a16bad80f9df4a 89-90,117-118
+  s_160ecc294b79e0::t_1613526c6d7896 114
+worker/ctxbench_worker/case_library.py
+  s_160ecc294b79e0::t_abfcb6a90d3f4e 201-205,224-233
+  s_160ecc294b79e0::t_a16bad80f9df4a 214-215
+  s_160ecc294b79e0::t_f643e926563d6b 200
+src/components/ContainerLogs.tsx
+  s_160ecc294b79e0::t_1613526c6d7896 21-31,94-96
+src/components/FrozenPackagePicker.tsx
+  s_160ecc294b79e0::t_d012adb0cefc95 1-35
+worker/ctxbench_worker/api.py
+  s_160ecc294b79e0::t_abfcb6a90d3f4e 381-390
+src-tauri/src/lib.rs
+  s_160ecc294b79e0::t_eb177eb60c9d32 10,14-17,54,57,62,68,211-212,243,248-249,292,309,346,374,377,382,409
+vitest.config.ts
+  s_160ecc294b79e0::t_7a396e783c45db 2
+  s_160ecc294b79e0::t_945873d10e6077 1,3-10
+src/lib/live-logs.test.tsx
+  s_160ecc294b79e0::t_1613526c6d7896 3,10-19
+src/components/IsolationNotice.tsx
+  s_160ecc294b79e0::t_4d212fad5effbd 1-13
+worker/ctxbench_worker/catalog.py
+  s_160ecc294b79e0::t_abfcb6a90d3f4e 61-62,89-90
+src/components/DataDeleteDialog.tsx
+  s_160ecc294b79e0::t_c4f4a8fe7fda4a 1-8,10-13,21-30,32-41,43-54,56-63
+  s_160ecc294b79e0::t_fc5106a74bb15f 9,14-20,31,42,55
+src/pages/DatasetsPage.tsx
+  s_160ecc294b79e0::t_68020c00d120e4 91,95-96
+  s_160ecc294b79e0::t_c4f4a8fe7fda4a 20,39-40,61,80,94,111
+src/domain/types.ts
+  s_160ecc294b79e0::t_a16bad80f9df4a 37-38
+src/pages/ExperimentsPage.tsx
+  s_160ecc294b79e0::t_a16bad80f9df4a 19,21,26-27,47-48,86,109,122
+  s_160ecc294b79e0::t_68020c00d120e4 125-129
+worker/tests/test_local_git.py
+  s_160ecc294b79e0::t_ee253c9427cd1b 1-41,44-67,69-75
+  s_160ecc294b79e0::t_46fe6f4c14dd5a 42-43,68
+src/components/UserHelpDialog.tsx
+  s_160ecc294b79e0::t_6e82d3ba1a9de9 1-32
+src-tauri/tauri.conf.json
+  s_160ecc294b79e0::t_e82dcace38298c 4
+src/i18n.intranet.ts
+  s_160ecc294b79e0::t_0c23f103f35a96 2-3
+src/lib/image-recipes.ts
+  s_160ecc294b79e0::t_bdf9453f08b06d 10-11,28-38
+src/components/Dialogs.tsx
+  s_160ecc294b79e0::t_c4f4a8fe7fda4a 35,37,46,48-50
+README.md
+  s_160ecc294b79e0::t_b78d34f9c1156f 9-10
+  s_160ecc294b79e0::t_e82dcace38298c 3
+docs/acceptance/ux-opencode-20260910/findings.md
+  s_160ecc294b79e0::t_6c6665f545057a 99-100
+  s_160ecc294b79e0::t_f94850d95a64c3 187-190,212-213
+  s_160ecc294b79e0::t_8c63711624a3e5 193-203
+  s_160ecc294b79e0::t_e80d926cecbc04 204-211
+  s_160ecc294b79e0::t_1e1b3cc1a17565 224-225
+  s_160ecc294b79e0::t_216a0a39edb9f0 162-167
+  s_160ecc294b79e0::t_b60cda7d87b506 7,9-10,12-41
+  s_160ecc294b79e0::t_323695c26118ed 63,223,226-227,232-239
+  s_160ecc294b79e0::t_796d8ef4e34840 158-161
+  s_160ecc294b79e0::t_53dd124427d641 86,102-111,114-115,220
+  s_160ecc294b79e0::t_0b77faa226c9c6 170-180
+  s_160ecc294b79e0::t_f04743cb9f2aca 181-186
+  s_160ecc294b79e0::t_88269c87f43897 139-148
+  s_160ecc294b79e0::t_5af6fbfb7c184c 149-157
+  s_160ecc294b79e0::t_88767494310fcb 89,91-98,101
+  s_160ecc294b79e0::t_bd33f661131c1e 118-128,216,219
+  s_160ecc294b79e0::t_60384f7fed00ae 129-130
+  s_160ecc294b79e0::t_ad2f034ad7668b 191-192
+  s_160ecc294b79e0::t_4e557e6f4c5bef 131-138,168-169,214-215
+  s_160ecc294b79e0::t_4be752b296944f 3,11,42,49
+  s_160ecc294b79e0::t_7a0e7a95ad58a4 112-113,217-218
+  s_160ecc294b79e0::t_0330bcfec07a2b 228-231
+  s_160ecc294b79e0::t_6cd0d03ea82ca7 240-287
+  s_160ecc294b79e0::t_44b7ab63bfdb43 1-2,4-6,8,43-48,50-62,64-73
+  s_160ecc294b79e0::t_7736ba0334bbd2 74-84,90
+  s_160ecc294b79e0::t_9dba7b5bacf77e 85,87-88,221-222
+  s_160ecc294b79e0::t_ff138f90189e2b 116-117
+src/lib/image-workshop.test.tsx
+  s_160ecc294b79e0::t_b98b8b687cef5d 9,34-45
+  s_160ecc294b79e0::t_bdf9453f08b06d 14-24,71
+  s_160ecc294b79e0::t_120bc3b7942145 10,25-33
+src/App.tsx
+  s_160ecc294b79e0::t_d012adb0cefc95 132
+  s_160ecc294b79e0::t_68020c00d120e4 125,135
+src/ux.css
+  s_160ecc294b79e0::t_1613526c6d7896 106
+  s_160ecc294b79e0::t_6e82d3ba1a9de9 301-305
+  s_160ecc294b79e0::t_4d212fad5effbd 298-300
+  s_160ecc294b79e0::t_68020c00d120e4 115-122
+src/pages/InfrastructurePage.tsx
+  s_160ecc294b79e0::t_4d212fad5effbd 12,16,45
+src/lib/intranet.test.tsx
+  s_160ecc294b79e0::t_0c23f103f35a96 18-27
+worker/tests/test_diagnostics.py
+  s_160ecc294b79e0::t_8b8c8027eededc 10,20-27
+scripts/case-library-container-smoke.py
+  s_160ecc294b79e0::t_cc642eb06f6fe3 20,99-125,129-130
+src/lib/case-library.test.tsx
+  s_160ecc294b79e0::t_ed76d9b9fbf7db 9,28-35
+src/components/DatasetWizardFields.tsx
+  s_160ecc294b79e0::t_9149fe7022f37c 6,51,53
+src/lib/experiment-guidance.test.tsx
+  s_160ecc294b79e0::t_b7120153073f68 1-55
+src-tauri/Cargo.toml
+  s_160ecc294b79e0::t_e82dcace38298c 3
+worker/ctxbench_worker/deletions.py
+  s_160ecc294b79e0::t_a16bad80f9df4a 24
+  s_160ecc294b79e0::t_fc5106a74bb15f 37,46,49-50
+  s_160ecc294b79e0::t_ce761573b79e1c 1-23,25-36,38-45,47-48,51-112
+src/lib/desktop.ts
+  s_160ecc294b79e0::t_96fb98d2c7c77f 120-124
+  s_160ecc294b79e0::t_4d212fad5effbd 19-24
+  s_160ecc294b79e0::t_fc5106a74bb15f 119,128,131,148-149
+package.json
+  s_160ecc294b79e0::t_e82dcace38298c 4
+worker/tests/test_intranet.py
+  s_160ecc294b79e0::t_cbb235d5fd29e7 117-138
+README.zh-CN.md
+  s_160ecc294b79e0::t_b78d34f9c1156f 9-10
+  s_160ecc294b79e0::t_e82dcace38298c 3
+src/lib/user-help.test.tsx
+  s_160ecc294b79e0::t_6e82d3ba1a9de9 1-25
+worker/ctxbench_worker/runtime.py
+  s_160ecc294b79e0::t_ee253c9427cd1b 15,43-69,307-308
+src/lib/desktop-isolation.test.tsx
+  s_160ecc294b79e0::t_120bc3b7942145 8-14
+  s_160ecc294b79e0::t_a65c64f69d5d38 30-32
+  s_160ecc294b79e0::t_975ca7b36c1a2f 1-7,15-29,33
+worker/ctxbench_worker/workbench.py
+  s_160ecc294b79e0::t_ce761573b79e1c 71,325
+  s_160ecc294b79e0::t_abfcb6a90d3f4e 357,945,947-950
+src/i18n.experiment-guidance.ts
+  s_160ecc294b79e0::t_d012adb0cefc95 1-23
+docs/releases/v0.1.10.md
+  s_160ecc294b79e0::t_e82dcace38298c 1-51
+docs/case-library.md
+  s_160ecc294b79e0::t_6a2f9ca08acdbc 60-62
+src/i18n.user-help.ts
+  s_160ecc294b79e0::t_6e82d3ba1a9de9 1-22
+src/components/ExperimentComposer.tsx
+  s_160ecc294b79e0::t_d012adb0cefc95 5,21-22,24,26,47-55,138,168-169,193
+docs/image-workshop.md
+  s_160ecc294b79e0::t_bdf9453f08b06d 34,85-87,137
+  s_160ecc294b79e0::t_e592f5289933b9 138
+src/lib/use-desktop-connection.ts
+  s_160ecc294b79e0::t_975ca7b36c1a2f 5-6
+  s_160ecc294b79e0::t_4d212fad5effbd 1-4,7-16
+worker/tests/test_live_logs.py
+  s_160ecc294b79e0::t_b639a7f2f1c347 17-18,57-89
+  s_160ecc294b79e0::t_ca2eff5b651db6 90
+src/components/CaseEditor.tsx
+  s_160ecc294b79e0::t_9149fe7022f37c 1,11-12,20-28,77-78
+src/testing/frozen-package.smoke.mjs
+  s_160ecc294b79e0::t_9c922a43a7c0ba 91-94,100
+  s_160ecc294b79e0::t_b7120153073f68 52
+  s_160ecc294b79e0::t_81fd3ab9ed5b75 1-51,53-90,95-99,101-103
+worker/tests/test_deletions.py
+  s_160ecc294b79e0::t_bb56349aa96dfa 1-294,310-344
+  s_160ecc294b79e0::t_cc642eb06f6fe3 295-309
+src-tauri/src/dataset_upload.rs
+  s_160ecc294b79e0::t_eb177eb60c9d32 39
+src/testing/image-home.container.mjs
+  s_160ecc294b79e0::t_8288e565e6ceaf 20-23,25-27,31-32
+  s_160ecc294b79e0::t_45497b730cd6cf 1-19,24,28-30,33-56
+src/testing/ux-feedback.smoke.mjs
+  s_160ecc294b79e0::t_4e3a0fca7521e6 1-73
+package-lock.json
+  s_93c984b7787ad2::t_a6f02eebd55652 3,9
+src-tauri/Cargo.lock
+  s_93c984b7787ad2::t_d303b66ee78b5d 725
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "development:1.7.3",
+  "base_commit_sha": "0ccdf3c4ad9ffbe88c953887bd80a70ec40c32e2",
+  "prompts": {},
+  "sessions": {
+    "s_160ecc294b79e0": {
+      "agent_id": {
+        "tool": "codex",
+        "id": "01a06b47-944f-76f3-8380-74bb83cda689",
+        "model": "gpt-6-astra"
+      },
+      "human_author": "AI_BA <ai_ball@outlook.com>"
+    },
+    "s_93c984b7787ad2": {
+      "agent_id": {
+        "tool": "codex",
+        "id": "01a06b4f-963e-70a0-83ed-c8febc51fb4a",
+        "model": "unknown"
+      },
+      "human_author": "AI_BA <ai_ball@outlook.com>"
+    }
+  }
+}
